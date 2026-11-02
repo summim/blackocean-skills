@@ -1,0 +1,11 @@
+{
+    "key.categories.blackocean_skills": "블랙오션 스킬",
+    "key.blackocean_skills.fire_fist": "화염 주먹",
+    "entity.blackocean_skills.fire_fist": "화염 주먹",
+    "msg.blackocean_skills.cooldown": "화염 주먹 재사용까지 %s초",
+    "subtitles.blackocean_skills.fire_fist.charge": "불꽃이 모여듦",
+    "subtitles.blackocean_skills.fire_fist.launch": "화염 주먹 발사",
+    "subtitles.blackocean_skills.fire_fist.travel": "화염이 날아감",
+    "subtitles.blackocean_skills.fire_fist.impact": "화염 폭발",
+    "subtitles.blackocean_skills.fire_fist.crackle": "불씨가 타닥거림"
+}

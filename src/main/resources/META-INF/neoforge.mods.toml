@@ -1,0 +1,27 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "blackocean_skills"
+version = "1.0.0"
+displayName = "BlackOcean Skills"
+authors = "빵뿌0"
+description = '''
+블랙오션 능력 스킬. 첫 스킬: 화염 주먹 (R키).
+서버에서 피해를 판정하고, 클라이언트에서 3D 화염 메시·궤적·폭발 연출을 그립니다.
+'''
+
+[[dependencies.blackocean_skills]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.blackocean_skills]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "BOTH"

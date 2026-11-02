@@ -1,0 +1,11 @@
+{
+    "key.categories.blackocean_skills": "BlackOcean Skills",
+    "key.blackocean_skills.fire_fist": "Fire Fist",
+    "entity.blackocean_skills.fire_fist": "Fire Fist",
+    "msg.blackocean_skills.cooldown": "Fire Fist ready in %ss",
+    "subtitles.blackocean_skills.fire_fist.charge": "Flames gather",
+    "subtitles.blackocean_skills.fire_fist.launch": "Fire Fist launches",
+    "subtitles.blackocean_skills.fire_fist.travel": "Flames roar past",
+    "subtitles.blackocean_skills.fire_fist.impact": "Fiery explosion",
+    "subtitles.blackocean_skills.fire_fist.crackle": "Embers crackle"
+}

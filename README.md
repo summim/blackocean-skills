@@ -12,7 +12,7 @@ NeoForge 1.21.1 전용. **추가로 설치할 모드가 없습니다** (이 jar 
 
 1. **JDK 21** 이 필요합니다 (돛 애드온 때 설치했다면 그대로 사용).
 2. 이 폴더의 **`빌드하기.bat`** 을 더블클릭합니다. 처음엔 5~10분 걸립니다.
-3. 끝나면 `build\libs\blackocean_skills-1.1.0.jar` 가 생깁니다.
+3. 끝나면 `build\libs\blackocean_skills-1.1.1.jar` 가 생깁니다.
 4. 이 jar 를 **서버 `mods` 폴더**와 **접속기 모드팩(`blackocean-pack`)** 둘 다에 넣습니다.
    모드팩은 jar 를 넣고 `node tools/build-manifest.js` → push 하면 시청자 접속기가 자동으로 받습니다.
 
@@ -49,7 +49,7 @@ NeoForge 1.21.1 전용. **추가로 설치할 모드가 없습니다** (이 jar 
 |---|---|---|
 | cooldownTicks | 120 | 재사용 대기 (20틱 = 1초) |
 | chargeTicks | 8 | 준비 동작 길이 |
-| speed | 1.6 | 블록/틱 |
+| speed | 1.6 | 블록/틱 (최대 3.9) |
 | range | 28 | 최대 사거리 |
 | hitRadius | 0.9 | 주먹 판정 반지름 |
 | directDamage / splashDamage | 12 / 6 | 피해 |

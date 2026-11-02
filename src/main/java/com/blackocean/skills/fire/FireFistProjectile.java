@@ -70,6 +70,11 @@ public class FireFistProjectile extends Projectile {
     }
 
     @Override
+    public boolean isPushedByFluid() {
+        return false;
+    }
+
+    @Override
     public boolean isPickable() {
         return false;
     }
@@ -77,11 +82,13 @@ public class FireFistProjectile extends Projectile {
     @Override
     public void tick() {
         super.tick();
-        if (level().isClientSide) {
-            return;
-        }
         Vec3 from = position();
         Vec3 to = from.add(getDeltaMovement());
+        if (level().isClientSide) {
+            // 클라이언트도 같은 직선으로 미리 움직여 끊김 없이 보이게 함 (판정은 서버만)
+            setPos(to.x, to.y, to.z);
+            return;
+        }
 
         Hit hit = findHit(from, to);
         if (hit != null) {

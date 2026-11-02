@@ -19,6 +19,7 @@ public final class FxShaders {
     private FxShaders() {}
 
     public static void onRegisterShaders(RegisterShadersEvent event) {
+        fireFlow = null; // 다시 불러오기(F3+T) 실패 시 이미 닫힌 셰이더를 쓰지 않도록
         try {
             event.registerShader(
                     new ShaderInstance(event.getResourceProvider(), SkillsMod.id("fire_flow"), DefaultVertexFormat.POSITION_TEX_COLOR),

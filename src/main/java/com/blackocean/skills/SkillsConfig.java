@@ -29,7 +29,7 @@ public final class SkillsConfig {
         ENABLED = b.comment("false 면 아무도 화염 주먹을 쓸 수 없음 (명령어·API 강제 발사는 가능)").define("enabled", true);
         COOLDOWN_TICKS = b.comment("재사용 대기시간 (틱, 20틱 = 1초)").defineInRange("cooldownTicks", 120, 0, 72000);
         CHARGE_TICKS = b.comment("준비 동작 길이 (틱). 이 시간이 지나면 주먹이 발사됨").defineInRange("chargeTicks", 8, 0, 40);
-        SPEED = b.comment("비행 속도 (블록/틱). 1.6 = 초당 32블록").defineInRange("speed", 1.6, 0.2, 6.0);
+        SPEED = b.comment("비행 속도 (블록/틱). 1.6 = 초당 32블록. 최대 3.9 (마인크래프트가 보낼 수 있는 속도 한계)").defineInRange("speed", 1.6, 0.2, 3.9);
         RANGE = b.comment("최대 사거리 (블록). 여기까지 아무것도 안 맞으면 공중에서 흩어짐").defineInRange("range", 28.0, 4.0, 128.0);
         HIT_RADIUS = b.comment("주먹 판정 반지름 (블록). 클수록 맞히기 쉬움").defineInRange("hitRadius", 0.9, 0.1, 3.0);
         DIRECT_DAMAGE = b.comment("직격 피해 (하트 반 칸 = 1)").defineInRange("directDamage", 12.0, 0.0, 200.0);

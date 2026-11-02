@@ -29,7 +29,7 @@ jobs:
       - name: Smoke test (start a real server with the mod)
         run: |
           mkdir -p run && echo "eula=true" > run/eula.txt
-          printf "online-mode=false\nlevel-type=minecraft\\:flat\ngenerate-structures=false\n" > run/server.properties
+          printf "online-mode=false\ngenerate-structures=false\n" > run/server.properties
           ( ./gradlew runServer --no-daemon > server.log 2>&1 & echo $! > server.pid )
           for i in $(seq 1 240); do
             if grep -q "Done (" server.log; then echo "SERVER STARTED"; break; fi

@@ -12,6 +12,6 @@ if errorlevel 1 (
   exit /b 1
 )
 echo.
-echo [완료] build\libs\blackocean_skills-1.0.0.jar
+echo [완료] build\libs\blackocean_skills-1.1.0.jar
 echo 이 파일을 서버 mods 폴더와 접속기 모드팩 둘 다에 넣으세요.
 pause

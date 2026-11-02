@@ -26,6 +26,22 @@ jobs:
           chmod +x gradlew
           ./gradlew build --no-daemon --stacktrace
 
+      - name: Smoke test (start a real server with the mod)
+        run: |
+          mkdir -p run && echo "eula=true" > run/eula.txt
+          printf "online-mode=false\nlevel-type=minecraft\\:flat\ngenerate-structures=false\n" > run/server.properties
+          ( ./gradlew runServer --no-daemon > server.log 2>&1 & echo $! > server.pid )
+          for i in $(seq 1 240); do
+            if grep -q "Done (" server.log; then echo "SERVER STARTED"; break; fi
+            if grep -qE "Crash report|Failed to load|Exception in server tick loop|ModLoadingException" server.log; then break; fi
+            sleep 2
+          done
+          sleep 15
+          pkill -f "net.neoforged" || true; kill $(cat server.pid) 2>/dev/null || true
+          echo "----- mod lines -----"; grep -iE "blackocean|ERROR|Exception" server.log | head -80 || true
+          grep -q "Done (" server.log
+          if grep -iE "blackocean" server.log | grep -qiE "error|exception"; then echo "MOD ERROR FOUND"; exit 1; fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: blackocean_skills-jar

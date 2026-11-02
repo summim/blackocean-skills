@@ -7,5 +7,9 @@
     "subtitles.blackocean_skills.fire_fist.launch": "Fire Fist launches",
     "subtitles.blackocean_skills.fire_fist.travel": "Flames roar past",
     "subtitles.blackocean_skills.fire_fist.impact": "Fiery explosion",
-    "subtitles.blackocean_skills.fire_fist.crackle": "Embers crackle"
+    "subtitles.blackocean_skills.fire_fist.crackle": "Embers crackle",
+    "msg.blackocean_skills.disabled": "Fire Fist is disabled right now",
+    "cmd.blackocean_skills.reset": "Reset Fire Fist cooldown for %s player(s)",
+    "cmd.blackocean_skills.cast": "%s player(s) cast Fire Fist",
+    "hud.blackocean_skills.ready": "Fire Fist ready!"
 }

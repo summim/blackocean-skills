@@ -9,6 +9,7 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class SkillsConfig {
     public static final ModConfigSpec SPEC;
 
+    public static final ModConfigSpec.BooleanValue ENABLED;
     public static final ModConfigSpec.IntValue COOLDOWN_TICKS;
     public static final ModConfigSpec.IntValue CHARGE_TICKS;
     public static final ModConfigSpec.DoubleValue SPEED;
@@ -25,6 +26,7 @@ public final class SkillsConfig {
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
         b.comment("화염 주먹 (기본 키 R)").push("fire_fist");
+        ENABLED = b.comment("false 면 아무도 화염 주먹을 쓸 수 없음 (명령어·API 강제 발사는 가능)").define("enabled", true);
         COOLDOWN_TICKS = b.comment("재사용 대기시간 (틱, 20틱 = 1초)").defineInRange("cooldownTicks", 120, 0, 72000);
         CHARGE_TICKS = b.comment("준비 동작 길이 (틱). 이 시간이 지나면 주먹이 발사됨").defineInRange("chargeTicks", 8, 0, 40);
         SPEED = b.comment("비행 속도 (블록/틱). 1.6 = 초당 32블록").defineInRange("speed", 1.6, 0.2, 6.0);

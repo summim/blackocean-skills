@@ -8,6 +8,7 @@ public final class SkillsClientConfig {
     public static final ModConfigSpec.DoubleValue PARTICLE_AMOUNT;
     public static final ModConfigSpec.BooleanValue AFTERIMAGES;
     public static final ModConfigSpec.BooleanValue CAMERA_SHAKE;
+    public static final ModConfigSpec.BooleanValue COOLDOWN_HUD;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -15,6 +16,7 @@ public final class SkillsClientConfig {
         PARTICLE_AMOUNT = b.comment("불꽃·불씨·연기 양 (1.0 = 기본, 컴퓨터가 느리면 0.5)").defineInRange("particleAmount", 1.0, 0.0, 2.0);
         AFTERIMAGES = b.comment("화염 주먹 잔상 그리기").define("afterimages", true);
         CAMERA_SHAKE = b.comment("가까운 폭발에서 화면 흔들림").define("cameraShake", true);
+        COOLDOWN_HUD = b.comment("조준점 아래에 쿨타임 막대 표시").define("cooldownHud", true);
         b.pop();
         SPEC = b.build();
     }

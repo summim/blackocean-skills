@@ -66,8 +66,27 @@ public final class FxManager {
         return SkillsClientConfig.PARTICLE_AMOUNT.get().floatValue();
     }
 
+    /** 한 화면에 동시에 있을 수 있는 입자 최대 수. 여럿이 동시에 쏴도 프레임이 무너지지 않게. */
+    private static final int MAX_SPRITES = 2500;
+    /** 지금 만드는 연출이 카메라에서 얼마나 먼지에 따른 입자 양 배율 (1 = 가까움). */
+    private static float lod = 1f;
+
+    static void spawn(Sprite s) {
+        if (SPRITES.size() < MAX_SPRITES) SPRITES.add(s);
+    }
+
+    /** 멀리서 터지는 건 작게 보이니 입자를 줄인다. */
+    private static float lodAt(Vec3 p) {
+        Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        double d = cam.distanceTo(p);
+        if (d < 32) return 1f;
+        if (d < 64) return 0.6f;
+        if (d < 128) return 0.3f;
+        return 0.15f;
+    }
+
     private static int count(int base) {
-        float f = base * amount();
+        float f = base * amount() * lod;
         int n = (int) f;
         return RNG.nextFloat() < f - n ? n + 1 : n;
     }
@@ -84,6 +103,17 @@ public final class FxManager {
         ChargeFx c = new ChargeFx(self, SkillsConfig.CHARGE_TICKS.get(), true);
         CHARGES.add(c);
         playAt(self.position(), SkillsRegistry.FIRE_FIST_CHARGE.get(), 1.4f, 1.0f);
+    }
+
+    /** 서버가 거절함(쿨타임·비활성) → 미리 시작한 내 준비 연출을 바로 지움. */
+    public static void cancelPredictedCharge() {
+        Entity self = Minecraft.getInstance().player;
+        CHARGES.removeIf(c -> c.caster == self && c.predicted && !c.confirmed);
+    }
+
+    /** 화염 주먹 엔티티가 내 화면에 나타남 (매 틱 모든 엔티티를 훑지 않도록 등장할 때만 등록). */
+    public static void onFistJoin(FireFistProjectile fist) {
+        PROJECTILES.computeIfAbsent(fist.getId(), id -> new ProjectileFx(fist));
     }
 
     public static void onCastStart(Entity caster, int chargeTicks) {
@@ -130,19 +160,14 @@ public final class FxManager {
 
         CHARGES.removeIf(c -> c.tick());
 
-        // 날아가는 주먹 찾기
-        for (ProjectileFx s : PROJECTILES.values()) s.seen = false;
-        for (Entity e : mc.level.entitiesForRendering()) {
-            if (e instanceof FireFistProjectile fist) {
-                ProjectileFx s = PROJECTILES.computeIfAbsent(fist.getId(), id -> new ProjectileFx(fist));
-                s.seen = true;
-                if (!s.impacted) s.track(fist);
-            }
-        }
+        // 날아가는 주먹 따라가기
         Iterator<ProjectileFx> it = PROJECTILES.values().iterator();
         while (it.hasNext()) {
             ProjectileFx s = it.next();
-            if (!s.seen && !s.impacted) s.impact(s.last); // 적중 신호 없이 사라짐 (멀어짐 등)
+            if (!s.impacted) {
+                if (s.fist.isRemoved() || s.fist.level() != mc.level) s.impact(s.last); // 적중 신호 없이 사라짐 (멀어짐 등)
+                else s.track(s.fist);
+            }
             if (s.tickAfter()) {
                 s.stopSound();
                 it.remove();
@@ -347,6 +372,7 @@ public final class FxManager {
             if (predicted && !confirmed && age > duration + 6) return true;
 
             Vec3 hand = handPos(1f);
+            lod = lodAt(hand);
             // 손으로 빨려 드는 불씨
             for (int i = 0; i < count(4); i++) {
                 Vec3 off = randomDir().scale(rand(1.3f, 2.0f));
@@ -354,14 +380,14 @@ public final class FxManager {
                 Sprite s = new Sprite(Sprite.Kind.EMBER, start, off.scale(-1.0 / 5.0), 0.16f, 0.06f, 5)
                         .color(1f, 0.75f, 0.35f, 1f);
                 s.rot = RNG.nextFloat() * 6.28f;
-                SPRITES.add(s);
+                spawn(s);
             }
             if (age % 2 == 0) {
                 for (int i = 0; i < count(1); i++) {
                     Sprite f = new Sprite(Sprite.Kind.FLAME, hand.add(randomDir().scale(0.25)), new Vec3(0, 0.04, 0), 0.5f, 0.9f, 6)
                             .color(1f, 1f, 1f, 0.8f);
                     f.frameOffset = RNG.nextInt(64);
-                    SPRITES.add(f);
+                    spawn(f);
                 }
             }
 
@@ -374,11 +400,11 @@ public final class FxManager {
         }
 
         private void launchBurst(Vec3 hand, Vec3 look) {
-            SPRITES.add(new Sprite(Sprite.Kind.GLOW, hand, Vec3.ZERO, 3.4f, 4.2f, 4).color(1f, 0.85f, 0.55f, 1f));
+            spawn(new Sprite(Sprite.Kind.GLOW, hand, Vec3.ZERO, 3.4f, 4.2f, 4).color(1f, 0.85f, 0.55f, 1f));
             RINGS.add(new RingWave(hand.add(look.scale(0.6)), look, 0.3f, 2.8f, 6, 0, 0.9f));
             for (int i = 0; i < count(10); i++) {
                 Vec3 v = look.scale(rand(0.3f, 0.7f)).add(randomDir().scale(0.25));
-                SPRITES.add(new Sprite(Sprite.Kind.SPARK, hand, v, 0.09f, 0.09f, 6 + RNG.nextInt(4))
+                spawn(new Sprite(Sprite.Kind.SPARK, hand, v, 0.09f, 0.09f, 6 + RNG.nextInt(4))
                         .color(1f, 0.8f, 0.4f, 1f).physics(0.03f, 0.88f));
             }
             Minecraft mc = Minecraft.getInstance();
@@ -425,10 +451,10 @@ public final class FxManager {
 
     static final class ProjectileFx {
         Entity entity;
+        final FireFistProjectile fist;
         final ArrayDeque<Vec3> trail = new ArrayDeque<>(); // 최근 위치, 앞이 최신
         Vec3 dir = new Vec3(0, 0, 1);
         Vec3 last;
-        boolean seen;
         boolean impacted;
         Vec3 impactPos;
         int age;
@@ -437,6 +463,7 @@ public final class FxManager {
 
         ProjectileFx(FireFistProjectile e) {
             this.entity = e;
+            this.fist = e;
             this.last = e.position();
             Vec3 v = e.getDeltaMovement();
             if (v.lengthSqr() > 1.0E-6) dir = v.normalize();
@@ -446,6 +473,7 @@ public final class FxManager {
 
         void track(FireFistProjectile e) {
             Vec3 p = e.position();
+            lod = lodAt(p);
             Vec3 d = p.subtract(last);
             if (d.lengthSqr() > 1.0E-4) dir = d.normalize();
             last = p;
@@ -459,7 +487,7 @@ public final class FxManager {
                 Vec3 at = p.add(back.scale(rand(0.8f, 1.6f))).add(randomDir().scale(0.35));
                 Sprite f = new Sprite(Sprite.Kind.FLAME, at, back.scale(0.06).add(0, 0.03, 0), 1.3f, 0.45f, 7 + RNG.nextInt(4));
                 f.frameOffset = RNG.nextInt(64);
-                SPRITES.add(f);
+                spawn(f);
             }
             for (int i = 0; i < count(2); i++) {
                 Vec3 at = p.add(randomDir().scale(0.8));
@@ -467,17 +495,17 @@ public final class FxManager {
                         .color(1f, 0.6f, 0.25f, 1f).physics(-0.003f, 0.94f);
                 em.sway = 0.004f;
                 em.frameOffset = RNG.nextInt(100);
-                SPRITES.add(em);
+                spawn(em);
             }
-            if (RNG.nextFloat() < 0.5f * amount()) {
-                SPRITES.add(new Sprite(Sprite.Kind.SPARK, p, back.scale(0.3).add(randomDir().scale(0.15)), 0.08f, 0.08f, 5 + RNG.nextInt(4))
+            if (RNG.nextFloat() < 0.5f * amount() * lod) {
+                spawn(new Sprite(Sprite.Kind.SPARK, p, back.scale(0.3).add(randomDir().scale(0.15)), 0.08f, 0.08f, 5 + RNG.nextInt(4))
                         .color(1f, 0.75f, 0.35f, 1f).physics(0.03f, 0.9f));
             }
-            if (age % 2 == 0 && RNG.nextFloat() < amount()) {
+            if (age % 2 == 0 && RNG.nextFloat() < amount() * lod) {
                 Sprite sm = new Sprite(Sprite.Kind.SMOKE, p.add(back.scale(1.8)), new Vec3(0, 0.03, 0), 1.0f, 2.4f, 16)
                         .color(0.25f, 0.22f, 0.2f, 0.32f).physics(0f, 0.96f);
                 sm.rot = RNG.nextFloat() * 6.28f;
-                SPRITES.add(sm);
+                spawn(sm);
             }
         }
 
@@ -570,7 +598,8 @@ public final class FxManager {
             ObjMesh shell = ObjMesh.get("fist_shell");
 
             // 잔상: 최근 위치들에 점점 흐려지고 더 많이 타 버린 주먹을 남긴다
-            if (SkillsClientConfig.AFTERIMAGES.get()) {
+            // 잔상은 메시를 3번 더 그리므로 멀리 있는 주먹에서는 생략 (어차피 작게 보임)
+            if (SkillsClientConfig.AFTERIMAGES.get() && c.distanceToSqr(FxRender.cam) < 64 * 64) {
                 int k = 0;
                 for (Vec3 p : trail) {
                     if (k > 3) break;
@@ -627,10 +656,11 @@ public final class FxManager {
             this.normal = normal;
             this.fizzle = fizzle;
             float big = fizzle ? 0.45f : 1f;
+            lod = lodAt(pos);
 
             // 섬광 (중심 흰빛 + 넓은 주황 번짐)
-            SPRITES.add(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 7.5f * big, 9f * big, 5).color(1f, 0.95f, 0.8f, 1f));
-            SPRITES.add(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 4f * big, 6f * big, 11).color(1f, 0.5f, 0.15f, 0.8f));
+            spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 7.5f * big, 9f * big, 5).color(1f, 0.95f, 0.8f, 1f));
+            spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 4f * big, 6f * big, 11).color(1f, 0.5f, 0.15f, 0.8f));
 
             // 충격파 링 2개 (빠르고 큰 것 + 느리고 작은 것)
             Vec3 rc = pos.add(ringNormal.scale(0.08));
@@ -647,13 +677,13 @@ public final class FxManager {
                 Sprite f = new Sprite(Sprite.Kind.FLAME, pos.add(d.scale(0.4)), d.scale(rand(0.16f, 0.34f) * big),
                         rand(1.4f, 2.0f) * big, rand(2.0f, 2.8f) * big, 10 + RNG.nextInt(7)).physics(-0.008f, 0.82f);
                 f.frameOffset = RNG.nextInt(64);
-                SPRITES.add(f);
+                spawn(f);
             }
             // 사방으로 튀는 불꽃 줄기 (맞은 면 바깥쪽으로)
             for (int i = 0; i < count(fizzle ? 10 : 36); i++) {
                 Vec3 d = randomDir();
                 if (d.dot(normal) < 0) d = d.subtract(normal.scale(2 * d.dot(normal)));
-                SPRITES.add(new Sprite(Sprite.Kind.SPARK, pos, d.scale(rand(0.55f, 1.25f) * big), 0.12f, 0.12f, 8 + RNG.nextInt(9))
+                spawn(new Sprite(Sprite.Kind.SPARK, pos, d.scale(rand(0.55f, 1.25f) * big), 0.12f, 0.12f, 8 + RNG.nextInt(9))
                         .color(1f, 0.82f, 0.45f, 1f).physics(0.045f, 0.9f));
             }
             // 잔류: 천천히 떠오르다 꺼지는 불씨
@@ -665,7 +695,7 @@ public final class FxManager {
                         .color(1f, rand(0.45f, 0.7f), 0.2f, 1f).physics(-0.002f, 0.96f);
                 em.sway = 0.003f;
                 em.frameOffset = RNG.nextInt(100);
-                SPRITES.add(em);
+                spawn(em);
             }
             // 잔류: 퍼지며 옅어지는 연기
             for (int i = 0; i < count(fizzle ? 3 : 10); i++) {
@@ -675,7 +705,7 @@ public final class FxManager {
                         rand(1.4f, 2.0f) * big, rand(3.4f, 4.4f) * big, 26 + RNG.nextInt(13))
                         .color(0.2f, 0.18f, 0.17f, 0.55f).physics(0f, 0.95f);
                 sm.rot = RNG.nextFloat() * 6.28f;
-                SPRITES.add(sm);
+                spawn(sm);
             }
 
             Minecraft mc = Minecraft.getInstance();

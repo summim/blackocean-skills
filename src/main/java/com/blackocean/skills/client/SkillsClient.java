@@ -11,6 +11,10 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.NoopRenderer;
+import net.minecraft.network.chat.Component;
+import com.blackocean.skills.fire.FireFistProjectile;
+import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -53,7 +57,14 @@ public final class SkillsClient {
         NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, SkillsClient::onClientTick);
         NeoForge.EVENT_BUS.addListener(RenderLevelStageEvent.class, FxManager::onRenderLevel);
         NeoForge.EVENT_BUS.addListener(ViewportEvent.ComputeCameraAngles.class, CameraShake::onCameraAngles);
-        NeoForge.EVENT_BUS.addListener(ClientPlayerNetworkEvent.LoggingOut.class, e -> FxManager.clear());
+        modBus.addListener(RegisterGuiLayersEvent.class, CooldownHud::register);
+        NeoForge.EVENT_BUS.addListener(EntityJoinLevelEvent.class, e -> {
+            if (e.getLevel().isClientSide() && e.getEntity() instanceof FireFistProjectile fist) FxManager.onFistJoin(fist);
+        });
+        NeoForge.EVENT_BUS.addListener(ClientPlayerNetworkEvent.LoggingOut.class, e -> {
+            FxManager.clear();
+            CooldownHud.clear();
+        });
     }
 
     private static void onClientTick(ClientTickEvent.Post event) {
@@ -66,6 +77,7 @@ public final class SkillsClient {
         }
         if (!mc.isPaused()) {
             FxManager.tick(mc);
+            CooldownHud.tick();
         }
     }
 
@@ -74,6 +86,12 @@ public final class SkillsClient {
         long now = mc.level.getGameTime();
         if (now < nextLocalCast) return;
         nextLocalCast = now + 10;
+        if (CooldownHud.coolingDown()) {
+            // 쿨타임 중엔 서버에 물어보지 않고 바로 안내 (가짜 준비 연출·소리도 안 냄)
+            mc.player.displayClientMessage(Component.translatable("msg.blackocean_skills.cooldown",
+                    String.format("%.1f", CooldownHud.remaining() / 20.0)), true);
+            return;
+        }
         // 누르는 즉시 내 화면에서 준비 연출 시작 (서버 응답을 기다리지 않음)
         FxManager.startPredictedCharge(mc.player);
         PacketDistributor.sendToServer(CastRequestPayload.INSTANCE);

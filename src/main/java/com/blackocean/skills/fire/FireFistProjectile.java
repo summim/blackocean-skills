@@ -4,6 +4,13 @@ import com.blackocean.skills.SkillsConfig;
 import com.blackocean.skills.SkillsRegistry;
 import com.blackocean.skills.network.FireFistImpactPayload;
 import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.level.Explosion;
+import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
@@ -129,6 +136,8 @@ public class FireFistProjectile extends Projectile {
         if (!(e instanceof LivingEntity) || !e.isAlive() || e.isSpectator()) return false;
         Entity owner = getOwner();
         if (e == owner) return false;
+        // 같은 배·탈것에 탄 선원은 맞히지 않음 (배 위에서 쏠 때 오사 방지)
+        if (FireFistServer.isSameRide(owner, e)) return false;
         if (owner instanceof Player op && e instanceof Player tp) {
             if (!SkillsConfig.PVP.get() || !op.canHarmPlayer(tp)) return false;
         }
@@ -141,6 +150,10 @@ public class FireFistProjectile extends Projectile {
         LivingEntity ownerLiving = owner instanceof LivingEntity le ? le : null;
         boolean fire = SkillsConfig.ALLOW_FIRE.get();
 
+        // 맞은 면에서 조금 띄운 점. 정확히 면 위의 점에서 시야 검사를 하면
+        // 바로 그 블록에 막힌 것으로 나와 범위 피해가 전혀 안 들어가는 문제가 있었다.
+        Vec3 center = pos.add(normal.scale(0.25));
+
         if (!fizzle) {
             Vec3 flight = getDeltaMovement().lengthSqr() > 1.0E-6 ? getDeltaMovement().normalize() : new Vec3(0, 0, 1);
             if (direct != null) {
@@ -152,22 +165,26 @@ public class FireFistProjectile extends Projectile {
             double radius = SkillsConfig.SPLASH_RADIUS.get();
             double splash = SkillsConfig.SPLASH_DAMAGE.get();
             if (radius > 0 && splash > 0) {
-                for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(pos, pos).inflate(radius), this::canHitTarget)) {
+                for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(center, center).inflate(radius), this::canHitTarget)) {
                     if (e == direct) continue;
                     Vec3 c = e.getBoundingBox().getCenter();
-                    double dist = Math.max(0.0, c.distanceTo(pos) - e.getBbWidth() * 0.5);
-                    if (dist > radius || !hasLineOfSight(pos, c)) continue;
+                    double dist = Math.max(0.0, c.distanceTo(center) - e.getBbWidth() * 0.5);
+                    if (dist > radius || !canSplash(center, e)) continue;
                     double f = 1.0 - dist / radius;
                     e.hurt(damageSources().explosion(this, owner), (float) (splash * f));
-                    Vec3 push = c.subtract(pos);
+                    Vec3 push = c.subtract(center);
                     knock(e, push.lengthSqr() < 1.0E-4 ? new Vec3(0, 1, 0) : push.normalize(), f);
                     if (fire) e.igniteForSeconds(2.0f);
                 }
             }
 
             if (SkillsConfig.ALLOW_BLOCK_DAMAGE.get() || fire) {
-                level.explode(this, pos.x, pos.y, pos.z, 2.0f, fire,
-                        SkillsConfig.ALLOW_BLOCK_DAMAGE.get() ? Level.ExplosionInteraction.MOB : Level.ExplosionInteraction.NONE);
+                // 지형 파괴·불 붙이기만 바닐라 폭발에 맡긴다.
+                // 생물 피해·밀쳐내기는 위에서 이미 했으므로 꺼 둔다 (예전엔 시전자까지 폭발 피해를 받고 대상은 이중 피해).
+                // 바닐라 폭발 연기·소리도 꺼서 화염 주먹 연출과 겹치지 않게 한다.
+                level.explode(this, null, TERRAIN_ONLY, center.x, center.y, center.z, 2.0f, fire,
+                        SkillsConfig.ALLOW_BLOCK_DAMAGE.get() ? Level.ExplosionInteraction.MOB : Level.ExplosionInteraction.NONE,
+                        ParticleTypes.SMOKE, ParticleTypes.SMOKE, SILENT);
             }
             level.playSound(null, pos.x, pos.y, pos.z, SkillsRegistry.FIRE_FIST_IMPACT.get(), SoundSource.PLAYERS,
                     4.0f, 0.95f + random.nextFloat() * 0.1f);
@@ -180,9 +197,33 @@ public class FireFistProjectile extends Projectile {
         discard();
     }
 
+    /** 폭발 중심에서 대상의 머리·몸통·발 중 하나라도 보이면 범위 피해 (낮은 턱 뒤에 발만 가려도 맞게). */
+    private boolean canSplash(Vec3 from, LivingEntity e) {
+        AABB b = e.getBoundingBox();
+        double cx = (b.minX + b.maxX) * 0.5, cz = (b.minZ + b.maxZ) * 0.5;
+        return hasLineOfSight(from, new Vec3(cx, b.minY + b.getYsize() * 0.5, cz))
+                || hasLineOfSight(from, new Vec3(cx, b.maxY - 0.1, cz))
+                || hasLineOfSight(from, new Vec3(cx, b.minY + 0.1, cz));
+    }
+
     private boolean hasLineOfSight(Vec3 a, Vec3 b) {
         return level().clip(new ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this)).getType() == HitResult.Type.MISS;
     }
+
+    /** 지형에만 영향을 주는 폭발 계산기 (생물 피해 0, 밀쳐내기 0). */
+    private static final ExplosionDamageCalculator TERRAIN_ONLY = new ExplosionDamageCalculator() {
+        @Override
+        public boolean shouldDamageEntity(Explosion explosion, Entity entity) {
+            return false;
+        }
+
+        @Override
+        public float getKnockbackMultiplier(Entity entity) {
+            return 0f;
+        }
+    };
+
+    private static final Holder<SoundEvent> SILENT = BuiltInRegistries.SOUND_EVENT.wrapAsHolder(SoundEvents.EMPTY);
 
     private static void knock(Entity e, Vec3 dir, double factor) {
         double s = SkillsConfig.KNOCKBACK.get() * factor;

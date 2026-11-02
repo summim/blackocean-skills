@@ -8,6 +8,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -35,5 +36,6 @@ public final class SkillsMod {
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, FireFistServer::onServerTick);
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, FireFistServer::onLogout);
         NeoForge.EVENT_BUS.addListener(ServerStoppedEvent.class, e -> FireFistServer.clear());
+        NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, SkillsCommands::register);
     }
 }

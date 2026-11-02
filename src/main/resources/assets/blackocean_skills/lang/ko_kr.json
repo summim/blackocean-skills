@@ -7,5 +7,9 @@
     "subtitles.blackocean_skills.fire_fist.launch": "화염 주먹 발사",
     "subtitles.blackocean_skills.fire_fist.travel": "화염이 날아감",
     "subtitles.blackocean_skills.fire_fist.impact": "화염 폭발",
-    "subtitles.blackocean_skills.fire_fist.crackle": "불씨가 타닥거림"
+    "subtitles.blackocean_skills.fire_fist.crackle": "불씨가 타닥거림",
+    "msg.blackocean_skills.disabled": "지금은 화염 주먹을 쓸 수 없어요",
+    "cmd.blackocean_skills.reset": "%s명의 화염 주먹 쿨타임을 초기화했어요",
+    "cmd.blackocean_skills.cast": "%s명이 화염 주먹을 발사해요",
+    "hud.blackocean_skills.ready": "화염 주먹 준비!"
 }

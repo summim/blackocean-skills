@@ -2,6 +2,7 @@ package com.blackocean.skills.client;
 
 import com.blackocean.skills.client.fx.FxManager;
 import com.blackocean.skills.network.CastStartPayload;
+import com.blackocean.skills.network.CooldownSyncPayload;
 import com.blackocean.skills.network.FireFistImpactPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
@@ -17,6 +18,11 @@ public final class ClientPacketHandler {
         if (caster != null) {
             FxManager.onCastStart(caster, p.chargeTicks());
         }
+    }
+
+    public static void onCooldown(CooldownSyncPayload p) {
+        CooldownHud.set(p.remainingTicks(), p.totalTicks());
+        if (p.denied()) FxManager.cancelPredictedCharge();
     }
 
     public static void onImpact(FireFistImpactPayload p) {

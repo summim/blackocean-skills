@@ -10,7 +10,7 @@ public final class SkillsNetwork {
     private SkillsNetwork() {}
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar r = event.registrar("1");
+        PayloadRegistrar r = event.registrar("2"); // 신호 모양이 바뀌면 숫자를 올림 (옛 버전 접속기는 접속 거부)
 
         r.playToServer(CastRequestPayload.TYPE, CastRequestPayload.CODEC, (payload, ctx) ->
                 ctx.enqueueWork(() -> {
@@ -25,5 +25,7 @@ public final class SkillsNetwork {
                 ctx.enqueueWork(() -> ClientPacketHandler.onCastStart(payload)));
         r.playToClient(FireFistImpactPayload.TYPE, FireFistImpactPayload.CODEC, (payload, ctx) ->
                 ctx.enqueueWork(() -> ClientPacketHandler.onImpact(payload)));
+        r.playToClient(CooldownSyncPayload.TYPE, CooldownSyncPayload.CODEC, (payload, ctx) ->
+                ctx.enqueueWork(() -> ClientPacketHandler.onCooldown(payload)));
     }
 }

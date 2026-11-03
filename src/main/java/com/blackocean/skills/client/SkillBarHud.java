@@ -2,6 +2,7 @@ package com.blackocean.skills.client;
 
 import com.blackocean.skills.Skill;
 import com.blackocean.skills.SkillsMod;
+import com.blackocean.skills.client.fx.AimPreview;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -36,6 +37,8 @@ public final class SkillBarHud {
     private static final int[] readyFlash = new int[N];
     private static final int[] pressFlash = new int[N];
     private static final int[] deniedFlash = new int[N];
+    /** 예약됨 (쿨타임 끝나는 순간·지금 모으는 스킬이 끝나는 순간 바로 나감) */
+    private static final int[] queued = new int[N];
 
     private SkillBarHud() {}
 
@@ -45,6 +48,16 @@ public final class SkillBarHud {
         remaining[i] = Math.max(0, remainingTicks);
         total[i] = Math.max(remaining[i], totalTicks);
         if (remaining[i] == 0 && wasCooling) readyFlash[i] = 12;
+        queued[i] = 0;
+    }
+
+    static void flashQueued(Skill s) {
+        queued[s.ordinal()] = 40;
+    }
+
+    /** 내 시전이 시작됨 → 예약 표시 끔 */
+    static void castStarted(Skill s) {
+        queued[s.ordinal()] = 0;
     }
 
     public static void resetAll() {
@@ -77,13 +90,14 @@ public final class SkillBarHud {
                 readyFlash[i]--;
             }
             if (pressFlash[i] > 0) pressFlash[i]--;
+            if (queued[i] > 0) queued[i]--;
             if (deniedFlash[i] > 0) deniedFlash[i]--;
         }
     }
 
     static void clear() {
         for (int i = 0; i < N; i++) {
-            remaining[i] = total[i] = readyFlash[i] = pressFlash[i] = deniedFlash[i] = 0;
+            remaining[i] = total[i] = readyFlash[i] = pressFlash[i] = deniedFlash[i] = queued[i] = 0;
         }
     }
 
@@ -114,11 +128,15 @@ public final class SkillBarHud {
 
             // 테두리 색: 거절(빨강) > 누름(흰색) > 준비 완료 반짝(밝은 주황) > 평소
             int border;
+            boolean aimingThis = AimPreview.aiming() == s;
             if (deniedFlash[i] > 0) border = 0xFFE03030;
             else if (pressFlash[i] > 0) border = 0xFFFFF4D8;
+            else if (queued[i] > 0) border = (queued[i] / 3) % 2 == 0 ? 0xFFFFE14A : 0xFFB89A30;
+            else if (aimingThis) border = 0xFFFFC870;
             else if (readyFlash[i] > 0) border = (readyFlash[i] / 2) % 2 == 0 ? 0xFFFFD27A : 0xFFFF8A2A;
             else border = cooling ? 0xFF3A3434 : 0xFFB8561E;
 
+            if (aimingThis) y -= 3; // 조준 중인 칸은 살짝 올라옴
             g.fill(x - 1, y - 1, x + SLOT + 1, y + SLOT + 1, border);
             g.fill(x, y, x + SLOT, y + SLOT, 0xD0140C0A);
             g.blit(ICONS[i], x + 2, y + 2, 16, 16, 0f, 0f, 64, 64, 64, 64);
@@ -138,6 +156,25 @@ public final class SkillBarHud {
             String label = key.getString();
             if (label.length() > 2) label = label.substring(0, 2);
             g.drawString(font, label, x + SLOT - font.width(label), y + SLOT - 8, cooling ? 0xFF9A9090 : 0xFFFFFFFF, true);
+        }
+
+        // 조준 중 안내 (조준점 아래)
+        Skill aim = AimPreview.aiming();
+        if (aim != null && AimPreview.visible()) {
+            int cx = w / 2, cy = h / 2 + 12;
+            Component name = Component.translatable(aim.translationKey());
+            g.drawString(font, name, cx - font.width(name) / 2, cy, 0xFFFFC870, true);
+            Component hint;
+            int color;
+            int left = remaining[aim.ordinal()];
+            if (left > com.blackocean.skills.SkillServer.BUFFER_TICKS) {
+                hint = Component.translatable("hud.blackocean_skills.aim_cooldown", String.format("%.1f", left / 20f));
+                color = 0xFFFF7060;
+            } else {
+                hint = Component.translatable("hud.blackocean_skills.aim_hint");
+                color = 0xFFE0D6C8;
+            }
+            g.drawString(font, hint, cx - font.width(hint) / 2, cy + 10, color, true);
         }
     }
 }

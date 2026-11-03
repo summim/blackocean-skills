@@ -25,5 +25,7 @@
     "subtitles.blackocean_skills.fire_pillar.warn": "Ground heats up",
     "subtitles.blackocean_skills.fire_pillar.erupt": "Fire pillar erupts",
     "subtitles.blackocean_skills.flame_ring.charge": "Flames swirl",
-    "subtitles.blackocean_skills.flame_ring.burst": "Flame ring bursts"
+    "subtitles.blackocean_skills.flame_ring.burst": "Flame ring bursts",
+    "hud.blackocean_skills.aim_hint": "Release to cast · Right-click to cancel",
+    "hud.blackocean_skills.aim_cooldown": "Cooldown %ss"
 }

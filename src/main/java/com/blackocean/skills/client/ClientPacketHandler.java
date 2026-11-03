@@ -6,6 +6,7 @@ import com.blackocean.skills.network.CastStartPayload;
 import com.blackocean.skills.network.CooldownSyncPayload;
 import com.blackocean.skills.network.FireFistImpactPayload;
 import com.blackocean.skills.network.SkillFxPayload;
+import com.blackocean.skills.network.SkillStatsPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
@@ -20,6 +21,7 @@ public final class ClientPacketHandler {
         Skill skill = Skill.byIndex(p.skill());
         Entity caster = mc.level.getEntity(p.casterId());
         if (caster != null && skill != null) {
+            if (caster == mc.player) SkillBarHud.castStarted(skill);
             FxManager.onCastStart(caster, skill, p.chargeTicks(), new Vec3(p.x(), p.y(), p.z()), p.size());
         }
     }
@@ -44,5 +46,9 @@ public final class ClientPacketHandler {
     public static void onSkillFx(SkillFxPayload p) {
         if (Minecraft.getInstance().level == null) return;
         FxManager.onSkillFx(p);
+    }
+
+    public static void onStats(SkillStatsPayload p) {
+        ClientSkillStats.set(p);
     }
 }

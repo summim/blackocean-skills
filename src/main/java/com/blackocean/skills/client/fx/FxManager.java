@@ -124,6 +124,14 @@ public final class FxManager {
         }
     }
 
+    /** 이 플레이어가 지금 스킬을 모으는 중인지 (내 화면 기준) */
+    public static boolean isCharging(Entity e) {
+        for (ChargeFx c : CHARGES) {
+            if (c.caster == e && !c.done) return true;
+        }
+        return false;
+    }
+
     /** 서버가 거절함(쿨타임·비활성·조준 실패) → 미리 시작한 내 준비 연출을 바로 지움. */
     public static void cancelPredictedCharge() {
         Entity self = Minecraft.getInstance().player;
@@ -219,6 +227,7 @@ public final class FxManager {
 
         IMPACTS.removeIf(ImpactFx::tick);
         SkillFx.tick();
+        AimPreview.tick();
         RINGS.removeIf(r -> ++r.age >= r.delay + r.life);
         SPRITES.removeIf(Sprite::tick);
     }
@@ -230,7 +239,8 @@ public final class FxManager {
     public static void onRenderLevel(RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES) return;
         if (Minecraft.getInstance().level == null) return;
-        if (CHARGES.isEmpty() && PROJECTILES.isEmpty() && IMPACTS.isEmpty() && RINGS.isEmpty() && SPRITES.isEmpty() && SkillFx.isEmpty()) return;
+        if (CHARGES.isEmpty() && PROJECTILES.isEmpty() && IMPACTS.isEmpty() && RINGS.isEmpty() && SPRITES.isEmpty() && SkillFx.isEmpty()
+                && !AimPreview.active()) return;
 
         FxRender.begin(event);
         try {
@@ -240,6 +250,8 @@ public final class FxManager {
             // 1) 연기 (반투명 덮기) — 불 뒤에 깔리도록 먼저
             FxRender.alphaBlend();
             SkillFx.renderAlpha(pt);
+            AimPreview.render(pt, time);
+            FxRender.alphaBlend();
             drawSprites(Sprite.Kind.SMOKE, pt);
 
             // 2) 이하 전부 더하기 섞기

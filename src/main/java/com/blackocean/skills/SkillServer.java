@@ -5,6 +5,7 @@ import com.blackocean.skills.fire.FireFistProjectile;
 import com.blackocean.skills.network.CastStartPayload;
 import com.blackocean.skills.network.CooldownSyncPayload;
 import com.blackocean.skills.network.SkillFxPayload;
+import com.blackocean.skills.network.SkillStatsPayload;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
@@ -48,6 +49,16 @@ public final class SkillServer {
     private static final Map<UUID, long[]> READY_AT = new HashMap<>();
     private static final List<Pending> PENDING = new ArrayList<>();
     private static final List<Pillar> PILLARS = new ArrayList<>();
+    /** 예약된 입력 (플레이어마다 1개, 마지막에 누른 것). 쓸 수 있게 되는 순간 바로 발동. */
+    private static final Map<UUID, Buffered> BUFFERED = new HashMap<>();
+
+    /**
+     * 입력 예약 허용 시간 (틱). 쿨타임이 이만큼 이하로 남았거나 다른 스킬을 모으는 중이면
+     * 누른 키를 버리지 않고 기억했다가 바로 발동한다. (서버가 조금 느려 화면보다 늦게 끝나도 씹히지 않게)
+     */
+    public static final int BUFFER_TICKS = 10;
+
+    private record Buffered(Skill skill, long expireAt) {}
 
     /**
      * @param cooldown 이 시전으로 걸린 쿨타임. 발사 전에 취소되면 되돌려 준다.
@@ -89,6 +100,13 @@ public final class SkillServer {
             return;
         }
         int left = remainingTicks(p, skill);
+        boolean charging = isCharging(p.getUUID());
+        if ((left > 0 && left <= BUFFER_TICKS) || (charging && left <= BUFFER_TICKS)) {
+            // 곧 쓸 수 있음 → 예약 (마지막에 누른 스킬이 이김)
+            long now = p.server.getTickCount();
+            BUFFERED.put(p.getUUID(), new Buffered(skill, now + Math.max(left, 0) + BUFFER_TICKS + 20));
+            return;
+        }
         if (left > 0) {
             p.displayClientMessage(Component.translatable("msg.blackocean_skills.cooldown",
                     Component.translatable(skill.translationKey()), String.format("%.1f", left / 20.0)), true);
@@ -209,7 +227,41 @@ public final class SkillServer {
             PENDING.addAll(next);
         }
 
+        if (!BUFFERED.isEmpty()) tickBuffered(server, now);
         if (!PILLARS.isEmpty()) tickPillars(server, now);
+    }
+
+    private static void tickBuffered(MinecraftServer server, long now) {
+        Iterator<Map.Entry<UUID, Buffered>> it = BUFFERED.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, Buffered> e = it.next();
+            Buffered b = e.getValue();
+            ServerPlayer p = server.getPlayerList().getPlayer(e.getKey());
+            if (p == null || now > b.expireAt()) {
+                it.remove();
+                if (p != null) PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(b.skill().ordinal(),
+                        remainingTicks(p, b.skill()), b.skill().cooldownTicks(), true));
+                continue;
+            }
+            if (isCharging(p.getUUID()) || remainingTicks(p, b.skill()) > 0) continue;
+            it.remove();
+            if (!b.skill().enabled() || !cast(p, b.skill(), true)) {
+                PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(b.skill().ordinal(), 0, 0, true));
+            }
+        }
+    }
+
+    /** 접속할 때 조준 표시용 서버 설정값을 보내 준다. */
+    public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p) sendStats(p);
+    }
+
+    public static void sendStats(ServerPlayer p) {
+        PacketDistributor.sendToPlayer(p, new SkillStatsPayload(
+                SkillsConfig.RANGE.get().floatValue(), SkillsConfig.HIT_RADIUS.get().floatValue(), SkillsConfig.SPLASH_RADIUS.get().floatValue(),
+                SkillsConfig.BULLETS_RANGE.get().floatValue(), SkillsConfig.BULLETS_SPLASH_RADIUS.get().floatValue(), SkillsConfig.BULLETS_SPREAD.get().floatValue(),
+                SkillsConfig.PILLAR_RANGE.get().floatValue(), SkillsConfig.PILLAR_RADIUS.get().floatValue(), SkillsConfig.PILLAR_HEIGHT.get().floatValue(),
+                SkillsConfig.RING_RADIUS.get().floatValue()));
     }
 
     // =====================================================================
@@ -403,12 +455,14 @@ public final class SkillServer {
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         UUID id = event.getEntity().getUUID();
         PENDING.removeIf(x -> x.player().equals(id));
+        BUFFERED.remove(id);
     }
 
     public static void clear() {
         READY_AT.clear();
         PENDING.clear();
         PILLARS.clear();
+        BUFFERED.clear();
     }
 
 }

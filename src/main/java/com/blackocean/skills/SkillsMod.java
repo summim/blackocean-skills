@@ -3,6 +3,9 @@ package com.blackocean.skills;
 import com.blackocean.skills.SkillServer;
 import com.blackocean.skills.network.SkillsNetwork;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.neoforged.fml.event.config.ModConfigEvent;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -32,9 +35,17 @@ public final class SkillsMod {
         container.registerConfig(ModConfig.Type.COMMON, SkillsConfig.SPEC);
 
         modBus.addListener(RegisterPayloadHandlersEvent.class, SkillsNetwork::register);
+        // 서버 설정 파일을 고치면(게임 켜 둔 채로) 접속한 모두에게 새 사거리·범위 값을 다시 보냄
+        modBus.addListener(ModConfigEvent.Reloading.class, e -> {
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            if (server != null && e.getConfig().getSpec() == SkillsConfig.SPEC) {
+                server.execute(() -> server.getPlayerList().getPlayers().forEach(SkillServer::sendStats));
+            }
+        });
 
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, SkillServer::onServerTick);
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, SkillServer::onLogout);
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class, SkillServer::onLogin);
         NeoForge.EVENT_BUS.addListener(ServerStoppedEvent.class, e -> SkillServer.clear());
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, SkillsCommands::register);
     }

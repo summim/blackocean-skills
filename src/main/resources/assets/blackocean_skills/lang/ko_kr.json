@@ -25,5 +25,7 @@
     "subtitles.blackocean_skills.fire_pillar.warn": "땅이 달아오름",
     "subtitles.blackocean_skills.fire_pillar.erupt": "불기둥 분출",
     "subtitles.blackocean_skills.flame_ring.charge": "불꽃이 소용돌이침",
-    "subtitles.blackocean_skills.flame_ring.burst": "화염 고리 폭발"
+    "subtitles.blackocean_skills.flame_ring.burst": "화염 고리 폭발",
+    "hud.blackocean_skills.aim_hint": "떼면 발동 · 우클릭 취소",
+    "hud.blackocean_skills.aim_cooldown": "쿨타임 %s초"
 }

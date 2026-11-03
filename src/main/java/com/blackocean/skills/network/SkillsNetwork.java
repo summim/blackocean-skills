@@ -11,7 +11,7 @@ public final class SkillsNetwork {
     private SkillsNetwork() {}
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar r = event.registrar("3"); // 신호 모양이 바뀌면 숫자를 올림 (옛 버전 접속기는 접속 거부)
+        PayloadRegistrar r = event.registrar("4"); // 신호 모양이 바뀌면 숫자를 올림 (옛 버전 접속기는 접속 거부)
 
         r.playToServer(CastRequestPayload.TYPE, CastRequestPayload.CODEC, (payload, ctx) ->
                 ctx.enqueueWork(() -> {
@@ -31,5 +31,7 @@ public final class SkillsNetwork {
                 ctx.enqueueWork(() -> ClientPacketHandler.onCooldown(payload)));
         r.playToClient(SkillFxPayload.TYPE, SkillFxPayload.CODEC, (payload, ctx) ->
                 ctx.enqueueWork(() -> ClientPacketHandler.onSkillFx(payload)));
+        r.playToClient(SkillStatsPayload.TYPE, SkillStatsPayload.CODEC, (payload, ctx) ->
+                ctx.enqueueWork(() -> ClientPacketHandler.onStats(payload)));
     }
 }

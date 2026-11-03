@@ -41,7 +41,7 @@ public final class SkillTargets {
     }
 
     private static boolean clear(Level level, Entity viewer, Vec3 a, Vec3 b) {
-        return level.clip(new ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer)).getType() == HitResult.Type.MISS;
+        return SubLevels.clip(level, new ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer)).getType() == HitResult.Type.MISS;
     }
 
     /** 밀쳐내기 (서버). 플레이어에게도 바로 전달되도록 hurtMarked 를 켠다. */

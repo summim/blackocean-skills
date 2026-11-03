@@ -1,5 +1,6 @@
 package com.blackocean.skills.client.fx;
 
+import com.blackocean.skills.SubLevels;
 import com.blackocean.skills.Skill;
 import com.blackocean.skills.SkillTargets;
 import com.blackocean.skills.SkillsMod;
@@ -113,25 +114,26 @@ public final class AimPreview {
         Vec3 right = look.cross(UP);
         right = right.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : right.normalize();
         Vec3 start = eye.add(look.scale(1.6)).add(right.scale(side)).add(0, -0.3, 0);
-        BlockHitResult wall = level.clip(new ClipContext(eye, start, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+        BlockHitResult wall = SubLevels.clip(level, new ClipContext(eye, start, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
         if (wall.getType() != HitResult.Type.MISS) start = wall.getLocation().subtract(look.scale(0.15));
 
         // 서버와 같은 조준: 조준점이 가리키는 곳으로 방향을 맞춤
         Vec3 far = eye.add(look.scale(range));
-        BlockHitResult bh = level.clip(new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+        BlockHitResult bh = SubLevels.clip(level, new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
         Vec3 aim = bh.getType() == HitResult.Type.MISS ? far : bh.getLocation();
         EntityHitResult eh = ProjectileUtil.getEntityHitResult(level, p, eye, aim,
                 p.getBoundingBox().expandTowards(aim.subtract(eye)).inflate(1.0),
                 e -> e.isPickable() && !e.isSpectator() && !SkillTargets.isSameRide(p, e));
         if (eh != null) aim = eh.getLocation();
+        if (aim.distanceToSqr(eye) > (range + 4.0) * (range + 4.0)) aim = far; // 안전장치: 좌표가 튀면 무시
         Vec3 d = aim.subtract(start);
         Vec3 dir = (d.lengthSqr() < 4.0 || d.normalize().dot(look) < 0.5) ? look : d.normalize();
 
         // 실제로 날아가다 멈출 곳
         Vec3 end = start.add(dir.scale(range));
         Vec3 normal = null;
-        BlockHitResult path = level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
-        if (path.getType() != HitResult.Type.MISS) {
+        BlockHitResult path = SubLevels.clip(level, new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+        if (path.getType() != HitResult.Type.MISS && path.getLocation().distanceToSqr(start) <= (range + 1.0) * (range + 1.0)) {
             end = path.getLocation();
             Direction f = path.getDirection();
             normal = new Vec3(f.getStepX(), f.getStepY(), f.getStepZ());
@@ -157,7 +159,7 @@ public final class AimPreview {
             float tile = (float) (Math.max(0.6, hitR * 2.0) * 1.2);
             FxRender.spriteShader(ARROW);
             BufferBuilder bb = FxRender.quads();
-            int steps = Math.max(1, (int) Math.ceil(len / 1.5));
+            int steps = Math.min(64, Math.max(1, (int) Math.ceil(len / 1.5)));
             for (int i = 0; i < steps; i++) {
                 double t0 = len * i / steps, t1 = len * (i + 1) / steps;
                 Vec3 p0 = start.add(dir.scale(t0)), p1 = start.add(dir.scale(t1));
@@ -199,7 +201,7 @@ public final class AimPreview {
         Vec3 look = p.getViewVector(pt);
         Vec3 far = eye.add(look.scale(range));
         Vec3 target = null;
-        BlockHitResult bh = level.clip(new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
+        BlockHitResult bh = SubLevels.clip(level, new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
         Vec3 from;
         if (bh.getType() != HitResult.Type.MISS && bh.getDirection() == Direction.UP) {
             target = bh.getLocation();
@@ -210,7 +212,7 @@ public final class AimPreview {
             from = far;
         }
         if (target == null && from != null) {
-            BlockHitResult down = level.clip(new ClipContext(from, from.add(0, -10, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
+            BlockHitResult down = SubLevels.clip(level, new ClipContext(from, from.add(0, -10, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
             if (down.getType() != HitResult.Type.MISS) target = down.getLocation();
         }
 

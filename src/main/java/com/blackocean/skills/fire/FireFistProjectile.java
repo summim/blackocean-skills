@@ -1,5 +1,6 @@
 package com.blackocean.skills.fire;
 
+import com.blackocean.skills.SubLevels;
 import com.blackocean.skills.SkillTargets;
 import com.blackocean.skills.SkillsConfig;
 import com.blackocean.skills.SkillsRegistry;
@@ -129,7 +130,7 @@ public class FireFistProjectile extends Projectile {
         Hit best = null;
         double bestDist = Double.MAX_VALUE;
 
-        BlockHitResult bh = level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
+        BlockHitResult bh = SubLevels.clip(level, new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
         if (bh.getType() != HitResult.Type.MISS) {
             bestDist = from.distanceToSqr(bh.getLocation());
             Direction d = bh.getDirection();

@@ -299,7 +299,7 @@ public final class SkillServer {
         right = right.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : right.normalize();
         Vec3 eye = p.getEyePosition();
         Vec3 start = eye.add(look.scale(1.6)).add(right.scale(side)).add(0, -0.3, 0);
-        BlockHitResult wall = level.clip(new ClipContext(eye, start, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+        BlockHitResult wall = SubLevels.clip(level, new ClipContext(eye, start, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
         if (wall.getType() != HitResult.Type.MISS) {
             start = wall.getLocation().subtract(look.scale(0.15));
         }
@@ -309,8 +309,9 @@ public final class SkillServer {
     /** 투사체는 손 옆에서 나가지만, 화면 가운데(조준점)가 가리키는 곳으로 날아가게 방향을 맞춘다. */
     private static Vec3 aimDirection(ServerLevel level, ServerPlayer p, Vec3 eye, Vec3 look, Vec3 start, double range) {
         Vec3 far = eye.add(look.scale(range));
-        BlockHitResult bh = level.clip(new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+        BlockHitResult bh = SubLevels.clip(level, new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
         Vec3 target = bh.getType() == HitResult.Type.MISS ? far : bh.getLocation();
+        if (target.distanceToSqr(eye) > (range + 4.0) * (range + 4.0)) target = far; // 안전장치
 
         EntityHitResult eh = ProjectileUtil.getEntityHitResult(level, p, eye, target,
                 p.getBoundingBox().expandTowards(target.subtract(eye)).inflate(1.0),
@@ -334,7 +335,7 @@ public final class SkillServer {
         ServerLevel level = p.serverLevel();
         Vec3 eye = p.getEyePosition();
         Vec3 far = eye.add(p.getLookAngle().scale(SkillsConfig.PILLAR_RANGE.get()));
-        BlockHitResult bh = level.clip(new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
+        BlockHitResult bh = SubLevels.clip(level, new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
         Vec3 from;
         if (bh.getType() != HitResult.Type.MISS) {
             if (bh.getDirection() == Direction.UP) return bh.getLocation();
@@ -342,7 +343,7 @@ public final class SkillServer {
         } else {
             from = far;
         }
-        BlockHitResult down = level.clip(new ClipContext(from, from.add(0, -10, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
+        BlockHitResult down = SubLevels.clip(level, new ClipContext(from, from.add(0, -10, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
         if (down.getType() == HitResult.Type.MISS) return null;
         return down.getLocation();
     }
@@ -434,7 +435,7 @@ public final class SkillServer {
     /** 발밑 바닥 (공중에서 쓰면 최대 6블록 아래, 없으면 발 위치). 파도가 바닥을 따라 퍼지게. */
     private static Vec3 groundBelow(ServerLevel level, ServerPlayer p) {
         Vec3 feet = p.position().add(0, 0.1, 0);
-        BlockHitResult down = level.clip(new ClipContext(feet, feet.add(0, -6, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
+        BlockHitResult down = SubLevels.clip(level, new ClipContext(feet, feet.add(0, -6, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
         return down.getType() == HitResult.Type.MISS ? p.position() : down.getLocation();
     }
 

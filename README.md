@@ -1,6 +1,6 @@
-# BlackOcean Skills (블랙오션 스킬) — 화염 주먹
+# BlackOcean Skills (블랙오션 스킬) — 이글이글 화염 스킬 4종
 
-R 키를 누르면 손에 불꽃이 모였다가 **거대한 3D 화염 주먹**이 날아가고, 맞은 자리에서 폭발·충격파·불씨·연기가 퍼지는 스킬입니다.
+숫자키 **1 화염 주먹 · 2 불꽃 탄환 · 3 불기둥 · 4 화염 고리**. 애니풍 화염 셰이더·3D 메시·궤적·충격파·그을음 자국으로 그리는 능력 스킬입니다.
 NeoForge 1.21.1 전용. **추가로 설치할 모드가 없습니다** (이 jar 하나로 서버 판정 + 화면 연출 모두 동작).
 
 ![미리보기](art_source/fx_preview.png)
@@ -12,7 +12,7 @@ NeoForge 1.21.1 전용. **추가로 설치할 모드가 없습니다** (이 jar 
 
 1. **JDK 21** 이 필요합니다 (돛 애드온 때 설치했다면 그대로 사용).
 2. 이 폴더의 **`빌드하기.bat`** 을 더블클릭합니다. 처음엔 5~10분 걸립니다.
-3. 끝나면 `build\libs\blackocean_skills-1.1.1.jar` 가 생깁니다.
+3. 끝나면 `build\libs\blackocean_skills-1.2.0.jar` 가 생깁니다.
 4. 이 jar 를 **서버 `mods` 폴더**와 **접속기 모드팩(`blackocean-pack`)** 둘 다에 넣습니다.
    모드팩은 jar 를 넣고 `node tools/build-manifest.js` → push 하면 시청자 접속기가 자동으로 받습니다.
 
@@ -21,68 +21,72 @@ NeoForge 1.21.1 전용. **추가로 설치할 모드가 없습니다** (이 jar 
 
 ---
 
-## 2. 게임 안에서
+## 2. 게임 안에서 — 스킬 4종
 
-| 항목 | 내용 |
-|---|---|
-| 키 | **R** (설정 → 조작 → "블랙오션 스킬"에서 변경) |
-| 준비 | 0.4초. 손 주변에 회전하는 불 고리 2겹, 손으로 빨려 드는 불씨 |
-| 발사 | 바라보는 방향으로 초당 32블록, 최대 28블록 |
-| 적중 | 직격 12 + 폭발 범위(반지름 3.5) 최대 6, 밀쳐냄, 화면 흔들림 |
-| 잔류 | 약 1~2초 동안 불씨가 떠오르고 연기가 퍼지며 사라짐 |
-| 쿨타임 | 6초. 조준점 바로 아래 막대 + 남은 초로 표시, 다 차면 "화염 주먹 준비!" |
-| 조준 | 주먹은 손 옆에서 나가지만 **조준점이 가리키는 곳**으로 날아감 |
-| 같은 배 | 같은 배·탈것에 탄 사람은 맞지 않음 (선원 오사 방지) |
-| 지형 | **부수지 않고 불도 붙이지 않음** (설정으로 켤 수 있음) |
+| 키 | 스킬 | 하는 일 | 쿨타임 |
+|---|---|---|---|
+| **1** | 화염 주먹 | 0.4초 모았다가 거대한 3D 주먹 발사. 직격 12 + 폭발 범위 6. 맞은 자리에서 작은 불기둥이 솟고 바닥에 그을음 | 6초 |
+| **2** | 불꽃 탄환 | 양손 번갈아 작은 화염탄 5발 연사. 한 발에 직격 4 + 범위 2 | 4초 |
+| **3** | 불기둥 | 조준한 바닥에 경고 원(0.7초) → 거대한 불기둥이 솟아 피해 10 + 위로 띄움, 1.3초 동안 남아 계속 태움 | 10초 |
+| **4** | 화염 고리 | 몸 주위로 불 고리 3개가 0.8초 돌다가 사방 7칸으로 불의 파도. 피해 최대 9 + 크게 밀쳐냄 | 13초 |
+
+- **키 바꾸기**: 설정 → 조작 → "블랙오션 스킬". 1.1 의 R 키 설정은 무시하고 모두 1~4 로 시작합니다.
+- **핫바와 겹침**: 1~4 를 누르면 스킬만 나가고 핫바 칸은 안 바뀝니다 (마우스 휠로는 그대로 바뀜).
+  둘 다 되게 하려면 `blackocean_skills-client.toml` 의 `skillKeysOverHotbar = false`.
+- **스킬 칸**: 핫바 오른쪽에 4칸 (아이콘·키 번호·쿨타임). 준비되면 주황 테두리가 반짝, 쿨타임 중에 누르면 빨간 테두리.
+- **조준**: 투사체는 손 옆에서 나가지만 **조준점이 가리키는 곳**으로 날아감. 불기둥은 허공을 보면 그 아래 10칸까지 바닥을 찾음.
+- **같은 배**: 같은 배·탈것에 탄 사람은 어떤 스킬에도 맞지 않음 (선원 오사 방지).
+- **지형**: **부수지 않고 불도 붙이지 않음** (설정으로 켤 수 있음).
+- 한 스킬을 **모으는 중**에는 다른 스킬을 겹쳐 쓸 수 없음 (탄환 연사 중에는 가능).
 
 ### 사운드
-`charge`(모임) → `launch`(발사) → `travel`(날아가는 동안 반복, 주먹을 따라 이동) → `impact`(폭발) → `crackle`(타닥타닥).
+- 화염 주먹: `charge` → `launch` → `travel`(따라다님) → `impact` → `crackle`
+- 불꽃 탄환: `shot`(한 발마다) → `impact`
+- 불기둥: `warn`(땅이 달아오름) → `erupt`
+- 화염 고리: `charge`(소용돌이) → `burst`
 전부 모노라서 거리에 따라 작아집니다.
 
 ---
 
 ## 3. 설정 파일
 
-**서버** `config/blackocean_skills-common.toml` 의 `[fire_fist]`
+**서버** `config/blackocean_skills-common.toml` — 칸 4개. `[fire_fist]` 이름은 1.1 과 같아서 이미 바꾼 값은 그대로 유지됩니다.
 
-| 이름 | 기본 | 뜻 |
-|---|---|---|
-| cooldownTicks | 120 | 재사용 대기 (20틱 = 1초) |
-| chargeTicks | 8 | 준비 동작 길이 |
-| speed | 1.6 | 블록/틱 (최대 3.9) |
-| range | 28 | 최대 사거리 |
-| hitRadius | 0.9 | 주먹 판정 반지름 |
-| directDamage / splashDamage | 12 / 6 | 피해 |
-| splashRadius | 3.5 | 폭발 범위 |
-| knockback | 0.9 | 밀쳐내기 |
-| allowBlockDamage / allowFire | false / false | 지형 파괴 / 불 붙이기 |
-| pvp | true | false 면 플레이어끼리 피해 없음 |
-| enabled | true | false 면 R 키로 못 씀 (명령어·API 강제 발사는 됨) |
+| 칸 | 주요 항목 (기본값) |
+|---|---|
+| `[fire_fist]` | enabled, cooldownTicks 120, chargeTicks 8, speed 1.6, range 28, directDamage 12, splashDamage 6, splashRadius 3.5, knockback 0.9 |
+| `[fire_fist]` 공통 | **pvp** true, **allowFire** false, **allowBlockDamage** false — 스킬 4개 모두에 적용 |
+| `[fire_bullets]` | enabled, cooldownTicks 80, chargeTicks 4, count 5, intervalTicks 2, speed 2.6, range 34, damage 4, splashDamage 2, splashRadius 1.6, spreadDegrees 2.5 |
+| `[fire_pillar]` | enabled, cooldownTicks 200, chargeTicks 14, range 26, radius 2.2, height 9, damage 10, burnDamage 2, durationTicks 26, launch 1.0 |
+| `[flame_ring]` | enabled, cooldownTicks 260, chargeTicks 16, radius 7, damage 9, knockback 1.6 |
 
 **각자 PC** `config/blackocean_skills-client.toml` 의 `[fx]`
 - `particleAmount` (1.0): 불꽃·불씨·연기 양. 느리면 0.5
-- `afterimages` (true): 잔상
+- `afterimages` (true): 화염 주먹 잔상
 - `cameraShake` (true): 화면 흔들림
-- `cooldownHud` (true): 조준점 아래 쿨타임 막대
+- `cooldownHud` (true): 핫바 오른쪽 스킬 칸
+- `skillKeysOverHotbar` (true): 스킬 키가 핫바 키와 같을 때 핫바 칸 이동을 막음
 
 ### 명령어 (OP)
 | 명령어 | 뜻 |
 |---|---|
-| `/skills reset` · `/skills reset <대상>` | 화염 주먹 쿨타임 초기화 |
-| `/skills cast` · `/skills cast <대상>` | 쿨타임 무시하고 대상이 화염 주먹 발사 (예: `/skills cast @a`) |
+| `/skills reset` · `/skills reset <대상>` | 모든 스킬 쿨타임 초기화 |
+| `/skills cast` · `/skills cast <대상>` | 쿨타임 무시하고 화염 주먹 (1.1 과 같음) |
+| `/skills cast <스킬> [대상]` | 쿨타임 무시하고 그 스킬. 스킬: `fire_fist` `fire_bullets` `fire_pillar` `flame_ring` (예: `/skills cast fire_pillar @a`) |
 
 ### 별풍선 연동용 (개발자용)
 ```java
-BlackOceanSkillsApi.castFireFist(player, true);   // 쿨타임 무시하고 발사
-BlackOceanSkillsApi.resetCooldown(player);         // 쿨타임 초기화
-int left = BlackOceanSkillsApi.cooldownTicks(player); // 남은 쿨타임 (틱)
+BlackOceanSkillsApi.cast(player, Skill.FIRE_PILLAR, true);     // 쿨타임 무시하고 불기둥
+BlackOceanSkillsApi.castFireFist(player, true);                 // 1.1 과 같음
+BlackOceanSkillsApi.resetCooldown(player);                       // 모든 스킬 쿨타임 초기화
+int left = BlackOceanSkillsApi.cooldownTicks(player, Skill.FLAME_RING); // 남은 쿨타임 (틱)
 ```
 
 ---
 
 ## 4. 어떻게 동작하나 (판정과 화면이 어긋나지 않는 이유)
 
-1. R 을 누르면 **내 화면에서 바로** 준비 연출 시작 + 서버에 요청.
+1. 스킬 키를 누르면 **내 화면에서 바로** 준비 연출 시작 + 서버에 요청 (불기둥은 서버가 조준점을 정한 뒤 경고 원 표시).
 2. 서버가 쿨타임 확인 후 주변 사람에게 "시전 시작" 신호 → 다른 사람 화면에도 준비 연출.
 3. 0.4초 뒤 서버가 투사체를 만듦. 매 틱 "이전 위치 → 다음 위치" 선 전체로 충돌 검사 (얇은 벽·적을 뚫지 않음).
 4. 맞은 **그 틱에** 피해를 주고, 정확한 좌표·맞은 면 방향을 담아 "적중" 신호.
@@ -109,6 +113,12 @@ int left = BlackOceanSkillsApi.cooldownTicks(player); // 남은 쿨타임 (틱)
 | 후광 | 주먹·손 뒤의 부드러운 빛 번짐 | `flash_glow.png` 판 |
 | 폭발 | 울퉁불퉁 꿈틀거리며 부풀었다가 노이즈 모양으로 타서 사라지는 불덩어리 | 코드로 만든 구 + 셰이더 |
 | 충격파 | 바닥(벽에 맞으면 벽면)을 따라 퍼지는 링 2개 | `shock_ring.png` |
+| 나선 띠 | 화염 주먹 뒤로 꼬이며 따라오는 불꽃 띠 2가닥 | 궤적 점을 따라 도는 띠 + 셰이더 |
+| 불기둥 | 꼬이며 솟는 2겹 원통(바깥 붉은 기둥 + 안쪽 흰 심지), 바닥 불꽃 고리, 소용돌이치는 불꽃 | 코드로 만든 원통 + 셰이더 |
+| 불의 파도 | 바닥을 따라 퍼지는 불의 벽 2겹 + 타는 바닥 띠 | 넓어지는 원통 + 셰이더 |
+| 경고 원 | 불기둥 자리 바닥에서 빛나며 점점 타오르는 원 | 링·빛 판 + 셰이더 고리 |
+| 그을음 자국 | 폭발 자리 바닥·벽에 7~10초 남는 검게 탄 자국 | `scorch.png` (반투명) |
+| 스킬 칸 | 아이콘 4개 | `textures/gui/skills/*.png` (64×64) |
 | 불꽃·불씨·연기 | 애니풍 단계 음영 불꽃 64프레임, 떠오르는 불씨, 퍼지는 연기 | 스프라이트 시트 |
 
 **셰이더** `shaders/core/fire_flow.fsh`: 노이즈 2겹을 다른 속도로 흘려 일렁임을 만들고, "열기" 값을

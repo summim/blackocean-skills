@@ -1,5 +1,6 @@
 package com.blackocean.skills;
 
+import com.blackocean.skills.fire.FireBulletProjectile;
 import com.blackocean.skills.fire.FireFistProjectile;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.sounds.SoundEvent;
@@ -22,11 +23,28 @@ public final class SkillsRegistry {
                     .fireImmune()
                     .build("fire_fist"));
 
+    /** 불꽃 탄환 한 발 (판정 전용, 모양은 FxManager 가 그림). */
+    public static final DeferredHolder<EntityType<?>, EntityType<FireBulletProjectile>> FIRE_BULLET = ENTITIES.register("fire_bullet",
+            () -> EntityType.Builder.<FireBulletProjectile>of(FireBulletProjectile::new, MobCategory.MISC)
+                    .sized(0.6f, 0.6f)
+                    .clientTrackingRange(10)
+                    .updateInterval(1)
+                    .noSave()
+                    .fireImmune()
+                    .build("fire_bullet"));
+
     public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_FIST_CHARGE = sound("fire_fist.charge");
     public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_FIST_LAUNCH = sound("fire_fist.launch");
     public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_FIST_TRAVEL = sound("fire_fist.travel");
     public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_FIST_IMPACT = sound("fire_fist.impact");
     public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_FIST_CRACKLE = sound("fire_fist.crackle");
+
+    public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_BULLETS_SHOT = sound("fire_bullets.shot");
+    public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_BULLETS_IMPACT = sound("fire_bullets.impact");
+    public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_PILLAR_WARN = sound("fire_pillar.warn");
+    public static final DeferredHolder<SoundEvent, SoundEvent> FIRE_PILLAR_ERUPT = sound("fire_pillar.erupt");
+    public static final DeferredHolder<SoundEvent, SoundEvent> FLAME_RING_CHARGE = sound("flame_ring.charge");
+    public static final DeferredHolder<SoundEvent, SoundEvent> FLAME_RING_BURST = sound("flame_ring.burst");
 
     private static DeferredHolder<SoundEvent, SoundEvent> sound(String name) {
         return SOUNDS.register(name, () -> SoundEvent.createVariableRangeEvent(SkillsMod.id(name)));

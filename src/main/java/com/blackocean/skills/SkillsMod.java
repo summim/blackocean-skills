@@ -1,6 +1,6 @@
 package com.blackocean.skills;
 
-import com.blackocean.skills.fire.FireFistServer;
+import com.blackocean.skills.SkillServer;
 import com.blackocean.skills.network.SkillsNetwork;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.bus.api.IEventBus;
@@ -33,9 +33,9 @@ public final class SkillsMod {
 
         modBus.addListener(RegisterPayloadHandlersEvent.class, SkillsNetwork::register);
 
-        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, FireFistServer::onServerTick);
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, FireFistServer::onLogout);
-        NeoForge.EVENT_BUS.addListener(ServerStoppedEvent.class, e -> FireFistServer.clear());
+        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, SkillServer::onServerTick);
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, SkillServer::onLogout);
+        NeoForge.EVENT_BUS.addListener(ServerStoppedEvent.class, e -> SkillServer.clear());
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, SkillsCommands::register);
     }
 }

@@ -1,5 +1,6 @@
 package com.blackocean.skills.fire;
 
+import com.blackocean.skills.SkillTargets;
 import com.blackocean.skills.SkillsConfig;
 import com.blackocean.skills.SkillsRegistry;
 import com.blackocean.skills.network.FireFistImpactPayload;
@@ -42,7 +43,7 @@ import java.util.Optional;
  * 클라이언트: 스스로 움직이지 않고 서버가 매 틱 보내는 위치를 따른다. 모양은 FxManager 가 그린다.
  */
 public class FireFistProjectile extends Projectile {
-    private int life = 18;
+    protected int life = 18;
 
     public FireFistProjectile(EntityType<? extends FireFistProjectile> type, Level level) {
         super(type, level);
@@ -50,12 +51,16 @@ public class FireFistProjectile extends Projectile {
     }
 
     public static FireFistProjectile create(ServerLevel level, ServerPlayer owner, Vec3 pos, Vec3 dir) {
-        FireFistProjectile p = new FireFistProjectile(SkillsRegistry.FIRE_FIST.get(), level);
+        return setup(new FireFistProjectile(SkillsRegistry.FIRE_FIST.get(), level), owner, pos, dir);
+    }
+
+    /** 위치·방향·속도·수명을 맞춘다 (불꽃 탄환도 같은 방식). */
+    public static <T extends FireFistProjectile> T setup(T p, ServerPlayer owner, Vec3 pos, Vec3 dir) {
         p.setOwner(owner);
         p.setPos(pos.x, pos.y, pos.z);
-        double speed = SkillsConfig.SPEED.get();
+        double speed = p.speed();
         p.setDeltaMovement(dir.scale(speed));
-        p.life = Mth.ceil(SkillsConfig.RANGE.get() / speed);
+        p.life = Mth.ceil(p.range() / speed);
         float yRot = (float) (Mth.atan2(dir.x, dir.z) * Mth.RAD_TO_DEG);
         float xRot = (float) (Mth.atan2(dir.y, dir.horizontalDistance()) * Mth.RAD_TO_DEG);
         p.setYRot(yRot);
@@ -64,6 +69,20 @@ public class FireFistProjectile extends Projectile {
         p.xRotO = xRot;
         return p;
     }
+
+    // ---- 종류별 수치 (불꽃 탄환은 FireBulletProjectile 에서 바꿈) ----
+    protected double speed() { return SkillsConfig.SPEED.get(); }
+    protected double range() { return SkillsConfig.RANGE.get(); }
+    protected double hitRadius() { return SkillsConfig.HIT_RADIUS.get(); }
+    protected double directDamage() { return SkillsConfig.DIRECT_DAMAGE.get(); }
+    protected double splashDamage() { return SkillsConfig.SPLASH_DAMAGE.get(); }
+    protected double splashRadius() { return SkillsConfig.SPLASH_RADIUS.get(); }
+    protected double knockback() { return SkillsConfig.KNOCKBACK.get(); }
+    protected float terrainPower() { return 2.0f; }
+    protected SoundEvent impactSound() { return SkillsRegistry.FIRE_FIST_IMPACT.get(); }
+    protected float impactVolume() { return 4.0f; }
+    /** 적중 신호에 실리는 종류 (0 = 화염 주먹, 1 = 불꽃 탄환) */
+    public int fxKind() { return 0; }
 
     @Override
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
@@ -117,7 +136,7 @@ public class FireFistProjectile extends Projectile {
             best = new Hit(bh.getLocation(), new Vec3(d.getStepX(), d.getStepY(), d.getStepZ()), null);
         }
 
-        double r = SkillsConfig.HIT_RADIUS.get();
+        double r = hitRadius();
         AABB sweep = new AABB(from, to).inflate(r + 2.0);
         for (Entity e : level.getEntities(this, sweep, this::canHitTarget)) {
             AABB box = e.getBoundingBox().inflate(r);
@@ -140,15 +159,8 @@ public class FireFistProjectile extends Projectile {
     }
 
     private boolean canHitTarget(Entity e) {
-        if (!(e instanceof LivingEntity) || !e.isAlive() || e.isSpectator()) return false;
-        Entity owner = getOwner();
-        if (e == owner) return false;
-        // 같은 배·탈것에 탄 선원은 맞히지 않음 (배 위에서 쏠 때 오사 방지)
-        if (FireFistServer.isSameRide(owner, e)) return false;
-        if (owner instanceof Player op && e instanceof Player tp) {
-            if (!SkillsConfig.PVP.get() || !op.canHarmPlayer(tp)) return false;
-        }
-        return true;
+        // 시전자·같은 배의 선원·pvp 규칙 (모든 스킬 공통)
+        return SkillTargets.canHit(getOwner(), e);
     }
 
     private void impact(Vec3 pos, Vec3 normal, @Nullable Entity direct, boolean fizzle) {
@@ -164,19 +176,19 @@ public class FireFistProjectile extends Projectile {
         if (!fizzle) {
             Vec3 flight = getDeltaMovement().lengthSqr() > 1.0E-6 ? getDeltaMovement().normalize() : new Vec3(0, 0, 1);
             if (direct != null) {
-                direct.hurt(damageSources().mobProjectile(this, ownerLiving), SkillsConfig.DIRECT_DAMAGE.get().floatValue());
+                direct.hurt(damageSources().mobProjectile(this, ownerLiving), (float) directDamage());
                 knock(direct, flight, 1.0);
                 if (fire) direct.igniteForSeconds(4.0f);
             }
 
-            double radius = SkillsConfig.SPLASH_RADIUS.get();
-            double splash = SkillsConfig.SPLASH_DAMAGE.get();
+            double radius = splashRadius();
+            double splash = splashDamage();
             if (radius > 0 && splash > 0) {
                 for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(center, center).inflate(radius), this::canHitTarget)) {
                     if (e == direct) continue;
                     Vec3 c = e.getBoundingBox().getCenter();
                     double dist = Math.max(0.0, c.distanceTo(center) - e.getBbWidth() * 0.5);
-                    if (dist > radius || !canSplash(center, e)) continue;
+                    if (dist > radius || !SkillTargets.canSee(level, this, center, e)) continue;
                     double f = 1.0 - dist / radius;
                     e.hurt(damageSources().explosion(this, owner), (float) (splash * f));
                     Vec3 push = c.subtract(center);
@@ -189,36 +201,23 @@ public class FireFistProjectile extends Projectile {
                 // 지형 파괴·불 붙이기만 바닐라 폭발에 맡긴다.
                 // 생물 피해·밀쳐내기는 위에서 이미 했으므로 꺼 둔다 (예전엔 시전자까지 폭발 피해를 받고 대상은 이중 피해).
                 // 바닐라 폭발 연기·소리도 꺼서 화염 주먹 연출과 겹치지 않게 한다.
-                level.explode(this, null, TERRAIN_ONLY, center.x, center.y, center.z, 2.0f, fire,
+                level.explode(this, null, TERRAIN_ONLY, center.x, center.y, center.z, terrainPower(), fire,
                         SkillsConfig.ALLOW_BLOCK_DAMAGE.get() ? Level.ExplosionInteraction.MOB : Level.ExplosionInteraction.NONE,
                         ParticleTypes.SMOKE, ParticleTypes.SMOKE, SILENT);
             }
-            level.playSound(null, pos.x, pos.y, pos.z, SkillsRegistry.FIRE_FIST_IMPACT.get(), SoundSource.PLAYERS,
-                    4.0f, 0.95f + random.nextFloat() * 0.1f);
+            level.playSound(null, pos.x, pos.y, pos.z, impactSound(), SoundSource.PLAYERS,
+                    impactVolume(), 0.95f + random.nextFloat() * 0.1f);
         }
 
         PacketDistributor.sendToPlayersNear(level, null, pos.x, pos.y, pos.z, 128.0,
                 new FireFistImpactPayload(getId(), pos.x, pos.y, pos.z,
                         (float) normal.x, (float) normal.y, (float) normal.z,
-                        direct == null ? -1 : direct.getId(), fizzle));
+                        direct == null ? -1 : direct.getId(), fizzle, fxKind()));
         discard();
     }
 
-    /** 폭발 중심에서 대상의 머리·몸통·발 중 하나라도 보이면 범위 피해 (낮은 턱 뒤에 발만 가려도 맞게). */
-    private boolean canSplash(Vec3 from, LivingEntity e) {
-        AABB b = e.getBoundingBox();
-        double cx = (b.minX + b.maxX) * 0.5, cz = (b.minZ + b.maxZ) * 0.5;
-        return hasLineOfSight(from, new Vec3(cx, b.minY + b.getYsize() * 0.5, cz))
-                || hasLineOfSight(from, new Vec3(cx, b.maxY - 0.1, cz))
-                || hasLineOfSight(from, new Vec3(cx, b.minY + 0.1, cz));
-    }
-
-    private boolean hasLineOfSight(Vec3 a, Vec3 b) {
-        return level().clip(new ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this)).getType() == HitResult.Type.MISS;
-    }
-
-    /** 지형에만 영향을 주는 폭발 계산기 (생물 피해 0, 밀쳐내기 0). */
-    private static final ExplosionDamageCalculator TERRAIN_ONLY = new ExplosionDamageCalculator() {
+    /** 지형에만 영향을 주는 폭발 계산기 (생물 피해 0, 밀쳐내기 0). 불기둥·화염 고리도 같이 씀. */
+    public static final ExplosionDamageCalculator TERRAIN_ONLY = new ExplosionDamageCalculator() {
         @Override
         public boolean shouldDamageEntity(Explosion explosion, Entity entity) {
             return false;
@@ -230,10 +229,10 @@ public class FireFistProjectile extends Projectile {
         }
     };
 
-    private static final Holder<SoundEvent> SILENT = BuiltInRegistries.SOUND_EVENT.wrapAsHolder(SoundEvents.EMPTY);
+    public static final Holder<SoundEvent> SILENT = BuiltInRegistries.SOUND_EVENT.wrapAsHolder(SoundEvents.EMPTY);
 
-    private static void knock(Entity e, Vec3 dir, double factor) {
-        double s = SkillsConfig.KNOCKBACK.get() * factor;
+    private void knock(Entity e, Vec3 dir, double factor) {
+        double s = knockback() * factor;
         if (s <= 0) return;
         e.push(dir.x * s, 0.25 * s + 0.1, dir.z * s);
         e.hurtMarked = true;

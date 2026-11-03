@@ -1,11 +1,14 @@
 package com.blackocean.skills.client;
 
+import com.blackocean.skills.Skill;
 import com.blackocean.skills.client.fx.FxManager;
 import com.blackocean.skills.network.CastStartPayload;
 import com.blackocean.skills.network.CooldownSyncPayload;
 import com.blackocean.skills.network.FireFistImpactPayload;
+import com.blackocean.skills.network.SkillFxPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 
 /** 서버에서 온 신호를 화면 연출로 넘긴다. (클라이언트에서만 불림) */
 public final class ClientPacketHandler {
@@ -14,19 +17,32 @@ public final class ClientPacketHandler {
     public static void onCastStart(CastStartPayload p) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
+        Skill skill = Skill.byIndex(p.skill());
         Entity caster = mc.level.getEntity(p.casterId());
-        if (caster != null) {
-            FxManager.onCastStart(caster, p.chargeTicks());
+        if (caster != null && skill != null) {
+            FxManager.onCastStart(caster, skill, p.chargeTicks(), new Vec3(p.x(), p.y(), p.z()), p.size());
         }
     }
 
     public static void onCooldown(CooldownSyncPayload p) {
-        CooldownHud.set(p.remainingTicks(), p.totalTicks());
+        if (p.skill() < 0) {
+            SkillBarHud.resetAll();
+        } else {
+            Skill skill = Skill.byIndex(p.skill());
+            if (skill == null) return;
+            SkillBarHud.set(skill, p.remainingTicks(), p.totalTicks());
+            if (p.denied()) SkillBarHud.flashDenied(skill);
+        }
         if (p.denied()) FxManager.cancelPredictedCharge();
     }
 
     public static void onImpact(FireFistImpactPayload p) {
         if (Minecraft.getInstance().level == null) return;
         FxManager.onImpact(p);
+    }
+
+    public static void onSkillFx(SkillFxPayload p) {
+        if (Minecraft.getInstance().level == null) return;
+        FxManager.onSkillFx(p);
     }
 }

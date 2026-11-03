@@ -4,11 +4,11 @@ license = "All Rights Reserved"
 
 [[mods]]
 modId = "blackocean_skills"
-version = "1.1.1"
+version = "1.2.0"
 displayName = "BlackOcean Skills"
 authors = "빵뿌0"
 description = '''
-블랙오션 능력 스킬. 첫 스킬: 화염 주먹 (R키).
+블랙오션 능력 스킬 4종 (1~4키): 화염 주먹, 불꽃 탄환, 불기둥, 화염 고리.
 서버에서 피해를 판정하고, 클라이언트에서 3D 화염 메시·궤적·폭발 연출을 그립니다.
 '''
 

@@ -2,26 +2,111 @@
     "fire_fist.charge": {
         "category": "player",
         "subtitle": "subtitles.blackocean_skills.fire_fist.charge",
-        "sounds": [ { "name": "blackocean_skills:skill/fire_fist/charge", "attenuation_distance": 24 } ]
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_fist/charge",
+                "attenuation_distance": 24
+            }
+        ]
     },
     "fire_fist.launch": {
         "category": "player",
         "subtitle": "subtitles.blackocean_skills.fire_fist.launch",
-        "sounds": [ { "name": "blackocean_skills:skill/fire_fist/launch", "attenuation_distance": 40 } ]
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_fist/launch",
+                "attenuation_distance": 40
+            }
+        ]
     },
     "fire_fist.travel": {
         "category": "player",
         "subtitle": "subtitles.blackocean_skills.fire_fist.travel",
-        "sounds": [ { "name": "blackocean_skills:skill/fire_fist/travel", "attenuation_distance": 32 } ]
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_fist/travel",
+                "attenuation_distance": 32
+            }
+        ]
     },
     "fire_fist.impact": {
         "category": "player",
         "subtitle": "subtitles.blackocean_skills.fire_fist.impact",
-        "sounds": [ { "name": "blackocean_skills:skill/fire_fist/impact", "attenuation_distance": 64 } ]
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_fist/impact",
+                "attenuation_distance": 64
+            }
+        ]
     },
     "fire_fist.crackle": {
         "category": "player",
         "subtitle": "subtitles.blackocean_skills.fire_fist.crackle",
-        "sounds": [ { "name": "blackocean_skills:skill/fire_fist/crackle", "attenuation_distance": 24 } ]
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_fist/crackle",
+                "attenuation_distance": 24
+            }
+        ]
+    },
+    "fire_bullets.shot": {
+        "category": "player",
+        "subtitle": "subtitles.blackocean_skills.fire_bullets.shot",
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_bullets/shot",
+                "attenuation_distance": 32
+            }
+        ]
+    },
+    "fire_bullets.impact": {
+        "category": "player",
+        "subtitle": "subtitles.blackocean_skills.fire_bullets.impact",
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_bullets/impact",
+                "attenuation_distance": 40
+            }
+        ]
+    },
+    "fire_pillar.warn": {
+        "category": "player",
+        "subtitle": "subtitles.blackocean_skills.fire_pillar.warn",
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_pillar/warn",
+                "attenuation_distance": 32
+            }
+        ]
+    },
+    "fire_pillar.erupt": {
+        "category": "player",
+        "subtitle": "subtitles.blackocean_skills.fire_pillar.erupt",
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/fire_pillar/erupt",
+                "attenuation_distance": 64
+            }
+        ]
+    },
+    "flame_ring.charge": {
+        "category": "player",
+        "subtitle": "subtitles.blackocean_skills.flame_ring.charge",
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/flame_ring/charge",
+                "attenuation_distance": 28
+            }
+        ]
+    },
+    "flame_ring.burst": {
+        "category": "player",
+        "subtitle": "subtitles.blackocean_skills.flame_ring.burst",
+        "sounds": [
+            {
+                "name": "blackocean_skills:skill/flame_ring/burst",
+                "attenuation_distance": 64
+            }
+        ]
     }
 }

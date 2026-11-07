@@ -182,10 +182,11 @@ final class ThunderFx {
         if (ce == null || ce.isRemoved()) return;
         switch (c.skill) {
             case THUNDER_HAMMER -> {
-                Vec3 hand = c.handPos(1f, 0.38);
-                FxManager.lod = FxManager.lodAt(hand);
-                Vec3 head = hand.add(chargeHammerY(ce, 1f, false).scale(1.25 * hammerScale(c, false)));
-                // 망치 머리로 빨려 드는 금빛 불씨 + 지직거리는 전기
+                IceThunderAim.update(c, 0.3);
+                hammerPose(c, 1f, k, POSE);
+                Vec3 head = POSE.head();
+                FxManager.lod = FxManager.lodAt(head);
+                // 망치 머리로 빨려 드는 금빛 불씨 + 지직거리는 전기 (젖힐수록 세짐)
                 for (int i = 0; i < count(3); i++) {
                     Vec3 off = randomDir().scale(rand(1.2f, 1.9f));
                     spawn(sp(Sprite.Kind.EMBER, head.add(off), off.scale(-0.2), 0.16f, 0.05f, 5).color(1f, 0.8f, 0.35f, 1f));
@@ -193,14 +194,13 @@ final class ThunderFx {
                 if (RNG.nextFloat() < 0.5f + 0.5f * k) {
                     arc(head.add(randomDir().scale(0.2)), head.add(randomDir().scale(rand(0.5f, 0.9f))), 0.26f + 0.12f * k, 2, 0, 3, 1, 0.32f, false, 0.35f);
                 }
-                if (RNG.nextFloat() < 0.35f) {
-                    arc(hand, head.add(randomDir().scale(0.3)), 0.2f, 2, 0, 3, 0, 0.3f, false, 0.5f);
-                }
+                if (IceThunderAim.releasing(c)) hammerRelease(IceThunderAim.hand(c, 1f, 0.3), IceThunderAim.shotDir(c), ce);
             }
             case THUNDERCLAP -> {
-                Vec3 hand = c.handPos(1f, 0.38);
-                FxManager.lod = FxManager.lodAt(hand);
-                Vec3 head = hand.add(chargeHammerY(ce, 1f, true).scale(1.25 * hammerScale(c, true)));
+                Vec3 f = c.flatDir();
+                Vec3 grip = clapGrip(ce.position(), f, ce);
+                Vec3 head = grip.add(clapY(f, clapChargePhi(k)).scale((ThunderHammer.HEAD_Y - ThunderHammer.GRIP_Y) * clapScale(k)));
+                FxManager.lod = FxManager.lodAt(head);
                 for (int i = 0; i < count(2); i++) {
                     Vec3 off = randomDir().scale(rand(1.3f, 2.0f));
                     spawn(sp(Sprite.Kind.EMBER, head.add(off), off.scale(-0.2), 0.16f, 0.05f, 5).color(1f, 0.8f, 0.35f, 1f));
@@ -253,21 +253,46 @@ final class ThunderFx {
         Entity ce = c.caster;
         if (ce == null || ce.isRemoved()) return;
         switch (c.skill) {
-            case THUNDER_HAMMER, THUNDERCLAP -> {
-                boolean raised = c.skill == Skill.THUNDERCLAP;
-                Vec3 hand = c.handPos(pt, 0.38);
-                float s = hammerScale(c, raised) * (0.55f + 0.45f * easeOutCubic(Math.min(1f, k * 1.4f)));
-                Vec3 Y = chargeHammerY(ce, pt, raised);
-                Vec3 look = flatLook(ce, pt);
-                // 노이즈로 갉아 먹힌 상태에서 점점 꽉 차며 맺힘
-                float ero = 0.88f * (float) Math.pow(1f - k, 1.4);
-                ThunderHammer.draw(hand, Y, look, s, ThunderHammer.GRIP_Y, ero, 0.75f + 0.55f * k, time * 0.02f, true);
+            case THUNDER_HAMMER -> {
+                // 서버가 망치를 만드는 자리 S 뒤에서 젖혔다가, 마지막 30% 에 앞으로 휘둘러 S 에서 날아가는 망치와 같은 자세가 됨
+                hammerPose(c, pt, k, POSE);
+                float ero = 0.88f * (float) Math.pow(1f - Math.min(1f, k * 1.3f), 1.4);
+                ThunderHammer.draw(POSE.mass, POSE.Y, POSE.X, POSE.s, ThunderHammer.MASS_Y, ero, 0.75f + 0.55f * k, time * 0.02f, true);
                 FxRender.additive();
-                Vec3 head = hand.add(Y.scale((ThunderHammer.HEAD_Y - ThunderHammer.GRIP_Y) * s));
+                Vec3 head = POSE.head();
+                float fl = 0.85f + 0.15f * (float) Math.sin(time * 3.3f);
+                frameGlow(head, (1.4f + 2.6f * k) * fl * POSE.s / 0.6f, GOLD, 0.35f + 0.35f * k);
+                frameGlow(head, 0.5f + 0.7f * k, PALE, 0.6f * k);
+                frameGlow(POSE.mass, 0.8f + 0.6f * k, VIOLET, 0.25f + 0.2f * k);
+            }
+            case THUNDERCLAP -> {
+                // 머리 위로 젖힌 망치 (뇌명 일격의 휘두름이 이 자세에서 그대로 이어짐)
+                Vec3 f = c.flatDir();
+                Vec3 grip = clapGrip(ce.getPosition(pt), f, ce);
+                float s = clapScale(k);
+                double phi = clapChargePhi(k);
+                Vec3 Y = clapY(f, phi), X = clapX(f, phi);
+                float ero = 0.88f * (float) Math.pow(1f - Math.min(1f, k * 1.3f), 1.4);
+                ThunderHammer.draw(grip, Y, X, s, ThunderHammer.GRIP_Y, ero, 0.75f + 0.55f * k, time * 0.02f, true);
+                FxRender.additive();
+                Vec3 head = grip.add(Y.scale((ThunderHammer.HEAD_Y - ThunderHammer.GRIP_Y) * s));
                 float fl = 0.85f + 0.15f * (float) Math.sin(time * 3.3f);
                 frameGlow(head, (1.4f + 2.6f * k) * fl * s / 0.6f, GOLD, 0.35f + 0.35f * k);
                 frameGlow(head, 0.5f + 0.7f * k, PALE, 0.6f * k);
-                frameGlow(hand, 0.8f + 0.6f * k, VIOLET, 0.25f + 0.2f * k);
+                // 바닥에 부채꼴 예고 (실제 판정 거리·각도)
+                float range = Math.max(1f, ClientSkillStats.range(Skill.THUNDERCLAP));
+                float half = (float) Math.toRadians(Math.max(5f, Math.min(90f, ClientSkillStats.radius(Skill.THUNDERCLAP))));
+                float base = (float) Math.atan2(f.z, f.x);
+                Vec3 o = ce.getPosition(pt);
+                float a = 0.18f + 0.5f * k;
+                FxRender.spriteShader(FxRender.BEAM);
+                BufferBuilder bb = FxRender.quads();
+                ThunderParts.coneOutline(bb, o, base, half, range, 0.3f, a * GOLD[0], a * GOLD[1], a * GOLD[2], a);
+                FxRender.draw(bb);
+                FxRender.elemShader(EL, 2.4f, 0.3f, 0.35f + 0.5f * k);
+                bb = FxRender.quads();
+                ThunderParts.band(bb, o.add(0, 0.07, 0), 0.6f, 0.6f + (range - 0.6f) * easeOutCubic(k), base - half, base + half, 0.35f, ThunderParts.segs(range, 2 * half), time * 0.02f);
+                FxRender.draw(bb);
             }
             case THUNDER_LEAP -> {
                 Vec3 feet = ce.getPosition(pt).add(0, 0.05, 0);
@@ -277,7 +302,9 @@ final class ThunderFx {
                 FxRender.ring(bb, feet.add(0, 0.01, 0), UP, 1.6f - 0.8f * k, 1.75f - 0.8f * k, 0.5f * k, -time * 0.7f, 40);
                 FxRender.draw(bb);
                 frameGlow(feet.add(0, 0.6, 0), 2f + 2.5f * k, GOLD, 0.3f + 0.3f * k);
-                renderRune(c.target, c.size * 1.05f, 0.3f + 0.35f * k, time, 1f);
+                // 착지 자리: 실제 착지 범위 경계 (뛰기 전부터 다른 사람에게 보임)
+                ThunderParts.edgeRing(c.target, c.size, 0.6f + 0.4f * k, time);
+                renderRune(c.target, c.size * 0.9f, 0.3f + 0.35f * k, time, 1f);
             }
             case THUNDER_ROAR -> {
                 Vec3 feet = ce.getPosition(pt);
@@ -285,39 +312,110 @@ final class ThunderFx {
                 float fl = 0.85f + 0.15f * (float) Math.sin(time * 4.1f);
                 frameGlow(chest, (1.5f + 4f * k * k) * fl, GOLD, 0.35f + 0.45f * k);
                 frameGlow(chest, 0.6f + 1.2f * k, PALE, 0.5f + 0.4f * k);
+                // 끌려 오는 범위 R (바깥 경계) + 터지는 범위 0.6R (안쪽 고리, 서버 Roar 와 같은 비율)
                 float R = Math.max(2f, ClientSkillStats.radius(c.skill));
-                FxRender.elemShader(EL, 2.6f, 0.25f - 0.2f * k, 0.8f + 0.5f * k);
+                ThunderParts.edgeRing(feet, R, 0.35f + 0.5f * k, time);
+                FxRender.elemShader(EL, 2.6f, 0.25f - 0.2f * k, 0.5f + 0.5f * k);
                 BufferBuilder bb = FxRender.quads();
-                float rr = R * (1f - 0.7f * k);
-                FxRender.ring(bb, feet.add(0, 0.05, 0), UP, rr * 0.9f, rr, 0.6f + 0.4f * k, time * 0.6f, 56);
+                float br = R * ROAR_BURST;
+                FxRender.ring(bb, feet.add(0, 0.06, 0), UP, br - 0.2f, br, 0.5f * k, time * 0.6f, ThunderParts.segs(br, TAU));
                 FxRender.draw(bb);
             }
             case THUNDER_JUDGMENT -> {
                 Vec3 p = ce.getPosition(pt);
                 frameGlow(p.add(0, 1.0, 0), 2.5f + 3f * k, GOLD, 0.3f + 0.4f * k);
                 frameGlow(p.add(0, ce.getBbHeight() + 0.4, 0), 0.8f + 1.6f * k, PALE, 0.6f + 0.3f * k);
-                renderRune(c.target, c.size * (0.3f + 0.4f * k), 0.25f + 0.4f * k, time, 1f);
+                // 내려찍힐 자리: 경계(= 실제 반지름)는 처음부터, 안쪽 룬은 점점 커짐
+                ThunderParts.edgeRing(c.target, c.size, 0.5f + 0.4f * k, time);
+                renderRune(c.target, c.size * (0.2f + 0.2f * k), 0.25f + 0.4f * k, time, 1f);
             }
             default -> { }
         }
     }
 
-    private static float hammerScale(FxManager.ChargeFx c, boolean raised) {
-        Minecraft mc = Minecraft.getInstance();
-        boolean fp = c.caster == mc.player && mc.options.getCameraType().isFirstPerson();
-        return (fp ? 0.42f : 0.62f) * (raised ? 1.25f : 1f);
+    /** 서버 Roar: 끌어당긴 뒤 반지름 × 0.6 안을 터뜨림 */
+    static final float ROAR_BURST = 0.6f;
+
+    // ---- 망치 자세 (뇌신의 망치 준비 → 날아가는 망치) ----
+
+    private static final HammerPose POSE = new HammerPose();
+
+    private static final class HammerPose {
+        Vec3 mass = Vec3.ZERO, Y = UP, X = new Vec3(1, 0, 0);
+        float s = 0.575f;
+
+        Vec3 head() {
+            return mass.add(Y.scale((ThunderHammer.HEAD_Y - ThunderHammer.MASS_Y) * s));
+        }
     }
 
-    private static Vec3 flatLook(Entity e, float pt) {
-        Vec3 l = e.getViewVector(pt);
-        Vec3 f = new Vec3(l.x, 0, l.z);
-        return f.lengthSqr() < 1.0E-5 ? new Vec3(0, 0, 1) : f.normalize();
+    /** 날아가는 망치의 크기 (ProjectileFx 첫 틱과 같게) */
+    private static final float FLY_SCALE = 1.15f * 0.5f;
+
+    /**
+     * 망치 준비 자세. 투사체와 같은 틀(fwd = 서버 발사 방향, up = right × fwd)에서
+     * 0~70%: 머리를 뒤로 젖힘 (th 0 → -1.15), 70~100%: 가속하며 앞으로 휘둘러 th = 0, 무게 중심 = 서버 생성 자리 S.
+     * 날아가는 망치는 th = 0 에서 앞으로 돌기 시작하므로 끊김 없이 이어진다.
+     */
+    private static void hammerPose(FxManager.ChargeFx c, float pt, float k, HammerPose out) {
+        Vec3 S = IceThunderAim.hand(c, pt, 0.3), fwd = IceThunderAim.shotDir(c);
+        Vec3 right = fwd.cross(UP);
+        right = right.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : right.normalize();
+        Vec3 up = right.cross(fwd).normalize();
+        float cock = smooth(k / 0.7f);
+        float sw = clamp01((k - 0.7f) / 0.3f);
+        sw = sw * sw;
+        float back = cock * (1f - sw);
+        double th = -1.15 * back;
+        out.Y = up.scale(Math.cos(th)).add(fwd.scale(Math.sin(th)));
+        out.X = fwd.scale(Math.cos(th)).subtract(up.scale(Math.sin(th)));
+        out.mass = S.subtract(fwd.scale(0.75 * back)).add(up.scale(0.2 * back));
+        out.s = FLY_SCALE * (0.6f + 0.4f * easeOutCubic(Math.min(1f, k * 1.4f)));
     }
 
-    /** 손에 든 망치의 손잡이 → 머리 방향 (내려칠 땐 어깨 뒤로 젖힘) */
-    private static Vec3 chargeHammerY(Entity e, float pt, boolean raised) {
-        Vec3 f = flatLook(e, pt);
-        return raised ? UP.scale(0.55).subtract(f.scale(0.83)).normalize() : UP.scale(0.93).subtract(f.scale(0.36)).normalize();
+    /** 망치가 손에서 나가는 순간: S 에서 조준 방향으로 음속 고리 2개 + 앞으로 튀는 불꽃 + 번개 */
+    private static void hammerRelease(Vec3 S, Vec3 d, Entity caster) {
+        FxManager.lod = FxManager.lodAt(S);
+        spawn(sp(Sprite.Kind.GLOW, S, Vec3.ZERO, 2.2f, 3.6f, 4).color(1f, 0.95f, 0.8f, 1f));
+        FxManager.addRing(S.add(d.scale(0.6)), d, 0.3f, 2.4f, 6, 0, 1f, EL);
+        FxManager.addRing(S.add(d.scale(1.6)), d, 0.2f, 1.5f, 5, 1, 0.7f, EL);
+        arc(S, S.add(d.scale(2.2)).add(randomDir().scale(0.3)), 0.5f, 2, 0, 3, 1, 0.25f, false, 0.4f);
+        for (int i = 0; i < count(12); i++) {
+            Vec3 v = d.scale(rand(0.4f, 0.9f)).add(randomDir().scale(0.25));
+            spawn(sp(Sprite.Kind.SPARK, S, v, 0.1f, 0.1f, 5 + RNG.nextInt(4)).color(1f, 0.82f, 0.4f, 1f).physics(0.03f, 0.88f));
+        }
+        if (IceThunderAim.firstPersonSelf(caster)) {
+            CameraShake.add(1.0f);
+            CameraShake.kick(-1.0f, 0f);
+        }
+    }
+
+    // ---- 뇌명 일격 자세 (준비의 젖힘 → ClapFx 의 내려찍기가 같은 손잡이·같은 평면에서 이어짐) ----
+
+    /** 젖힌 끝 각도 / 내려찍은 끝 각도 (Y = UP cosφ + f sinφ) */
+    static final double CLAP_PHI0 = -1.0, CLAP_PHI1 = Math.PI - 0.56;
+    static final float CLAP_SCALE = 0.95f;
+
+    private static double clapChargePhi(float k) {
+        return -0.35 + (CLAP_PHI0 + 0.35) * easeOutCubic(k);
+    }
+
+    private static float clapScale(float k) {
+        return CLAP_SCALE * (0.6f + 0.4f * easeOutCubic(Math.min(1f, k * 1.4f)));
+    }
+
+    static Vec3 clapY(Vec3 f, double phi) {
+        return UP.scale(Math.cos(phi)).add(f.scale(Math.sin(phi)));
+    }
+
+    static Vec3 clapX(Vec3 f, double phi) {
+        return f.scale(Math.cos(phi)).subtract(UP.scale(Math.sin(phi)));
+    }
+
+    /** 손잡이 자리 (발 기준). 1인칭 본인은 오른쪽으로 비켜서 손잡이가 눈앞을 지나지 않게 */
+    static Vec3 clapGrip(Vec3 feet, Vec3 f, @Nullable Entity caster) {
+        double side = caster != null && IceThunderAim.firstPersonSelf(caster) ? 0.75 : 0.25;
+        return feet.add(0, 1.35, 0).add(f.scale(0.4)).add(IceThunderAim.flatRight(f).scale(side));
     }
 
     // =====================================================================
@@ -436,16 +534,18 @@ final class ThunderFx {
         spawn(sp(Sprite.Kind.GLOW, p, Vec3.ZERO, 6f * power + 2f, 9f * power + 2f, 5).color(1f, 0.97f, 0.88f, 1f));
         spawn(sp(Sprite.Kind.GLOW, p, Vec3.ZERO, R * 2.5f, R * 3.4f, 12).color(1f, 0.7f, 0.2f, 0.7f));
         spawn(sp(Sprite.Kind.GLOW, p, Vec3.ZERO, R * 1.8f, R * 2.6f, 9).color(0.62f, 0.32f, 1f, 0.35f));
+        // 충격파: 가장 밝은 고리와 충격파 벽이 폭발 피해 반지름 R 에서 멈춤 + 경계를 잠깐 또렷하게
         Vec3 rc = p.add(ringN.scale(0.07));
-        FxManager.addRing(rc, ringN, 0.5f, R * 2.6f, 12, 0, 1f, EL);
-        FxManager.addRing(rc, ringN, 0.3f, R * 1.6f, 9, 2, 0.85f, EL);
-        FxManager.addRing(p.add(ringN.scale(1.2)), ringN, 0.3f, R * 1.4f, 8, 1, 0.6f, EL);
+        FxManager.addRing(rc, ringN, 0.5f, R * ThunderParts.RK, 9, 0, 1f, EL);
+        FxManager.addRing(rc, ringN, 0.3f, R * 0.7f, 7, 1, 0.85f, EL);
+        FxManager.addRing(p.add(ringN.scale(1.2)), ringN, 0.3f, R * 0.9f, 7, 1, 0.6f, EL);
         if (ringN == UP) {
-            ThunderParts.addWall(ThunderParts.ShockWall.ring(p, R * 0.3f, R * 2.1f, 1.3f * power + 0.4f, 12, 0));
-            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, p, UP, R * 1.15f, 150, 0, 3f, 0f, 0.85f, GOLD));
-            SkillFx.addDecal(p, UP, R * 0.75f, 200, 0.6f, 0.5f, 0.42f);
+            ThunderParts.addWall(ThunderParts.ShockWall.ring(p, R * 0.3f, R, 1.3f * power + 0.4f, 9, 0));
+            ThunderParts.addEdge(p, R, 14, 0, 1f);
+            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, p, UP, R * 1.05f, 120, 0, 3f, 0f, 0.85f, GOLD));
+            SkillFx.addDecal(p, UP, R * 0.75f, 160, 0.6f, 0.5f, 0.42f);
         } else {
-            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, p, ringN, R * 0.8f, 100, 0, 2f, 0f, 0.7f, GOLD));
+            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, p, ringN, R * 0.8f, 90, 0, 2f, 0f, 0.7f, GOLD));
         }
         // 위로 치솟는 번개
         if (upBolts) {
@@ -463,7 +563,7 @@ final class ThunderFx {
             double a = base + i * TAU / ng + rand(-0.2f, 0.2f);
             Vec3 d = tb[0].scale(Math.cos(a)).add(tb[1].scale(Math.sin(a)));
             Vec3 s0 = p.add(d.scale(R * 0.2)).add(ringN.scale(0.15));
-            Vec3 s1 = p.add(d.scale(R * rand(0.9f, 1.5f))).add(ringN.scale(0.12));
+            Vec3 s1 = p.add(d.scale(R * rand(0.75f, 1.0f))).add(ringN.scale(0.12));
             arc(s0, s1, 0.5f * power, 5 + RNG.nextInt(3), RNG.nextInt(2), 4, 1, 0.24f, ringN == UP, 0.3f);
         }
         for (int i = 0; i < count((int) (60 * power)); i++) {
@@ -531,7 +631,7 @@ final class ThunderFx {
         FxRender.draw(bb);
         FxRender.elemShader(EL, 2.2f, 0.25f, 0.6f + 0.6f * a);
         bb = FxRender.quads();
-        FxRender.ring(bb, c.add(0, 0.03, 0), UP, R * 0.97f, R * 1.06f, 0.5f + 0.5f * a, time * 0.4f, ThunderParts.segs(R, TAU));
+        FxRender.ring(bb, c.add(0, 0.03, 0), UP, R * 0.93f, R, 0.5f + 0.5f * a, time * 0.4f, ThunderParts.segs(R, TAU));
         FxRender.draw(bb);
     }
 
@@ -560,9 +660,9 @@ final class ThunderFx {
     private static void leapSlam(Vec3 c, float R, @Nullable Entity caster) {
         FxManager.lod = FxManager.lodAt(c);
         thunderBlast(c, UP, R, 1.25f, true);
-        ThunderParts.addWall(ThunderParts.ShockWall.ring(c, R * 0.2f, R * 1.4f, 2.2f, 8, 0));
+        ThunderParts.addWall(ThunderParts.ShockWall.ring(c, R * 0.2f, R, 2.2f, 7, 0));
         DebrisFx.burst(c, R, 34, 1.0f);
-        DebrisFx.crater(c, R * 0.9f, 180, EL);
+        DebrisFx.crater(c, R * 0.9f, 140, EL);
         Minecraft mc = Minecraft.getInstance();
         if (caster != null && caster == mc.player) {
             CameraShake.add(3.4f);
@@ -589,13 +689,15 @@ final class ThunderFx {
             Vec3 flat = dest.subtract(start).multiply(1, 0, 1);
             this.arcH = 2.5 + flat.length() * 0.25; // 서버와 같은 공식
             FxManager.lod = FxManager.lodAt(start);
-            // 도약 폭발
+            // 도약 폭발 (발판을 박차는 반동: 흙·조각이 뛰는 반대쪽으로 튐)
             spawn(sp(Sprite.Kind.GLOW, start.add(0, 0.6, 0), Vec3.ZERO, 3.5f, 6f, 5).color(1f, 0.95f, 0.8f, 1f));
-            FxManager.addRing(start.add(0, 0.06, 0), UP, 0.4f, 4.2f, 10, 0, 1f, EL);
-            FxManager.addRing(start.add(0, 0.06, 0), UP, 0.3f, 2.6f, 7, 2, 0.8f, EL);
-            ThunderParts.addWall(ThunderParts.ShockWall.ring(start, 0.4f, 3.4f, 0.9f, 9, 0));
-            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, start, UP, 1.8f, 90, 0, 2f, 0f, 0.6f, GOLD));
-            DebrisFx.burst(start, 1.6f, 10, 0.5f);
+            FxManager.addRing(start.add(0, 0.06, 0), UP, 0.4f, 3.2f, 8, 0, 1f, EL);
+            FxManager.addRing(start.add(0, 0.06, 0), UP, 0.3f, 2.0f, 6, 2, 0.8f, EL);
+            ThunderParts.addWall(ThunderParts.ShockWall.ring(start, 0.4f, 2.6f, 0.9f, 8, 0));
+            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, start, UP, 1.8f, 70, 0, 2f, 0f, 0.6f, GOLD));
+            Vec3 flat = dest.subtract(start).multiply(1, 0, 1);
+            Vec3 back = flat.lengthSqr() < 1.0E-4 ? new Vec3(0, 0, -1) : flat.normalize().scale(-1);
+            DebrisFx.directed(start, back, 2.6f, 55f, 10, 0.6f);
             dust(start, 1.8f, 8, 0.7f);
             for (int i = 0; i < count(30); i++) {
                 Vec3 d = new Vec3(rand(-1f, 1f), rand(0.4f, 1.6f), rand(-1f, 1f)).normalize();
@@ -658,18 +760,22 @@ final class ThunderFx {
         /** 착지점: 좁혀 드는 카운트다운 고리 + 룬 원 */
         void renderGround(float pt, float time) {
             if (landedAge >= 0) return;
-            float k = clamp01((age + pt) / ticks);
+            // 서버는 이벤트 틱에 이미 한 번 움직였으므로 +1 (착지 틱 = ticks)
+            float k = clamp01((age + 1 + pt) / ticks);
             float rem = 1f - k;
-            renderRune(dest, R * 1.05f, 0.45f + 0.5f * k, time, -1f);
+            // 착지 범위: 경계 고리(= 실제 반지름)는 그대로, 바깥 고리 3개가 좁혀 들어 착지 순간 경계에 겹침, 안쪽은 차오름
+            ThunderParts.edgeRing(dest, R, 0.7f + 0.3f * k, time);
+            ThunderParts.fillFront(dest, R, k, 0.55f, time);
+            renderRune(dest, R * 0.9f, 0.35f + 0.45f * k, time, -1f);
             FxRender.elemShader(EL, 2.6f, 0.15f, 1.0f + 0.4f * k);
             BufferBuilder bb = FxRender.quads();
             Vec3 c = dest.add(0, 0.08, 0);
             for (int i = 0; i < 3; i++) {
-                float rr = R * (1.02f + rem * (1.4f + 0.7f * i));
-                FxRender.ring(bb, c, UP, rr - 0.12f - 0.1f * k, rr, (0.35f + 0.6f * k) * (1f - 0.25f * i), time * (0.5f + 0.2f * i), ThunderParts.segs(rr, TAU));
+                float rr = R * (1f + rem * (0.6f + 0.4f * i));
+                FxRender.ring(bb, c, UP, rr - 0.12f - 0.1f * k, rr, (0.3f + 0.5f * k) * (1f - 0.25f * i), time * (0.5f + 0.2f * i), ThunderParts.segs(rr, TAU));
             }
             FxRender.draw(bb);
-            frameGlow(c.add(0, 0.3, 0), R * (1.5f + 1.5f * k), GOLD, 0.15f + 0.35f * k * k);
+            frameGlow(c.add(0, 0.3, 0), R * (1.5f + 1.0f * k), GOLD, 0.15f + 0.3f * k * k);
         }
 
         /** 몸을 따라오는 금빛 잔상 띠 */
@@ -715,8 +821,9 @@ final class ThunderFx {
     // =====================================================================
 
     static final class ClapFx {
-        static final int WAVE = 10, LIFE = 70;
-        final Vec3 o, dir;
+        /** 서버는 부채꼴 전체를 한 틱에 맞히므로 충격파도 6틱 만에 끝까지 (대부분 처음 3틱에) */
+        static final int WAVE = 6, LIFE = 44;
+        final Vec3 o, dir, grip, hit;
         final float range, half, base;
         final List<Vec3[]> cracks = new ArrayList<>();
         final float[] crackLen;
@@ -728,34 +835,37 @@ final class ThunderFx {
             this.range = range;
             this.half = (float) Math.toRadians(halfDeg);
             this.base = (float) Math.atan2(dir.z, dir.x);
+            // 준비 때 젖힌 망치와 같은 손잡이 → 내려찍은 망치 머리가 닿는 자리 = 충격의 중심
+            this.grip = clapGrip(o, dir, caster);
+            Vec3 headEnd = grip.add(clapY(dir, CLAP_PHI1).scale((ThunderHammer.HEAD_Y - ThunderHammer.GRIP_Y) * CLAP_SCALE));
+            this.hit = new Vec3(headEnd.x, o.y, headEnd.z);
             FxManager.lod = FxManager.lodAt(o);
-            // 갈라지는 땅 (부채꼴 안쪽으로 뻗는 금)
+            // 갈라지는 땅 (부채꼴 안쪽으로 뻗는 금, 끝은 사거리 안)
             int n = Math.min(9, 4 + (int) (range / 3));
             crackLen = new float[n];
             for (int i = 0; i < n; i++) {
-                float a = base + half * (n == 1 ? 0 : (2f * i / (n - 1) - 1f)) * 0.9f + rand(-0.08f, 0.08f);
-                float L = range * rand(0.7f, 1.02f);
+                float a = base + half * (n == 1 ? 0 : (2f * i / (n - 1) - 1f)) * 0.9f + rand(-0.06f, 0.06f);
+                float L = range * rand(0.7f, 0.98f);
                 Vec3 s0 = polar(o, a, 0.6, 0.05), s1 = polar(o, a, L, 0.05);
                 Vec3[] pts = ThunderParts.jagged(s0, s1, 5, 0.12f, true);
                 for (int j = 0; j < pts.length; j++) pts[j] = new Vec3(pts[j].x, o.y + 0.05, pts[j].z);
                 cracks.add(pts);
                 crackLen[i] = L;
             }
-            Vec3 hit = o.add(dir.scale(1.6));
-            spawn(sp(Sprite.Kind.GLOW, hit.add(0, 0.5, 0), Vec3.ZERO, 5f, 8f, 5).color(1f, 0.96f, 0.85f, 1f));
-            spawn(sp(Sprite.Kind.GLOW, hit, Vec3.ZERO, 6f, 9f, 10).color(1f, 0.7f, 0.2f, 0.6f));
-            // 음속 고리 (앞쪽으로 세운 것 2개 + 바닥)
-            Vec3 boom = o.add(0, 1.0, 0).add(dir.scale(1.4));
-            FxManager.addRing(boom, dir, 0.4f, 4.2f, 7, 0, 1f, EL);
-            FxManager.addRing(boom.add(dir.scale(1.2)), dir, 0.3f, 6.5f, 10, 2, 0.75f, EL);
-            FxManager.addRing(hit.add(0, 0.06, 0), UP, 0.3f, 3.2f, 8, 0, 0.9f, EL);
+            spawn(sp(Sprite.Kind.GLOW, hit.add(0, 0.5, 0), Vec3.ZERO, 5f, 8f, 4).color(1f, 0.96f, 0.85f, 1f));
+            spawn(sp(Sprite.Kind.GLOW, hit, Vec3.ZERO, 6f, 9f, 8).color(1f, 0.7f, 0.2f, 0.6f));
+            // 음속 고리 (공격 방향으로 세운 것 2개 + 망치가 박힌 바닥)
+            Vec3 boom = o.add(0, 1.0, 0).add(dir.scale(1.6));
+            FxManager.addRing(boom, dir, 0.4f, 4.2f, 6, 0, 1f, EL);
+            FxManager.addRing(boom.add(dir.scale(1.4)), dir, 0.3f, 6.0f, 8, 1, 0.7f, EL);
+            FxManager.addRing(hit.add(0, 0.06, 0), UP, 0.3f, 2.6f, 6, 0, 0.9f, EL);
             ThunderParts.addWall(new ThunderParts.ShockWall(o, 0.8f, range, 1.8f, WAVE + 2, 0, base - half, base + half));
-            ThunderParts.addWall(new ThunderParts.ShockWall(o, 0.5f, range * 0.75f, 1.0f, WAVE + 4, 2, base - half, base + half));
-            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, hit, UP, 2.2f, 120, 0, 2f, 0f, 0.75f, GOLD));
+            ThunderParts.addWall(new ThunderParts.ShockWall(o, 0.5f, range * 0.7f, 1.0f, WAVE + 3, 1, base - half, base + half));
+            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, hit, UP, 2.2f, 90, 0, 2f, 0f, 0.75f, GOLD));
             DebrisFx.directed(o, dir, range, (float) Math.toDegrees(half), 40, 1.0f);
-            DebrisFx.crater(hit, 1.8f, 140, EL);
+            DebrisFx.crater(hit, 1.8f, 110, EL);
             for (int i = 0; i < count(30); i++) {
-                Vec3 d = new Vec3(rand(-1f, 1f), rand(0.3f, 1.4f), rand(-1f, 1f)).normalize();
+                Vec3 d = new Vec3(rand(-1f, 1f), rand(0.3f, 1.4f), rand(-1f, 1f)).add(dir.scale(0.6)).normalize();
                 spawn(sp(Sprite.Kind.SPARK, hit.add(0, 0.2, 0), d.scale(rand(0.4f, 1.1f)), 0.1f, 0.1f, 7 + RNG.nextInt(7))
                         .color(1f, 0.82f, 0.4f, 1f).physics(0.045f, 0.9f));
             }
@@ -763,6 +873,7 @@ final class ThunderFx {
             Minecraft mc = Minecraft.getInstance();
             if (caster != null && caster == mc.player) {
                 CameraShake.add(2.6f);
+                CameraShake.kick(1.2f, 0f);
                 ScreenFx.flash(0xFFE7A0, 0.2f, 5);
             } else if (d < range + 12) {
                 CameraShake.add((float) (2.4 * (1 - d / (range + 12))));
@@ -784,7 +895,7 @@ final class ThunderFx {
                 int nArc = Math.max(1, count(Math.min(4, 1 + (int) (spanArc / 3f))));
                 for (int i = 0; i < nArc; i++) {
                     float a = base + rand(-half, half);
-                    arc(polar(o, a, Math.max(0.5f, r - 2f), 0.15), polar(o, a + rand(-0.1f, 0.1f), r + 0.8f, 0.12), 0.55f, 3, 0, 4, 1, 0.22f, true, 0.35f);
+                    arc(polar(o, a, Math.max(0.5f, r - 2f), 0.15), polar(o, a + rand(-0.06f, 0.06f), Math.min(range, r + 0.8f), 0.12), 0.55f, 3, 0, 4, 1, 0.22f, true, 0.35f);
                 }
                 for (int i = 0; i < count((int) (2 + spanArc * 0.8f)); i++) {
                     float a = base + rand(-half, half);
@@ -796,12 +907,12 @@ final class ThunderFx {
                     float a = base + rand(-half, half);
                     Vec3 at = polar(o, a, r, rand(0.3f, 0.8f));
                     float sh = rand(0.85f, 1.15f);
-                    Sprite sm = sp(Sprite.Kind.SMOKE, at, new Vec3(Math.cos(a) * 0.08, rand(0.02f, 0.06f), Math.sin(a) * 0.08), rand(1.4f, 2f), rand(3.2f, 4.2f), 22 + RNG.nextInt(14))
+                    Sprite sm = sp(Sprite.Kind.SMOKE, at, new Vec3(Math.cos(a) * 0.08, rand(0.02f, 0.06f), Math.sin(a) * 0.08), rand(1.4f, 2f), rand(3.2f, 4.2f), 20 + RNG.nextInt(10))
                             .color(DUST[0] * sh, DUST[1] * sh, DUST[2] * sh, 0.5f).physics(0f, 0.92f);
                     sm.rot = RNG.nextFloat() * TAU;
                     spawn(sm);
                 }
-            } else if (age < 40 && RNG.nextFloat() < 0.25f) {
+            } else if (age < 28 && RNG.nextFloat() < 0.25f) {
                 // 식어 가는 금 위의 잔전기
                 Vec3[] c = cracks.get(RNG.nextInt(cracks.size()));
                 int i = RNG.nextInt(c.length - 1);
@@ -813,6 +924,13 @@ final class ThunderFx {
         void emitCracks(BufferBuilder bb, float pt) {
             float t = age + pt;
             float r = waveR(t);
+            // 부채꼴 테두리 (= 실제 판정 범위): 친 순간 가장 밝고 0.6초에 걸쳐 사라짐
+            float ea = 1f - smooth((t - 3f) / 9f);
+            if (ea > 0.01f) {
+                float e2 = ea * 0.9f;
+                ThunderParts.coneOutline(bb, o, base, half, range, 0.34f, e2 * GOLD[0], e2 * GOLD[1], e2 * GOLD[2], e2);
+                ThunderParts.coneOutline(bb, o, base, half, range, 0.1f, ea, ea * 0.95f, ea * 0.8f, ea);
+            }
             float cool = clamp01((t - WAVE) / (LIFE - WAVE));
             float a = (float) Math.pow(1f - cool, 1.5) * (t < WAVE + 3 ? 1f : 0.85f);
             if (a < 0.01f) return;
@@ -832,16 +950,13 @@ final class ThunderFx {
                 Vec3 front = polar(o, base, r, 0.8);
                 frameGlow(front, 3f + r * half, GOLD, 0.35f * (1f - t / (WAVE + 1)));
             }
-            // 땅을 내려찍는 망치: 0~2틱 휘두름, 박힌 채 8틱에 걸쳐 흩어짐
-            if (t < 12f) {
-                float sw = clamp01(t / 2.2f);
-                double phi = Math.PI * (0.45 + 0.55 * sw * sw);
-                Vec3 Y = UP.scale(Math.cos(phi)).add(dir.scale(Math.sin(phi)));
-                Vec3 X = dir.scale(Math.cos(phi)).subtract(UP.scale(Math.sin(phi)));
-                float s = 0.95f;
-                Vec3 grip = o.add(0, 1.3, 0).add(dir.scale(0.45));
-                float ero = t < 3f ? 0.05f : clamp01((t - 3f) / 9f);
-                ThunderHammer.draw(grip, Y, X, s, ThunderHammer.GRIP_Y, ero, 1.25f, time * 0.03f, true);
+            // 땅을 내려찍는 망치: 준비 때 젖힌 자세(φ0)에서 1.5틱 만에 가속하며 내려찍고, 박힌 채 흩어짐
+            if (t < 11f) {
+                float sw = clamp01(t / 1.5f);
+                double phi = CLAP_PHI0 + (CLAP_PHI1 - CLAP_PHI0) * sw * sw;
+                Vec3 Y = clapY(dir, phi), X = clapX(dir, phi);
+                float ero = t < 3f ? 0.05f : clamp01((t - 3f) / 8f);
+                ThunderHammer.draw(grip, Y, X, CLAP_SCALE, ThunderHammer.GRIP_Y, ero, 1.25f, time * 0.03f, true);
                 FxRender.additive();
             }
         }
@@ -853,18 +968,19 @@ final class ThunderFx {
 
     private static void roarBurst(Vec3 g, float R, @Nullable Entity caster) {
         FxManager.lod = FxManager.lodAt(g);
+        // R = 서버 폭발 반지름 (끌어당김 반지름 × 0.6). 돔·고리·번개 모두 R 안에서 끝남
         Vec3 chest = g.add(0, 1.1, 0);
         thunderBlast(g, UP, R, 1.15f, true);
-        ThunderParts.addBlast(new ThunderParts.Blast(chest, R * 1.05f, 1.2f, 16, 4));
-        FxManager.addRing(chest, UP, 0.5f, R * 2.2f, 11, 0, 0.9f, EL);
+        ThunderParts.addBlast(new ThunderParts.Blast(chest, R * 0.9f, 1.2f, 14, 3));
+        FxManager.addRing(chest, UP, 0.5f, R * ThunderParts.RK, 8, 0, 0.9f, EL);
         // 사방으로 터지는 굵은 번개 (구 모양)
         for (int i = 0; i < Math.max(5, count(9)); i++) {
             Vec3 d = randomDir();
             if (d.y < -0.2) d = new Vec3(d.x, -d.y * 0.5, d.z);
-            arc(chest, chest.add(d.normalize().scale(R * rand(1.0f, 1.5f))), 0.8f, 6, RNG.nextInt(2), 5, 2, 0.22f, false, 0.4f);
+            arc(chest, chest.add(d.normalize().scale(R * rand(0.8f, 1.05f))), 0.8f, 5, RNG.nextInt(2), 5, 2, 0.22f, false, 0.4f);
         }
         DebrisFx.burst(g, R, 30, 0.9f);
-        DebrisFx.crater(g, R * 0.8f, 160, EL);
+        DebrisFx.crater(g, R * 0.8f, 130, EL);
         Minecraft mc = Minecraft.getInstance();
         if (caster != null && caster == mc.player) {
             CameraShake.add(3.0f);
@@ -886,7 +1002,7 @@ final class ThunderFx {
             this.casterId = casterId;
             FxManager.lod = FxManager.lodAt(g);
             // 포효 순간: 바깥으로 한 번 퍼지는 음파
-            FxManager.addRing(g.add(0, 1.2, 0), UP, 0.5f, R * 1.3f, 8, 0, 0.8f, EL);
+            FxManager.addRing(g.add(0, 1.2, 0), UP, 0.5f, R * ThunderParts.RK, 7, 0, 0.8f, EL);
             spawn(sp(Sprite.Kind.GLOW, g.add(0, 1.3, 0), Vec3.ZERO, 3f, 5f, 5).color(1f, 0.95f, 0.8f, 1f));
             if (distToPlayer(g) < R + 8) CameraShake.add(1.2f);
         }
@@ -906,7 +1022,7 @@ final class ThunderFx {
             Vec3 c = center(1f);
             Vec3 chest = c.add(0, 1.1, 0);
             FxManager.lod = FxManager.lodAt(c);
-            float k = clamp01((float) age / pull);
+            float k = clamp01((age + 1f) / pull);
             // 사방에서 빨려 드는 번개 줄기
             for (int i = 0; i < Math.max(1, count(2 + (int) (2 * k))); i++) {
                 Vec3 d = randomDir();
@@ -939,17 +1055,21 @@ final class ThunderFx {
 
         void render(float pt, float time) {
             if (done) return;
-            float k = clamp01((age + pt) / pull);
+            // 서버는 이벤트 틱에 이미 한 번 끌어당김 → +1 (k = 1 인 순간 터짐)
+            float k = clamp01((age + 1 + pt) / pull);
             Vec3 c = center(pt);
             Vec3 chest = c.add(0, 1.1, 0);
             // 가슴에 모이는 에너지 구
             float r = 0.25f + 0.65f * k;
             FxRender.elemShader(EL, 4f, 0.05f, 1.2f + 0.6f * k);
             FxManager.BlastSphere.draw(chest, r * (1f + 0.06f * (float) Math.sin(time * 2.3f)), time * 2f);
+            // 끌어당기는 범위 R (옅어지는 바깥 경계) → 좁혀 드는 고리가 터지는 범위(0.6R)에서 멈춰 "여기 안이 터진다"
+            ThunderParts.edgeRing(c, R, 0.7f * (1f - 0.6f * k), time);
             FxRender.elemShader(EL, 2.6f, 0.2f, 0.9f + 0.4f * k);
             BufferBuilder bb = FxRender.quads();
-            float rr = R * (1f - 0.8f * k) + 0.4f;
-            FxRender.ring(bb, c.add(0, 0.06, 0), UP, rr * 0.88f, rr, 0.7f, time * 0.7f, ThunderParts.segs(rr, TAU));
+            float br = R * ROAR_BURST;
+            float rr = R + (br - R) * easeOutCubic(k);
+            FxRender.ring(bb, c.add(0, 0.06, 0), UP, rr - 0.35f, rr, 0.7f + 0.3f * k, time * 0.7f, ThunderParts.segs(rr, TAU));
             FxRender.ring(bb, chest, UP, rr * 0.7f, rr * 0.78f, 0.45f, -time * 0.9f, ThunderParts.segs(rr, TAU));
             FxRender.draw(bb);
             float fl = 0.85f + 0.15f * (float) Math.sin(time * 4.3f);
@@ -997,11 +1117,13 @@ final class ThunderFx {
     }
 
     static final class JudgmentFx {
-        static final int SLAM = 6, PUFFS = 56, FLASHES = 5;
+        /** 서버 Judgment 와 같은 값: 내려꽂는 틱, 여진 간격, 여진 수, 여진마다 반지름 +30% */
+        static final int SLAM = 6, AFTER_GAP = 10, AFTERSHOCKS = 3, PUFFS = 56, FLASHES = 5;
+        static final float AFTER_GROW = 0.3f;
         final Vec3 start, target, cloudC, hf;
         final float R, cloudR, hs;
         final int rise, casterId;
-        int age, impactAge = -1, endAge;
+        int age, impactAge = -1, endAge, shocks;
         float impactR;
         Vec3 headEnd;
         // 먹구름
@@ -1026,7 +1148,7 @@ final class ThunderFx {
             double topY = Math.max(start.y + 7, target.y);
             this.cloudC = new Vec3((start.x + target.x) * 0.5, topY + 13, (start.z + target.z) * 0.5);
             this.cloudR = Math.max(R * 1.5f, (float) flat.length() * 0.5f + R);
-            this.endAge = late ? 160 : rise + SLAM + 3 * 10 + 140;
+            this.endAge = late ? 110 : rise + SLAM + AFTER_GAP * AFTERSHOCKS + 70;
             float scale = Math.max(0.6f, cloudR / 17f);
             for (int i = 0; i < PUFFS; i++) {
                 pa[i] = RNG.nextFloat() * TAU;
@@ -1071,8 +1193,12 @@ final class ThunderFx {
         Vec3 casterPos(float pt) {
             Entity e = caster();
             if (e != null) return e.getPosition(pt);
-            float t = age + pt;
-            if (t <= rise) return start.add(0, 7.0 * (1 - Math.pow(0.7, t)), 0);
+            // 서버와 같은 길: 이벤트 틱에 이미 1틱 진행, 1-(1-x)^2 로 감속하며 7칸 위로 → 6틱에 목표로
+            float t = age + 1 + pt;
+            if (t <= rise) {
+                double x = clamp01(t / rise);
+                return start.add(0, 7.0 * (1 - (1 - x) * (1 - x)), 0);
+            }
             return start.add(0, 7, 0).lerp(target, clamp01((t - rise) / SLAM));
         }
 
@@ -1093,9 +1219,9 @@ final class ThunderFx {
         }
 
         /** 망치 머리 가운데 / 손잡이 → 머리 방향 (지금 단계에 맞게) */
-        Vec3 hammerHead(float t) {
+        Vec3 hammerHead(float t, float pt) {
             if (impactAge >= 0 || t >= rise + SLAM) return headEnd;
-            Vec3 grip = casterPos(1f).add(0, 2.4, 0);
+            Vec3 grip = casterPos(pt).add(0, 2.4, 0);
             if (t <= rise) return grip.add(0, (ThunderHammer.HEAD_Y - ThunderHammer.GRIP_Y) * hs * (0.6f + 0.4f * form(t)), 0);
             Vec3 from = start.add(0, 7 + 2.4 + (ThunderHammer.HEAD_Y - ThunderHammer.GRIP_Y) * hs, 0);
             float e = clamp01((t - rise) / SLAM);
@@ -1155,7 +1281,7 @@ final class ThunderFx {
                                 new Vec3(-Math.sin(ang) * 0.15, rand(0.15f, 0.35f), Math.cos(ang) * 0.15), 0.08f, 0.08f, 7 + RNG.nextInt(5))
                                 .color(1f, 0.82f, 0.4f, 1f).physics(-0.005f, 0.92f));
                     }
-                    Vec3 head = hammerHead(t);
+                    Vec3 head = hammerHead(t, 1f);
                     if (age % 3 == 0) {
                         Vec3 from = puffPos(RNG.nextInt(PUFFS), age).add(0, -1.5, 0);
                         arc(from, head.add(randomDir().scale(hs * 0.3)), 1.3f + form(t), 4, 0, 5, 2, 0.2f, false, 0.4f);
@@ -1171,7 +1297,7 @@ final class ThunderFx {
                     tickRuneSparks(target, R, form(t));
                 } else if (t <= rise + SLAM + 4) {
                     // 내려꽂히는 망치: 하늘에서 망치까지 번개가 따라옴
-                    Vec3 head = hammerHead(Math.min(t, rise + SLAM));
+                    Vec3 head = hammerHead(Math.min(t, rise + SLAM), 1f);
                     FxManager.lod = FxManager.lodAt(head);
                     arc(puffPos(RNG.nextInt(PUFFS), age).add(0, -1.5, 0), head, 2.2f, 3, 0, 5, 2, 0.18f, false, 0.4f);
                     for (int i = 0; i < count(10); i++) {
@@ -1212,19 +1338,21 @@ final class ThunderFx {
             spawn(sp(Sprite.Kind.GLOW, c.add(0, 1.5, 0), Vec3.ZERO, 16f, 24f, 7).color(1f, 0.98f, 0.92f, 1f));
             spawn(sp(Sprite.Kind.GLOW, c.add(0, 1, 0), Vec3.ZERO, r * 4f, r * 6f, 16).color(1f, 0.72f, 0.2f, 0.8f));
             spawn(sp(Sprite.Kind.GLOW, c.add(0, 1, 0), Vec3.ZERO, r * 3f, r * 5f, 14).color(0.62f, 0.32f, 1f, 0.4f));
-            ThunderParts.addBlast(new ThunderParts.Blast(c.add(0, 0.5, 0), r * 1.3f, 2.0f, 28, 7));
-            ThunderParts.addBlast(new ThunderParts.Blast(c.add(0, 0.5, 0), r * 0.7f, 1.5f, 18, 3));
-            ThunderParts.addPillar(new ThunderParts.Pillar(c, Math.max(1.2f, r * 0.3f), 46f, 20));
-            ThunderParts.addWall(ThunderParts.ShockWall.ring(c, r * 0.3f, r * 2.4f, 3.6f, 18, 0));
-            ThunderParts.addWall(ThunderParts.ShockWall.ring(c, r * 0.2f, r * 1.6f, 2.0f, 14, 3));
+            // 돔·충격파 벽·가장 밝은 고리 모두 피해 반지름 r 에서 멈춤 (하늘의 옅은 고리만 더 넓음)
+            ThunderParts.addBlast(new ThunderParts.Blast(c.add(0, 0.5, 0), r * 0.95f, 2.0f, 24, 5));
+            ThunderParts.addBlast(new ThunderParts.Blast(c.add(0, 0.5, 0), r * 0.55f, 1.5f, 16, 2));
+            ThunderParts.addPillar(new ThunderParts.Pillar(c, Math.max(1.2f, r * 0.3f), 46f, 18));
+            ThunderParts.addWall(ThunderParts.ShockWall.ring(c, r * 0.3f, r, 3.6f, 12, 0));
+            ThunderParts.addWall(ThunderParts.ShockWall.ring(c, r * 0.2f, r * 0.7f, 2.0f, 10, 2));
+            ThunderParts.addEdge(c, r, 22, 0, 1.2f);
             Vec3 rc = c.add(0, 0.07, 0);
-            FxManager.addRing(rc, UP, 1f, r * 3.0f, 20, 0, 1f, EL);
-            FxManager.addRing(rc, UP, 0.6f, r * 2.0f, 15, 3, 0.9f, EL);
-            FxManager.addRing(c.add(0, 3, 0), UP, 0.5f, r * 2.2f, 13, 1, 0.7f, EL);
-            FxManager.addRing(c.add(0, 8, 0), UP, 0.5f, r * 1.6f, 12, 2, 0.5f, EL);
-            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, c, UP, r * 1.55f, 280, 0, 5f, 0f, 1f, GOLD));
-            ThunderParts.addMark(new ThunderParts.Mark(RUNE, c, UP, r * 1.2f, 26, 0, 0f, 0.02f, 1f, PALE));
-            SkillFx.addDecal(c, UP, r * 0.95f, 320, 0.5f, 0.42f, 0.34f);
+            FxManager.addRing(rc, UP, 1f, r * ThunderParts.RK, 12, 0, 1f, EL);
+            FxManager.addRing(rc, UP, 0.6f, r * 0.7f, 10, 2, 0.9f, EL);
+            FxManager.addRing(c.add(0, 3, 0), UP, 0.5f, r * 1.1f, 11, 1, 0.6f, EL);
+            FxManager.addRing(c.add(0, 8, 0), UP, 0.5f, r * 1.6f, 12, 2, 0.35f, EL);
+            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, c, UP, r * 1.1f, 220, 0, 5f, 0f, 1f, GOLD));
+            ThunderParts.addMark(new ThunderParts.Mark(RUNE, c, UP, r, 22, 0, 0f, 0.02f, 1f, PALE));
+            SkillFx.addDecal(c, UP, r * 0.95f, 260, 0.5f, 0.42f, 0.34f);
             // 하늘에서 내리꽂는 번개
             arc(c.add(0, 42, 0), c, 4.5f, 14, 0, 6, 3, 0.15f, false, 0.3f);
             for (int i = 0; i < 4; i++) {
@@ -1236,7 +1364,7 @@ final class ThunderFx {
             float base = RNG.nextFloat() * TAU;
             for (int i = 0; i < ng; i++) {
                 double a = base + i * TAU / ng + rand(-0.15f, 0.15f);
-                arc(polar(c, a, r * 0.25, 0.15), polar(c, a, r * rand(1.1f, 1.7f), 0.12), 0.8f, 7 + RNG.nextInt(4), RNG.nextInt(3), 5, 2, 0.22f, true, 0.35f);
+                arc(polar(c, a, r * 0.25, 0.15), polar(c, a, r * rand(0.8f, 1.0f), 0.12), 0.8f, 7 + RNG.nextInt(4), RNG.nextInt(3), 5, 2, 0.22f, true, 0.35f);
             }
             for (int i = 0; i < count(130); i++) {
                 Vec3 d = new Vec3(rand(-1f, 1f), rand(0.2f, 1.5f), rand(-1f, 1f)).normalize();
@@ -1262,11 +1390,14 @@ final class ThunderFx {
 
         void aftershock(int n, float rr) {
             Vec3 c = target;
+            shocks = Math.max(shocks, n);
             FxManager.lod = FxManager.lodAt(c);
-            ThunderParts.addWall(ThunderParts.ShockWall.ring(c, rr * 0.35f, rr * 1.05f, 1.5f + 0.2f * n, 12, 0));
-            FxManager.addRing(c.add(0, 0.07, 0), UP, rr * 0.3f, rr * 1.15f, 12, 0, 0.95f, EL);
-            FxManager.addRing(c.add(0, 1.2, 0), UP, rr * 0.2f, rr * 0.9f, 10, 2, 0.6f, EL);
-            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, c, UP, impactR * 1.55f, 30, 0, 0f, 0f, 0.6f, GOLD));
+            // 여진 반지름 rr (서버: r × (1 + 0.3n)) 에서 정확히 멈춤
+            ThunderParts.addWall(ThunderParts.ShockWall.ring(c, rr * 0.35f, rr, 1.5f + 0.2f * n, 9, 0));
+            ThunderParts.addEdge(c, rr, 12, 0, 1f);
+            FxManager.addRing(c.add(0, 0.07, 0), UP, rr * 0.3f, rr * ThunderParts.RK, 9, 0, 0.95f, EL);
+            FxManager.addRing(c.add(0, 1.2, 0), UP, rr * 0.2f, rr * 0.8f, 8, 2, 0.6f, EL);
+            ThunderParts.addMark(new ThunderParts.Mark(CRACKS, c, UP, impactR * 1.1f, 30, 0, 0f, 0f, 0.6f, GOLD));
             spawn(sp(Sprite.Kind.GLOW, c.add(0, 1, 0), Vec3.ZERO, rr * 2f, rr * 3f, 8).color(1f, 0.75f, 0.3f, 0.5f));
             int nb = Math.max(5, count(8 + 2 * n));
             float base = RNG.nextFloat() * TAU;
@@ -1284,7 +1415,7 @@ final class ThunderFx {
             DebrisFx.burst(c, rr, 24, 0.6f + 0.1f * n);
             double d = distToPlayer(c);
             if (d < rr + 24) CameraShake.add((float) ((2.6 - 0.3 * n) * (1 - d / (rr + 24))));
-            endAge = Math.max(endAge, age + 90);
+            endAge = Math.max(endAge, age + (n >= AFTERSHOCKS ? 50 : 60));
         }
 
         /** 반투명 단계: 도는 먹구름 (금빛 번쩍임이 안쪽에서 밝힘) */
@@ -1320,13 +1451,24 @@ final class ThunderFx {
             float a;
             float rad;
             if (impactAge < 0) {
+                // 경계(= 실제 반지름 R)는 처음부터 또렷하게, 룬과 차오르는 앞머리는 내려찍는 순간 경계에 닿음
                 float k = form(t);
-                rad = R * 1.15f * (0.15f + 0.85f * easeOutCubic(clamp01(t / Math.max(1f, rise * 0.7f))));
+                float hitK = clamp01((t + 1f) / (rise + SLAM));
+                rad = R * (0.2f + 0.8f * easeOutCubic(hitK));
                 a = 0.35f + 0.6f * k + (t > rise ? 0.25f : 0f);
+                float urgent = t > rise ? 0.5f + 0.5f * (float) Math.sin(t * 2.2f) : 0f;
+                ThunderParts.edgeRing(target, R, 0.75f + 0.35f * urgent, time);
+                ThunderParts.fillFront(target, R, hitK, 0.6f, time);
             } else {
                 float since = t - impactAge;
+                // 다음 여진이 닿을 범위 (서버: R × (1 + 0.3n), 10틱마다) — 다가올수록 밝아짐
+                int next = shocks + 1;
+                if (next <= AFTERSHOCKS && since < AFTER_GAP * AFTERSHOCKS + 2) {
+                    float p = clamp01((since - AFTER_GAP * (next - 1)) / AFTER_GAP);
+                    ThunderParts.edgeRing(target, R * (1f + AFTER_GROW * next), 0.2f + 0.6f * p * p, time);
+                }
                 if (since > 30) return;
-                rad = R * 1.15f * (1f + 0.15f * since / 30f);
+                rad = R * (1f + 0.1f * since / 30f);
                 a = 1.2f * (1f - since / 30f);
             }
             renderRune(target, rad, Math.min(1.2f, a), time * (impactAge < 0 ? 1f : 0.5f), 1f);
@@ -1374,12 +1516,12 @@ final class ThunderFx {
             float scale = hs * (impactAge < 0 && t <= rise ? 0.6f + 0.4f * form(t) : 1f);
             Vec3 Y = impactAge >= 0 ? UP.scale(-1) : hammerY(t);
             Vec3 X = impactAge >= 0 ? hf.scale(-1) : hf.scale(Math.cos(Math.acos(Math.max(-1, Math.min(1, Y.dot(UP)))))).subtract(UP.scale(Math.sin(Math.acos(Math.max(-1, Math.min(1, Y.dot(UP)))))));
-            Vec3 head = hammerHead(t);
+            Vec3 head = hammerHead(t, pt);
             // 내려꽂는 동안 잔상
             if (impactAge < 0 && t > rise && t < rise + SLAM + 1) {
                 for (int k = 1; k <= 2; k++) {
                     float tk = t - k * 0.8f;
-                    ThunderHammer.draw(hammerHead(tk), hammerY(tk), X, scale, ThunderHammer.HEAD_Y, 0.3f + 0.2f * k, 0.7f - 0.2f * k, k * 0.3f, false);
+                    ThunderHammer.draw(hammerHead(tk, pt), hammerY(tk), X, scale, ThunderHammer.HEAD_Y, 0.3f + 0.2f * k, 0.7f - 0.2f * k, k * 0.3f, false);
                 }
             }
             ThunderHammer.draw(head, Y, X, scale, ThunderHammer.HEAD_Y, ero, inten, time * 0.025f, true);
@@ -1394,7 +1536,7 @@ final class ThunderFx {
                 if (k > 0f) frameGlow(flashPos[j], flashSize[j], GOLD, 0.7f * k);
             }
             if (impactAge < 0) {
-                Vec3 head = hammerHead(t);
+                Vec3 head = hammerHead(t, pt);
                 float k = t <= rise ? form(t) : 1f;
                 float fl = 0.9f + 0.1f * (float) Math.sin(t * 2.9f);
                 frameGlow(head, hs * (3f + 2f * k) * fl, GOLD, 0.25f + 0.35f * k);
@@ -1525,6 +1667,9 @@ final class ThunderFx {
 
     private static float stunAlpha(StunFx s, float pt) {
         float t = s.age + pt;
-        return clamp01(t / 3f) * clamp01((s.life - t) / 6f);
+        float a = clamp01(t / 3f) * clamp01((s.life - t) / 6f);
+        // 기절한 본인(1인칭): 머리 위 별이 올려다볼 때 시야를 덮지 않게 옅게
+        Entity e = s.entity();
+        return e != null && IceThunderAim.firstPersonSelf(e) ? a * 0.3f : a;
     }
 }

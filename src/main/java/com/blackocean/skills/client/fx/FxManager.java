@@ -627,11 +627,14 @@ public final class FxManager {
     // 도우미
     // =====================================================================
 
+    /**
+     * 화면에서만 트는 소리. 여러 스킬이 겹칠 때 소리가 뭉개지지 않게 제한:
+     * 같은 소리는 가까운 곳(4칸)에서 3틱 안에 한 번, 전체는 한 틱에 6개까지.
+     */
     static void playAt(Vec3 p, net.minecraft.sounds.SoundEvent sound, float volume, float pitch) {
         ClientLevel level = Minecraft.getInstance().level;
-        if (level != null) {
-            level.playLocalSound(p.x, p.y, p.z, sound, SoundSource.PLAYERS, volume, pitch, false);
-        }
+        if (level == null || !FxLimits.allowSound(level.getGameTime(), sound, p)) return;
+        level.playLocalSound(p.x, p.y, p.z, sound, SoundSource.PLAYERS, volume, pitch, false);
     }
 
     static Vec3 randomDir() {

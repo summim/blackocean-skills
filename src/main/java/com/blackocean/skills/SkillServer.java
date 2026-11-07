@@ -510,7 +510,7 @@ public final class SkillServer {
             dur[s.ordinal()] = s.durationTicks();
             spd[s.ordinal()] = (float) s.speed();
         }
-        PacketDistributor.sendToPlayer(p, new SkillStatsPayload(r, rad, dur, spd));
+        PacketDistributor.sendToPlayer(p, new SkillStatsPayload(r, rad, dur, spd, SkillsConfig.PVP.get()));
     }
 
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {

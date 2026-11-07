@@ -56,6 +56,7 @@ public final class ClientPacketHandler {
 
     public static void onStats(SkillStatsPayload p) {
         ClientSkillStats.set(p);
+        com.blackocean.skills.client.fx.Hostility.setPvp(p.pvp());
     }
 
     public static void onElement(ElementSyncPayload p) {

@@ -1,6 +1,8 @@
 package com.blackocean.skills.client.fx;
 
+import com.blackocean.skills.Element;
 import com.blackocean.skills.SkillsMod;
+import org.jetbrains.annotations.Nullable;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import net.minecraft.client.Minecraft;
@@ -166,6 +168,28 @@ final class SkillFx {
      * 더하기 섞기 단계에서 부를 것. 색은 0~1 (알파를 곱하지 않은 값).
      * @param fill 0 → 1 (1 = 지금 떨어짐)
      */
+    // =====================================================================
+    // 공용 "위험 범위" 표시 — 실제 피해 판정 경계와 같은 크기로 그릴 것.
+    // 적 공격(Hostility.ENEMY): 빨간 실선 테두리 + 안쪽으로 향한 경고 표시
+    // 내 것·아군: 파란/능력색 점선 테두리, 경고 표시 없음
+    // 피해가 끝난 장식용 여운은 이 함수를 쓰지 말 것 (테두리 없음 = 이제 안전)
+    // fill: 0~1 피해 시점까지 차오르는 정도
+    // =====================================================================
+
+    /** 원형 위험 범위 (반지름 R = 피해 판정 반지름) */
+    static void dangerZone(Vec3 base, float R, float fill, Element el, @Nullable Entity caster, float alpha, float time) {
+        float[] c = FxRender.tint(el);
+        telegraph(base, R, fill, c[0], c[1], c[2], alpha, time);
+    }
+
+    /** 부채꼴 위험 범위 (halfDeg = 반각) */
+    static void dangerCone(Vec3 origin, Vec3 dir, float range, float halfDeg, float fill, Element el, @Nullable Entity caster, float alpha, float time) {
+    }
+
+    /** 직선 위험 범위 (halfWidth = 폭의 절반) */
+    static void dangerLane(Vec3 start, Vec3 dir, float length, float halfWidth, float fill, Element el, @Nullable Entity caster, float alpha, float time) {
+    }
+
     static void telegraph(Vec3 base, float R, float fill, float cr, float cg, float cb, float alpha, float time) {
         if (R <= 0.05f || alpha <= 0.01f) return;
         fill = clamp01(fill);

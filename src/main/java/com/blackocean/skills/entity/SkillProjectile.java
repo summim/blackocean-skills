@@ -194,7 +194,8 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
         LivingEntity ownerLiving = owner instanceof LivingEntity le ? le : null;
         Vec3 center = pos.add(normal.scale(0.25)); // 면에서 조금 띄움 (정확히 면 위면 시야 검사가 막힘)
         Vec3 flight = getDeltaMovement().lengthSqr() > 1.0E-6 ? getDeltaMovement().normalize() : new Vec3(0, 0, 1);
-        float radius = (float) skill.radius();
+        // 부채꼴 스킬(얼음 파편)은 radius 가 각도(도)라서 폭발 반지름으로 쓰면 안 됨
+        float radius = skill.aim == Skill.Aim.CONE ? 0f : (float) skill.radius();
 
         if (!fizzle || skill == Skill.FIRE_SUN) {
             switch (skill) {

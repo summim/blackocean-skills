@@ -10,7 +10,7 @@ public final class SkillsNetwork {
     private SkillsNetwork() {}
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar r = event.registrar("7"); // 신호 모양이 바뀌면 숫자를 올림 (옛 버전 접속기는 접속 거부)
+        PayloadRegistrar r = event.registrar("8"); // 신호 모양이 바뀌면 숫자를 올림 (옛 버전 접속기는 접속 거부)
 
         r.playToServer(CastRequestPayload.TYPE, CastRequestPayload.CODEC, (payload, ctx) ->
                 ctx.enqueueWork(() -> {

@@ -57,6 +57,16 @@ public final class FxRender {
     static float partial;
     static final Vector3f LEFT = new Vector3f();
     static final Vector3f UP = new Vector3f();
+    /** 카메라가 보는 방향 (화면 뒤쪽 물체 거르기용) */
+    static final Vector3f FWD = new Vector3f();
+
+    /** 셰이더 공급자: 매번 새 람다를 만들지 않도록 하나만 둔다 */
+    private static final java.util.function.Supplier<ShaderInstance> FIRE_SUPPLIER = () -> FxShaders.fireFlow;
+    private static final java.util.function.Supplier<ShaderInstance> TEX_COLOR_SUPPLIER = GameRenderer::getPositionTexColorShader;
+    @org.jetbrains.annotations.Nullable
+    private static ShaderInstance cachedFire;
+    @org.jetbrains.annotations.Nullable
+    private static com.mojang.blaze3d.shaders.AbstractUniform fireParams;
 
     private FxRender() {}
 
@@ -70,6 +80,7 @@ public final class FxRender {
         partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
         LEFT.set(camera.getLeftVector());
         UP.set(camera.getUpVector());
+        FWD.set(camera.getLookVector());
 
         // 카메라 회전을 정확히 한 번만 적용하도록 모델뷰 행렬을 직접 지정
         Matrix4fStack mv = RenderSystem.getModelViewStack();
@@ -109,7 +120,7 @@ public final class FxRender {
 
     /** 일반 텍스처 + 정점 색 셰이더 (바닐라). */
     static void spriteShader(ResourceLocation texture) {
-        RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
+        RenderSystem.setShader(TEX_COLOR_SUPPLIER);
         RenderSystem.setShaderTexture(0, texture);
     }
 
@@ -129,13 +140,24 @@ public final class FxRender {
      * 정점 색 알파 = 열기 (1 = 흰빛 중심, 0 = 가장자리 색).
      */
     static boolean elemShader(com.blackocean.skills.Element el, float speed, float erosion, float intensity) {
+        return elemShader(el, speed, erosion, intensity, 0f);
+    }
+
+    /**
+     * whiteHot: 0 = 보통, 1 = 뜨거운 곳이 하얗게 타오름 (폭발 핵·섬광 기둥).
+     */
+    static boolean elemShader(com.blackocean.skills.Element el, float speed, float erosion, float intensity, float whiteHot) {
         ShaderInstance s = FxShaders.fireFlow;
         if (s == null) {
             spriteShader(TRAIL);
             return false;
         }
-        s.safeGetUniform("FireParams").set(speed, erosion, intensity, 0.0f);
-        RenderSystem.setShader(() -> s);
+        if (s != cachedFire || fireParams == null) {
+            cachedFire = s;
+            fireParams = s.safeGetUniform("FireParams");
+        }
+        fireParams.set(speed, erosion, intensity, whiteHot);
+        RenderSystem.setShader(FIRE_SUPPLIER);
         RenderSystem.setShaderTexture(0, NOISE);
         RenderSystem.setShaderTexture(1, RAMPS[el.ordinal()]);
         return true;
@@ -174,6 +196,26 @@ public final class FxRender {
             case ICE -> new float[]{0.72f, 0.92f, 1f};
             case THUNDER -> new float[]{1f, 0.82f, 0.3f};
         };
+    }
+
+    private static final float[][] TINTS = new float[com.blackocean.skills.Element.VALUES.length][];
+    private static final float[][] RING_TINTS = new float[com.blackocean.skills.Element.VALUES.length][];
+
+    static {
+        for (com.blackocean.skills.Element e : com.blackocean.skills.Element.VALUES) {
+            TINTS[e.ordinal()] = tint(e);
+            RING_TINTS[e.ordinal()] = ringTint(e);
+        }
+    }
+
+    /** tint 의 공유 배열 (새로 만들지 않음 — 읽기만 할 것) */
+    static float[] tintRef(com.blackocean.skills.Element el) {
+        return TINTS[el.ordinal()];
+    }
+
+    /** ringTint 의 공유 배열 (읽기만 할 것) */
+    static float[] ringTintRef(com.blackocean.skills.Element el) {
+        return RING_TINTS[el.ordinal()];
     }
 
     /** 충격파 링 색 */
@@ -225,6 +267,38 @@ public final class FxRender {
         vertex(bb, p.x + ax - bx, p.y + ay - by, p.z + az - bz, u0, v1, r, g, b, a);
     }
 
+    /** billboard 의 좌표 버전 (Vec3 를 만들지 않음) */
+    static void billboard(BufferBuilder bb, double px, double py, double pz, float size, float rot,
+                          float u0, float v0, float u1, float v1,
+                          float r, float g, float b, float a) {
+        float h = size * 0.5f;
+        float c = (float) Math.cos(rot) * h, s = (float) Math.sin(rot) * h;
+        float ax = LEFT.x * c + UP.x * s, ay = LEFT.y * c + UP.y * s, az = LEFT.z * c + UP.z * s;
+        float bx = UP.x * c - LEFT.x * s, by = UP.y * c - LEFT.y * s, bz = UP.z * c - LEFT.z * s;
+        vertex(bb, px - ax - bx, py - ay - by, pz - az - bz, u1, v1, r, g, b, a);
+        vertex(bb, px - ax + bx, py - ay + by, pz - az + bz, u1, v0, r, g, b, a);
+        vertex(bb, px + ax + bx, py + ay + by, pz + az + bz, u0, v0, r, g, b, a);
+        vertex(bb, px + ax - bx, py + ay - by, pz + az - bz, u0, v1, r, g, b, a);
+    }
+
+    /** streak 의 좌표 버전 (Vec3 를 만들지 않음) */
+    static void streak(BufferBuilder bb, double tx, double ty, double tz, double hx, double hy, double hz,
+                       float width, float r, float g, float b, float a) {
+        double dx = hx - tx, dy = hy - ty, dz = hz - tz;
+        double cx = cam.x - (tx + hx) * 0.5, cy = cam.y - (ty + hy) * 0.5, cz = cam.z - (tz + hz) * 0.5;
+        double sx = dy * cz - dz * cy, sy = dz * cx - dx * cz, sz = dx * cy - dy * cx;
+        double sl = sx * sx + sy * sy + sz * sz;
+        if (sl < 1.0E-8) return;
+        double k = width * 0.5 / Math.sqrt(sl);
+        sx *= k;
+        sy *= k;
+        sz *= k;
+        vertex(bb, tx - sx, ty - sy, tz - sz, 0, 1, r, g, b, a);
+        vertex(bb, tx + sx, ty + sy, tz + sz, 0, 0, r, g, b, a);
+        vertex(bb, hx + sx, hy + sy, hz + sz, 1, 0, r, g, b, a);
+        vertex(bb, hx - sx, hy - sy, hz - sz, 1, 1, r, g, b, a);
+    }
+
     /** 움직이는 방향으로 길게 늘어난 사각형 (튀는 불꽃). */
     static void streak(BufferBuilder bb, Vec3 tail, Vec3 head, float width, float r, float g, float b, float a) {
         Vec3 dir = head.subtract(tail);
@@ -241,14 +315,31 @@ public final class FxRender {
 
     /** 법선 n 에 수직인 평면 위의 정사각형 (충격파 링 텍스처용). */
     static void planeQuad(BufferBuilder bb, Vec3 c, Vec3 n, float radius, float rot, float r, float g, float b, float a) {
-        Vec3[] t = basis(n);
+        basisInto(n.x, n.y, n.z);
         double cs = Math.cos(rot) * radius, sn = Math.sin(rot) * radius;
-        Vec3 ax = t[0].scale(cs).add(t[1].scale(sn));
-        Vec3 ay = t[1].scale(cs).subtract(t[0].scale(sn));
-        vertex(bb, c.x - ax.x - ay.x, c.y - ax.y - ay.y, c.z - ax.z - ay.z, 0, 0, r, g, b, a);
-        vertex(bb, c.x + ax.x - ay.x, c.y + ax.y - ay.y, c.z + ax.z - ay.z, 1, 0, r, g, b, a);
-        vertex(bb, c.x + ax.x + ay.x, c.y + ax.y + ay.y, c.z + ax.z + ay.z, 1, 1, r, g, b, a);
-        vertex(bb, c.x - ax.x + ay.x, c.y - ax.y + ay.y, c.z - ax.z + ay.z, 0, 1, r, g, b, a);
+        double axx = BA[0] * cs + BB[0] * sn, axy = BA[1] * cs + BB[1] * sn, axz = BA[2] * cs + BB[2] * sn;
+        double ayx = BB[0] * cs - BA[0] * sn, ayy = BB[1] * cs - BA[1] * sn, ayz = BB[2] * cs - BA[2] * sn;
+        vertex(bb, c.x - axx - ayx, c.y - axy - ayy, c.z - axz - ayz, 0, 0, r, g, b, a);
+        vertex(bb, c.x + axx - ayx, c.y + axy - ayy, c.z + axz - ayz, 1, 0, r, g, b, a);
+        vertex(bb, c.x + axx + ayx, c.y + axy + ayy, c.z + axz + ayz, 1, 1, r, g, b, a);
+        vertex(bb, c.x - axx + ayx, c.y - axy + ayy, c.z - axz + ayz, 0, 1, r, g, b, a);
+    }
+
+    /** basis() 의 결과를 공유 배열 BA, BB 에 넣음 (그리기 스레드 전용, 새로 만들지 않음) */
+    private static final double[] BA = new double[3], BB = new double[3];
+
+    private static void basisInto(double nx, double ny, double nz) {
+        double rx, ry, rz;
+        if (Math.abs(ny) < 0.9) { rx = 0; ry = 1; rz = 0; } else { rx = 1; ry = 0; rz = 0; }
+        double ax = ny * rz - nz * ry, ay = nz * rx - nx * rz, az = nx * ry - ny * rx;
+        double al = Math.sqrt(ax * ax + ay * ay + az * az);
+        if (al < 1.0E-9) al = 1;
+        ax /= al; ay /= al; az /= al;
+        double bx = ny * az - nz * ay, by = nz * ax - nx * az, bz = nx * ay - ny * ax;
+        double bl = Math.sqrt(bx * bx + by * by + bz * bz);
+        if (bl < 1.0E-9) bl = 1;
+        BA[0] = ax; BA[1] = ay; BA[2] = az;
+        BB[0] = bx / bl; BB[1] = by / bl; BB[2] = bz / bl;
     }
 
     /**
@@ -256,31 +347,30 @@ public final class FxRender {
      * spin 으로 고리 위 밝은 무늬가 돌아가 보이게 한다.
      */
     static void ring(BufferBuilder bb, Vec3 c, Vec3 n, float rIn, float rOut, float heat, float spin, int segments) {
-        Vec3[] t = basis(n);
+        basisInto(n.x, n.y, n.z);
+        double ax = BA[0], ay = BA[1], az = BA[2], bx = BB[0], by = BB[1], bz = BB[2];
         float rMid = (rIn + rOut) * 0.5f;
-        float[] radii = {rIn, rMid, rOut};
-        float[] heats = {0.0f, heat, 0.0f};
+        double ca0 = 1, sa0 = 0;
         for (int i = 0; i < segments; i++) {
             double a0 = Math.PI * 2 * i / segments, a1 = Math.PI * 2 * (i + 1) / segments;
+            double ca1 = Math.cos(a1), sa1 = Math.sin(a1);
             // 고리 둘레를 따라 밝기가 3번 출렁이며 회전 → 도는 것이 눈에 보임
             float w0 = 0.55f + 0.45f * (float) Math.sin(a0 * 3 + spin);
             float w1 = 0.55f + 0.45f * (float) Math.sin(a1 * 3 + spin);
             float u0 = (float) i / segments * 3f, u1 = (float) (i + 1) / segments * 3f;
+            double d0x = ax * ca0 + bx * sa0, d0y = ay * ca0 + by * sa0, d0z = az * ca0 + bz * sa0;
+            double d1x = ax * ca1 + bx * sa1, d1y = ay * ca1 + by * sa1, d1z = az * ca1 + bz * sa1;
             for (int k = 0; k < 2; k++) {
-                Vec3 p00 = ringPoint(c, t, a0, radii[k]);
-                Vec3 p10 = ringPoint(c, t, a1, radii[k]);
-                Vec3 p11 = ringPoint(c, t, a1, radii[k + 1]);
-                Vec3 p01 = ringPoint(c, t, a0, radii[k + 1]);
-                vertex(bb, p00.x, p00.y, p00.z, u0, k * 0.5f, 1, 1, 1, heats[k] * w0);
-                vertex(bb, p10.x, p10.y, p10.z, u1, k * 0.5f, 1, 1, 1, heats[k] * w1);
-                vertex(bb, p11.x, p11.y, p11.z, u1, (k + 1) * 0.5f, 1, 1, 1, heats[k + 1] * w1);
-                vertex(bb, p01.x, p01.y, p01.z, u0, (k + 1) * 0.5f, 1, 1, 1, heats[k + 1] * w0);
+                float ra = k == 0 ? rIn : rMid, rb = k == 0 ? rMid : rOut;
+                float ha = k == 0 ? 0f : heat, hb = k == 0 ? heat : 0f;
+                vertex(bb, c.x + d0x * ra, c.y + d0y * ra, c.z + d0z * ra, u0, k * 0.5f, 1, 1, 1, ha * w0);
+                vertex(bb, c.x + d1x * ra, c.y + d1y * ra, c.z + d1z * ra, u1, k * 0.5f, 1, 1, 1, ha * w1);
+                vertex(bb, c.x + d1x * rb, c.y + d1y * rb, c.z + d1z * rb, u1, (k + 1) * 0.5f, 1, 1, 1, hb * w1);
+                vertex(bb, c.x + d0x * rb, c.y + d0y * rb, c.z + d0z * rb, u0, (k + 1) * 0.5f, 1, 1, 1, hb * w0);
             }
+            ca0 = ca1;
+            sa0 = sa1;
         }
-    }
-
-    private static Vec3 ringPoint(Vec3 c, Vec3[] t, double a, float r) {
-        return c.add(t[0].scale(Math.cos(a) * r)).add(t[1].scale(Math.sin(a) * r));
     }
 
     /** n 에 수직인 두 방향. */

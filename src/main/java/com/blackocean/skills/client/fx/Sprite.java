@@ -6,6 +6,8 @@ import net.minecraft.world.phys.Vec3;
 final class Sprite {
     enum Kind { FLAME, GLOW, SPARK, EMBER, SMOKE }
 
+    static final Kind[] KINDS = Kind.values();
+
     final Kind kind;
     /** 어느 능력의 그림으로 그릴지 (불꽃 시트·불씨·연기 그림이 능력마다 다름) */
     com.blackocean.skills.Element elem = com.blackocean.skills.Element.FIRE;
@@ -48,6 +50,20 @@ final class Sprite {
         return this;
     }
 
+    /** 이번 프레임만 쓰는 정지 입자로 다시 씀 (후광 풀용, 새로 만들지 않음) */
+    Sprite place(double x, double y, double z, float size, float r, float g, float b, float a) {
+        this.x = this.px = x;
+        this.y = this.py = y;
+        this.z = this.pz = z;
+        this.vx = this.vy = this.vz = 0;
+        this.size0 = this.size1 = size;
+        this.age = 0;
+        this.life = 1;
+        this.rot = 0;
+        this.r = r; this.g = g; this.b = b; this.alpha = a;
+        return this;
+    }
+
     /** @return true 면 수명이 끝나서 지워야 함 */
     boolean tick() {
         px = x; py = y; pz = z;
@@ -64,6 +80,19 @@ final class Sprite {
 
     Vec3 pos(float pt) {
         return new Vec3(px + (x - px) * pt, py + (y - py) * pt, pz + (z - pz) * pt);
+    }
+
+    /** 보간 위치 (Vec3 를 만들지 않음) */
+    double ix(float pt) {
+        return px + (x - px) * pt;
+    }
+
+    double iy(float pt) {
+        return py + (y - py) * pt;
+    }
+
+    double iz(float pt) {
+        return pz + (z - pz) * pt;
     }
 
     Vec3 vel() {

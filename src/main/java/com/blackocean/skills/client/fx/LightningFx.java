@@ -408,12 +408,19 @@ final class LightningFx {
             spawn(sp(Sprite.Kind.SPARK, chest, d.scale(rand(0.6f, 1.4f)), 0.1f, 0.1f, 8 + RNG.nextInt(8))
                     .color(0.75f, 0.9f, 1f, 1f).physics(0.04f, 0.9f));
         }
-        SkillFx.addDecal(g, UP, R * 0.55f, 180, 0.6f, 0.72f, 1f);
+        spawn(sp(Sprite.Kind.GLOW, chest, Vec3.ZERO, 2f, 9f, 3).color(1f, 1f, 1f, 1f));
+        FxManager.addRing(rc, UP, 0.3f, R * 1.8f, 6, 0, 0.85f, 0.9f, 0.96f, 1f);
+        FxManager.addRing(rc.add(0, 0.02, 0), UP, R * 0.5f, R * 2.2f, 20, 5, 0.3f, EL);
+        DebrisFx.burst(g, UP, R * 0.45f, 22, 0.95f, EL);
+        DebrisFx.crater(g, R * 0.6f, 200, EL);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
-            double d = mc.player.position().distanceTo(g);
-            if (d < R + 10) CameraShake.add((float) (2.6 * (1 - d / (R + 10))));
-            if (caster != null && caster == mc.player) ScreenFx.flash(0xBFDFFF, 0.22f, 7);
+            CameraShake.addAt(g, 3.0f, R + 12f);
+            CameraShake.kickFrom(chest, 1.6f, R + 4f);
+            if (caster != null && caster == mc.player) {
+                ScreenFx.flash(0xBFDFFF, 0.26f, 8);
+                ScreenFx.whiteFlash(0.22f, 2);
+            }
         }
     }
 
@@ -427,11 +434,8 @@ final class LightningFx {
         Vec3 rc = c.add(0, 0.08, 0);
         FxManager.addRing(rc, UP, R * 0.3f, R * 1.25f, 16, 0, 0.9f, EL);
         FxManager.addRing(rc, UP, R * 0.2f, R * 0.9f, 12, 3, 0.7f, EL);
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) {
-            double d = mc.player.position().distanceTo(c);
-            if (d < R + 24) CameraShake.add((float) (1.4 * (1 - d / (R + 24))));
-        }
+        CameraShake.addAt(c, 2.0f, R + 28f);
+        ScreenFx.impact(c.add(0, 18, 0), 0x9FC8FF, 0.25f, R + 30f);
     }
 
     // =====================================================================
@@ -527,9 +531,7 @@ final class LightningFx {
     }
 
     private static void frameGlow(Vec3 p, float size, float r, float g, float b, float a) {
-        Sprite s = new Sprite(Sprite.Kind.GLOW, p, Vec3.ZERO, size, size, 1).color(r, g, b, a).elem(EL);
-        s.size1 = s.size0;
-        FxManager.addFrameGlow(s);
+        FxManager.frameGlow(p, size, r, g, b, a);
     }
 
     private static void addBolt(Bolt b) {
@@ -756,11 +758,17 @@ final class LightningFx {
                 addBolt(new Bolt(top, p, 1.2f, 5, 4, 5, 2, 0.2f, false));
             }
 
+            // 남는 전류: 같은 길로 약하게 다시 번쩍이는 번개 (잔류)
+            addBolt(new Bolt(top, p, (giant ? 1.6f : 0.6f) * s, giant ? 22 : 12, giant ? 10 : 4, 5, 1, 0.2f, false));
+
             Vec3 mid = p.add(0, 1.0, 0);
+            spawn(sp(Sprite.Kind.GLOW, mid, Vec3.ZERO, 2.5f * s, 11f * s, 3).color(1f, 1f, 1f, 1f));
             spawn(sp(Sprite.Kind.GLOW, mid, Vec3.ZERO, 7f * s, 10f * s, 5).color(0.85f, 0.93f, 1f, 1f));
             spawn(sp(Sprite.Kind.GLOW, mid, Vec3.ZERO, R * 3f, R * 4.5f, 10).color(0.45f, 0.65f, 1f, 0.7f));
             Vec3 rc = p.add(0, 0.06, 0);
+            FxManager.addRing(rc, UP, 0.3f, R * (giant ? 6f : 2.8f), giant ? 9 : 6, 0, 0.9f, 0.9f, 0.96f, 1f);
             if (giant) {
+                FxManager.addRing(rc.add(0, 0.02, 0), UP, R, R * 7.5f, 34, 6, 0.35f, EL);
                 FxManager.addRing(rc, UP, 1f, R * 5f, 18, 0, 1f, EL);
                 FxManager.addRing(rc, UP, 0.6f, R * 3.4f, 14, 3, 0.9f, EL);
                 FxManager.addRing(p.add(0, 3, 0), UP, 0.5f, R * 3f, 12, 1, 0.7f, EL);
@@ -786,16 +794,30 @@ final class LightningFx {
                 f.rot = RNG.nextFloat() * TAU;
                 spawn(f);
             }
-            SkillFx.addDecal(p, UP, R * (giant ? 1.6f : 1.15f), giant ? 260 : 160, 0.55f, 0.7f, 1f);
+            // 땅이 터지고 금 간 자국이 푸르게 빛남
+            if (giant) {
+                DebrisFx.burst(p, UP, R * 1.1f, 100, 1.5f, EL);
+                DebrisFx.crater(p, R * 1.8f, 400, EL);
+            } else if (minor) {
+                DebrisFx.burst(p, UP, R * 0.35f, 7, 0.6f, null);
+                DebrisFx.crater(p, R * 0.8f, 140, EL);
+            } else {
+                DebrisFx.burst(p, UP, R * 0.5f, 16, 0.85f, EL);
+                DebrisFx.crater(p, R * 1.05f, 180, EL);
+            }
 
             double d = distToPlayer(p);
             if (giant) {
                 if (d < 40) ScreenFx.flash(0xCFEFFF, 0.55f + 0.45f * (float) (1 - d / 40), 22);
-                if (d < 64) CameraShake.add((float) (5.0 * (1 - d / 64)));
+                if (d < 56) ScreenFx.whiteFlash((float) (0.85 * (1 - d / 56)), 4);
+                CameraShake.addAt(p, 6.5f, 72f);
+                CameraShake.kickFrom(p, 4.0f, 40f);
             } else if (d < 24) {
                 float near = (float) (1 - d / 24);
                 ScreenFx.flash(0xDDEEFF, (minor ? 0.15f : 0.3f) * near, 5);
-                CameraShake.add((minor ? 0.9f : 1.8f) * near);
+                if (!minor) ScreenFx.whiteFlash(0.25f * near * near, 2);
+                CameraShake.add((minor ? 1.1f : 2.2f) * near);
+                if (!minor) CameraShake.kickFrom(p, 1.2f, 16f);
             }
         }
 
@@ -819,6 +841,7 @@ final class LightningFx {
                 em.frameOffset = RNG.nextInt(100);
                 spawn(em);
             }
+            if (giant && age == 4) DebrisFx.burst(p, UP, R * 1.6f, 40, 1.0f, null);
             if (giant && age < 12) {
                 // 거대 번개 기둥을 따라 솟는 플라즈마
                 for (int i = 0; i < count(5); i++) {
@@ -840,7 +863,7 @@ final class LightningFx {
             float a = (1f - t) * (1f - t) * flick;
             Vec3 tp = giant ? p.add(0, top.y - p.y, 0) : top;
             Vec3[] col = {p, tp};
-            float w = giant ? 2.8f : 0.75f * s;
+            float w = (giant ? 2.8f : 0.75f * s) * (age < 2 ? 1.6f - 0.3f * (age + pt) : 1f);
             float ga = a * 0.35f;
             ribbon(bb, col, w * 3.2f, 0.7f, 0.35f * ga, 0.5f * ga, ga, ga, 0f);
             ribbon(bb, col, w, 0.6f, a, a, a, a, 0.3f);

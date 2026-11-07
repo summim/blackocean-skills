@@ -72,7 +72,10 @@ public final class SkillsClient {
         modBus.addListener(EntityRenderersEvent.RegisterRenderers.class,
                 e -> e.registerEntityRenderer(SkillsRegistry.SKILL_PROJECTILE.get(), NoopRenderer::new));
         modBus.addListener(RegisterClientReloadListenersEvent.class,
-                e -> e.registerReloadListener((ResourceManagerReloadListener) rm -> ObjMesh.clearCache()));
+                e -> e.registerReloadListener((ResourceManagerReloadListener) rm -> {
+                    ObjMesh.clearCache();
+                    SkillBarHud.invalidateCaches(); // 아이콘 유무·번역 글자 (언어 변경도 여기로 옴)
+                }));
         modBus.addListener(RegisterGuiLayersEvent.class, e -> {
             ScreenFx.register(e);
             SkillBarHud.register(e);

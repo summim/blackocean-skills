@@ -31,6 +31,55 @@ import static com.blackocean.skills.client.fx.FxManager.spawn;
 
 /**
  * 바람 능력 연출.
+ *
+ * <h2>2.3 디자인 (바람 = 초승달·나선 호, 얇은 반투명 속도선, 실려 가는 잎·흙먼지 / 늘어나며 가늘어져 사라짐 / 옅은 민트·흰빛, 성김)</h2>
+ * 위계: 주 형태 = 가장 밝고 대비 큼 → 보조 층 40~60 % → 적중 = 짧은 정점(4틱 이하) → 잔류 = 옅게, 테두리 선 없음.
+ * <pre>
+ * 1 진공 참격 (가벼움)
+ *   실루엣  : 비행 방향으로 볼록한 흰 초승달 날 하나.
+ *   주 형태 : 초승달 면 + 같은 호를 ±22° 기울인 얇은 면 2장 + 카메라를 향한 앞날 띠 (위·옆·뒤 어디서 봐도 호가 남음).
+ *   보조    : 잔상 칼날 4장(점점 옅게), 칼끝에서 벗겨지는 바람결, 잎, 속도선.
+ *   적중    : 관통 = X자 두 줄 참격 섬광(7틱, 정점 2틱) / 벽·바닥 = 면을 따라 퍼지는 돌풍 고리 + 베인 조각.
+ *   사라짐  : 바람결이 뒤로 늘어나며 가늘어짐. 투사체라 위험 범위 표시 없음 (조준 표시가 길을 보여 줌).
+ *   경중    : 준비 5틱, 손의 작은 고리 → 빠른 비행, 적중은 짧고 날카롭게, 흔들림 약하게.
+ * 2 질풍 돌진 (가벼움·빠름)
+ *   실루엣  : 몸 앞의 뾰족한 바람 원뿔 + 몸 뒤로 길게 끌리는 속도선 다발.
+ *   주 형태 : 3D 원뿔 메시 2겹, 속도선 6줄은 이동 축을 따라 카메라를 향하는 띠 (옆에서는 줄, 뒤에서는 원형 다발).
+ *   보조    : 몸 잔상 빛, 넓은 바람 꼬리, 잎·흙먼지.
+ *   적중    : 출발·도착 음속 고리 2겹 + 박차고 나간 흙 / 멈춘 자리 앞으로 쏟아지는 흙.
+ *   위험    : 돌진하는 동안 dangerLane(출발 → 도착, 반폭 r + 0.6 = 서버 부딪힘 폭), 끝나면 바로 꺼짐.
+ *   사라짐  : 속도선·꼬리가 뒤로 늘어나며 10틱에 흐려짐.
+ *   경중    : 준비 2틱 웅크림 → 순간 가속 → 갑자기 멈춤 (속도 변화로 무게).
+ * 3 회오리 (무거움)
+ *   실루엣  : 아래가 좁고 위가 넓은 꼬인 깔때기.
+ *   주 형태 : 3D 원통 메시 3겹 (바깥 / 반대로 꼬인 가운데 / 흰 심). 윤곽이 밝고 가운데가 어두움, 몸 높이(바닥 ~3칸)는
+ *             정면 쪽을 크게 어둡게 → 띄워진 상대가 바람 속에서도 보임.
+ *   보조    : 감아 오르는 나선 줄기 5, 실제 바닥 블록 조각·잎이 돌며 솟음, 바닥 흙먼지 띠(반투명).
+ *   적중    : 끝 틱에 바깥으로 터지는 고리가 끌어당김 범위 끝까지 + 조각을 내던짐.
+ *   위험    : dangerZone(r + 0.5, 0.5초 피해 주기마다 차오름) + dangerZone(r × 1.6, 끝 폭발까지 차오름).
+ *   사라짐  : 깔때기가 넓어지며 10틱에 흐려지고 잎·흙먼지가 내려앉음 (테두리 없음).
+ *   경중    : 10틱 바닥 표시 → 생성 충격 → 60틱 유지 → 폭발.
+ * 4 폭풍 방벽 (중간)
+ *   실루엣  : 몸에서 바깥으로 퍼지는 낮은 바람 벽 고리.
+ *   주 형태 : 3D 원통 띠 2겹 (앞 벽 + 뒤따르는 낮은 벽).
+ *   보조    : 방사 속도선 28줄, 잎·흙먼지 고리.
+ *   적중    : 발동 틱 한 번 판정 → 벽이 5틱 만에 정확히 r 까지.
+ *   위험    : 준비 중 dangerZone(r, 모임 진행도), 벽이 퍼지는 5틱 동안 dangerZone(r, 1).
+ *   사라짐  : r 에서 멈춘 벽이 6틱에 흩어짐, 남는 흙먼지에는 테두리 없음.
+ *   경중    : 7틱 압축(범위 끝에서 몸으로 빨려 드는 바람) → 한 번에 터짐.
+ * 5 천공의 대폭풍 (궁극기, 가장 무거움)
+ *   실루엣  : 22칸 거대 깔때기 + 꼭대기의 어두운 폭풍 구름 고리, 하늘이 어두워짐.
+ *   주 형태 : 회오리 3겹 + 바깥 옅은 막 1겹 (같은 3D 메시, 같은 몸 높이 비움).
+ *   보조    : 날아다니는 잔해, 시전자를 감아 오르는 바람 띠(준비), 3틱마다 바닥 충격파.
+ *   적중    : 끝 틱 거대 충격파 3겹 + 화면 번쩍(FxLimits 로 제한).
+ *   위험    : dangerZone(r + 0.5) + dangerZone(r × 2.3).
+ *   사라짐  : 40틱 동안 하늘로 올라갔던 잎·흙이 내려앉음 (테두리 없음).
+ *   경중    : 24틱 준비(땅울림 점점 강하게) → 100틱 유지 → 폭발.
+ * </pre>
+ * 사람이 가려지지 않게: 회오리 깔때기는 몸 높이(바닥 ~3칸)에서 카메라를 정면으로 보는 면(가운데)을 크게 어둡게 하고
+ * 윤곽(옆면)만 밝게 → 띄워진 상대와 시전자가 바람 속에서도 보임. 반투명 흙먼지 막도 몸 높이에서 옅게.
+ * 끝난 뒤 남는 연출(내려앉는 잎·흙먼지, 금 간 자국)에는 테두리 선이 없음 = 이제 안전.
+ *
  * <pre>
  *  1 진공 참격   : 비행 방향으로 누운 거대한 초승달 칼날 + 잔상 칼날 + 끝에서 벗겨지는 바람결 / 관통 시 X자 참격 / 적중 시 돌풍으로 산산이
  *  2 질풍 돌진   : 앞쪽 바람 원뿔 + 길게 늘어지는 속도선 + 몸 잔상 + 출발·도착 음속 고리
@@ -61,6 +110,8 @@ final class WindFx {
     private static final float BLADE_R = 1.8f;
     private static final float BLADE_ARC = (float) Math.toRadians(150);
     private static final float BLADE_THICK = 0.75f;
+    /** 칼날 두께용으로 기울인 보조 면의 각도 (라디안, 약 22°) */
+    private static final float BLADE_TILT_3D = 0.38f;
     /** 칼날 준비 고리 3겹 (프레임마다 배열을 만들지 않게) */
     private static final float[] BLADE_TILT = {0.3f, 1.1f, 1.4f}, BLADE_RIN = {0.28f, 0.48f, 0.66f}, BLADE_ROUT = {0.4f, 0.58f, 0.74f};
 
@@ -98,13 +149,13 @@ final class WindFx {
                 float r = Math.max(1f, e.size());
                 float h = e.size2() > 0.5f ? e.size2() : (big ? 22f : 7f);
                 int dur = Math.max(10, e.duration());
-                add(new TornadoFx(pos, r, h, dur, big));
+                add(new TornadoFx(caster, pos, r, h, dur, big));
                 if (big) {
                     ScreenFx.darken(pos, r * 2.5f, 0.45f, dur + 40);
                     flashNear(pos, 0xBFFFE6, 0.4f, 14, 56f);
                 }
             }
-            case SkillEvents.BURST -> add(new BurstFx(pos, Math.max(1f, e.size()), Math.max(12, e.duration())));
+            case SkillEvents.BURST -> add(new BurstFx(caster, pos, Math.max(1f, e.size()), Math.max(12, e.duration())));
             default -> { }
         }
     }
@@ -347,13 +398,14 @@ final class WindFx {
                     Vec3 n = i == 1 ? new Vec3(Math.sin(time * 0.05), 1.6, Math.cos(time * 0.05)).normalize() : UP;
                     FxRender.ring(bb, mid.add(0, (i - 1) * 0.35, 0), n, r * 0.86f, r, h, time * 0.5f, 48);
                 }
-                // 실제 범위 테두리 (주변 사람이 피할 수 있게): 점선이 점점 진해짐
+                // 발밑에서 몸으로 조여드는 바람 띠 (장식: 테두리처럼 보이지 않게 부드러운 고리, 범위보다 훨씬 안쪽)
                 Vec3 feet = caster.getPosition(pt).add(0, 0.05, 0);
-                dashedRing(bb, feet, UP, R - 0.18f, R + 0.06f, 0.35f + 0.55f * k, -time * 0.12f, 24, 0.55f);
                 float fr = 2.2f - 1.4f * k;
-                dashedRing(bb, feet.add(0, 0.01, 0), UP, fr * 0.9f, fr, 0.6f + 0.3f * k, -time * 0.3f, 10, 0.55f);
+                FxRender.ring(bb, feet.add(0, 0.01, 0), UP, fr * 0.7f, fr, 0.55f + 0.3f * k, -time * 0.3f, 32);
                 FxRender.draw(bb);
                 frameGlow(mid, 1.2f + 2.6f * k, 0.3f + 0.45f * k);
+                // 실제 판정 범위 (주변 사람이 피할 수 있게, 다 차는 순간 터짐)
+                zone(caster.getPosition(pt), R, k, caster, 1f, time);
             }
             default -> { }
         }
@@ -373,15 +425,13 @@ final class WindFx {
         FxRender.planeQuad(bb, t.add(0, 0.01, 0), UP, liftR(R) * 1.25f, 0f, TINT[0] * g, TINT[1] * g, TINT[2] * g, g);
         FxRender.draw(bb);
 
+        // 테두리는 공용 위험 범위만 (안쪽 = 띄우고 0.5초마다 피해, 바깥 = 끌려 들어가고 끝에 날려 보냄 — 서버와 같은 반지름).
+        // 안쪽 장식은 테두리처럼 보이는 고리 없이 감겨 드는 나선만
+        float lr = liftR(R), pr = pullR(R, big);
+        zone(c.target, lr, k, c.caster, 1f, time);
+        zone(c.target, pr, k * 0.85f, c.caster, 0.8f, time);
         FxRender.elemShader(W, 1.8f + k, 0.06f, 1.0f + 0.25f * k);
         bb = FxRender.quads();
-        float spin = 0.06f + 0.12f * k;
-        // 실선 = 띄우고 피해를 주는 범위, 바깥 점선 = 끌려 들어가는 범위 (서버 판정과 같은 반지름)
-        float lr = liftR(R), pr = pullR(R, big);
-        FxRender.ring(bb, t, UP, lr - 0.22f, lr + 0.06f, 0.95f * a, time * 0.3f, 64);
-        dashedRing(bb, t.add(0, 0.015, 0), UP, pr - 0.16f, pr + 0.06f, 0.65f * a, -time * spin * 0.7f, big ? 32 : 20, 0.5f);
-        dashedRing(bb, t.add(0, 0.01, 0), UP, R * 0.72f, R * 0.82f, 0.85f * a, time * spin, 12, 0.6f);
-        dashedRing(bb, t.add(0, 0.02, 0), UP, R * 0.42f, R * 0.5f, 0.9f * a, -time * spin * 1.6f, 8, 0.5f);
         // 안쪽으로 감겨 드는 나선 4줄 (바닥에 누움)
         int arms = big ? 6 : 4;
         final int steps = 12;
@@ -521,6 +571,17 @@ final class WindFx {
         BufferBuilder bb = FxRender.quads();
         crescent(bb, c, fwd, side, R, BLADE_ARC, BLADE_THICK, 1f, time * 0.05f);
         crescent(bb, c.add(fwd.scale(0.03)), fwd, side, R * 0.995f, BLADE_ARC * 0.9f, BLADE_THICK * 0.32f, 1f, 0.5f + time * 0.07f);
+        // 두께: 같은 호를 비행 축 둘레로 ±22° 기울인 얇은 면 2장 (보조 밝기) → 칼날을 옆·뒤에서 봐도 납작한 선이 아닌 렌즈 모양
+        Vec3 nrmW = fwd.cross(side).normalize();
+        for (int sg = -1; sg <= 1; sg += 2) {
+            Vec3 tilt = rotate(side, nrmW, BLADE_TILT_3D * sg);
+            crescent(bb, c.subtract(fwd.scale(0.04)), fwd, tilt, R * 0.97f, BLADE_ARC * 0.92f, BLADE_THICK * 0.55f, 0.5f, 0.25f + time * 0.05f);
+        }
+        FxRender.draw(bb);
+        // 앞날: 호를 따라 카메라를 향하는 흰 띠 (면이 카메라와 나란해져도 앞날 호가 그대로 보임)
+        FxRender.elemShader(W, 3.2f, 0.05f, 1.2f);
+        bb = FxRender.quads();
+        bladeEdge(bb, c, fwd, side, R, BLADE_ARC * 0.94f, 0.22f, 0.95f, time * 0.06f);
         FxRender.draw(bb);
 
         frameGlow(c.add(fwd.scale(R * 0.15)), 3.4f * (0.6f + 0.4f * grow), 0.32f);
@@ -672,6 +733,8 @@ final class WindFx {
                 // 원호의 가운데가 맞은 곳을 지나도록 중심을 뒤로
                 Vec3 c = pos.subtract(fwd.scale(R * 0.25f)).add(dir.scale(0.1 * j));
                 crescent(bb, c, fwd, side, R, (float) Math.toRadians(140), 0.32f * (1f - 0.4f * t), h, j * 0.5f + time * 0.05f);
+                // 같은 호의 카메라 향 앞날 (X자가 어느 각도에서도 두 줄로 읽힘)
+                bladeEdge(bb, c, fwd, side, R, (float) Math.toRadians(130), 0.14f * (1f - 0.5f * t), h * 0.9f, j * 0.5f);
             }
             FxRender.draw(bb);
             frameGlow(pos, 2.4f * (1f + e), 0.4f * h);
@@ -739,7 +802,7 @@ final class WindFx {
             Minecraft mc = Minecraft.getInstance();
             if (caster != null && caster == mc.player) {
                 CameraShake.add(0.8f);
-                ScreenFx.flash(0xC8FFE8, 0.12f, 5); // 음속 돌파 번쩍
+                limitedFlash(0xC8FFE8, 0.12f, 5); // 음속 돌파 번쩍
             }
         }
 
@@ -840,20 +903,9 @@ final class WindFx {
                 FxRender.draw(bb);
             }
 
-            // 지나온 길 바닥 양옆의 바람 선 = 서버가 부딪힘을 판정한 폭
-            if (fadeEnd > 0.02f) {
-                Vec3 sideH = new Vec3(-dir.z, 0, dir.x);
-                Vec3 g0 = start.add(0, 0.07, 0), g1 = new Vec3(cur.x, start.y + 0.07, cur.z);
-                if (g1.distanceToSqr(g0) > 0.04) {
-                    FxRender.elemShader(W, 2.4f, 0.1f + 0.5f * (1f - fadeEnd), 1.0f);
-                    BufferBuilder bb = FxRender.quads();
-                    for (int sg = -1; sg <= 1; sg += 2) {
-                        Vec3 off = sideH.scale(edge * sg);
-                        ribbonSide(bb, g0.add(off), g1.add(off), sideH, 0.3f, 0.3f, 0.25f * fadeEnd, 0.8f * fadeEnd, 0f, (float) g0.distanceTo(g1) * 0.3f);
-                    }
-                    FxRender.draw(bb);
-                }
-            }
+            // 돌진 중에만: 출발 → 도착 전체 길 = 서버가 부딪힘을 판정하는 폭 (공용 위험 표시, 몸이 지나갈수록 차오름).
+            // 멈추면 바로 꺼짐 → 남는 속도선·잔상에는 테두리가 없음
+            if (t <= dur) lane(start, dir, dist, edge, t / dur, caster, 1f, time);
 
             // 지나온 길의 속도선 + 넓은 바람 꼬리
             int n = Math.min(hist.size(), pts.length);
@@ -915,7 +967,10 @@ final class WindFx {
         /** 끝난 뒤 낙엽·흙먼지가 내려앉는 시간 */
         final int linger;
 
-        TornadoFx(Vec3 base, float R, float H, int dur, boolean big) {
+        @Nullable final Entity caster;
+
+        TornadoFx(@Nullable Entity caster, Vec3 base, float R, float H, int dur, boolean big) {
+            this.caster = caster;
             this.base = base;
             this.R = R;
             this.H = H;
@@ -1146,6 +1201,9 @@ final class WindFx {
             int seg = big ? 22 : 20, rows = big ? 12 : 9;
             float twist = big ? 0.26f : 0.62f;
             RenderSystem.disableCull();
+            // 띄워진 상대·시전자가 보이게 몸 높이(띄움 높이 포함)를 비움
+            maskH = big ? 6f : 4.2f;
+            maskK = 0.78f;
 
             if (big) {
                 // 가장 바깥 옅은 막
@@ -1158,9 +1216,11 @@ final class WindFx {
             // 가운데 깔때기 (반대로 꼬임, 더 빠름)
             FxRender.elemShader(W, 2.2f, erosion * 0.9f, 1.05f * fade + 0.05f);
             funnel(base, r0 * 0.68f * widen, r1 * 0.8f * widen, 1.3f, hh * 0.97f, 0.9f, -twist * 1.2f, big ? 0.22f : 0.42f, 0.37f, 0.07f, time, sx, sz, seg, rows, 0.55f);
-            // 심 (가늘고 하얗게)
+            // 심 (가늘고 하얗게) — 상대가 띄워지는 바로 그 자리라 몸 높이에서 더 많이 비움
+            maskK = 0.92f;
             FxRender.elemShader(W, 3.0f, erosion * 0.8f, 1.2f * fade + 0.05f);
             funnel(base, r0 * 0.3f * widen, r1 * 0.42f * widen, 1.2f, hh * 0.9f, 1f, twist * 1.6f, big ? 0.3f : 0.55f, 0.71f, 0.05f, time, sx, sz, 14, rows, 0.3f);
+            maskK = 0f;
 
             // 깔때기를 감아 솟는 나선 줄기
             FxRender.elemShader(W, 3.0f, erosion * 0.7f, 1.15f * fade);
@@ -1198,16 +1258,19 @@ final class WindFx {
             }
             FxRender.draw(bb);
 
-            // 바닥 소용돌이 고리: 안쪽 소용돌이의 테두리 = 띄우는 범위, 바깥 점선 = 끌어당기는 범위 (서버 판정과 같은 반지름)
+            // 바닥 소용돌이 (장식: 부드러운 띠, 테두리 선 없음 — 범위 끝은 아래 공용 위험 표시가 맡음)
             FxRender.elemShader(W, 1.4f, erosion, 0.95f * fade);
             bb = FxRender.quads();
             Vec3 gc = base.add(0, 0.06, 0);
             float lr = liftR(R), pr = pullR(R, big);
             float pulse = 1f + 0.04f * (float) Math.sin(time * 0.4f);
-            FxRender.ring(bb, gc, UP, R * 0.35f, lr * pulse, 0.85f * fade, time * 0.35f, 56);
-            FxRender.ring(bb, gc.add(0, 0.008, 0), UP, lr - 0.2f, lr + 0.05f, 0.9f * fade, -time * 0.2f, 64);
-            dashedRing(bb, gc.add(0, 0.012, 0), UP, pr - 0.18f, pr + 0.06f, 0.75f * fade, time * (big ? 0.06f : 0.1f), big ? 36 : 20, 0.5f);
+            FxRender.ring(bb, gc, UP, R * 0.35f, lr * 0.9f * pulse, 0.85f * fade, time * 0.35f, 56);
             FxRender.draw(bb);
+            if (t <= dur) {
+                // 안쪽 = 띄우고 0.5초(서버 10틱)마다 피해 → 피해 주기마다 차오름 / 바깥 = 끌려 들어가고 끝 틱에 날려 보냄
+                zone(base, lr, ((age % 10) + pt) / 10f, caster, 1f, time);
+                zone(base, pr, t / dur, caster, 0.85f, time);
+            }
 
             // 전체를 감싸는 빛
             Vec3 mid = axisAt(0.45f, t);
@@ -1230,6 +1293,8 @@ final class WindFx {
                 int frame = 16 + (i * 5) % 24;
                 float u0 = (frame & 7) / 8f, v0 = (frame >> 3) / 8f;
                 float a = (big ? 0.2f : 0.16f) * fade * g * (1f - 0.5f * f);
+                // 몸 높이의 흙먼지 막은 옅게 (안의 사람을 덮지 않게)
+                a *= 0.3f + 0.7f * clamp01((float) (ax.y - base.y - (big ? 6.0 : 4.2)) / 2f);
                 float shade = big ? 0.62f : 0.82f;
                 FxRender.billboard(bb, ax, rr * 2.3f, time * 0.04f * (i % 2 == 0 ? 1 : -1) + i, u0, v0, u0 + 0.125f, v0 + 0.125f,
                         shade, shade + 0.03f, shade, a);
@@ -1277,7 +1342,10 @@ final class WindFx {
         final float[] hgt = new float[28];
         final float[] len = new float[28];
 
-        BurstFx(Vec3 c, float R, int life) {
+        @Nullable final Entity caster;
+
+        BurstFx(@Nullable Entity caster, Vec3 c, float R, int life) {
+            this.caster = caster;
             this.c = c;
             this.R = R;
             this.life = life;
@@ -1360,17 +1428,9 @@ final class WindFx {
         @Override
         void render(float pt, float time) {
             float t = age + pt;
-            // 잔류: 범위 테두리에 잠깐 남는 점선 고리 (판정 반지름 그대로)
-            float lt = t - EXPAND;
-            if (lt > 0f) {
-                float la = 1f - clamp01(lt / (life - EXPAND + LINGER));
-                if (la > 0.01f) {
-                    FxRender.elemShader(W, 1.0f, 0.35f + 0.5f * (1f - la), 0.7f * la);
-                    BufferBuilder lb = FxRender.quads();
-                    dashedRing(lb, c.add(0, 0.04, 0), UP, R - 0.25f, R + 0.05f, 0.75f * la, time * 0.05f, 20, 0.5f);
-                    FxRender.draw(lb);
-                }
-            }
+            // 판정은 발동 틱 한 번 → 벽이 그 범위(R)까지 퍼지는 동안만 공용 위험 표시(다 찬 상태)를 보여 주고 꺼짐.
+            // 그 뒤 남는 흙먼지에는 테두리가 없음 (= 이제 안전)
+            if (t < EXPAND + 1f) zone(c, R, 1f, caster, 1f - clamp01((t - EXPAND + 1f) / 2f), time);
             // 벽은 테두리에 닿은 뒤 짧게 흩어짐
             float fade = 1f - clamp01((t - EXPAND) / 6f);
             if (fade <= 0f) return;
@@ -1453,11 +1513,37 @@ final class WindFx {
     }
 
     /**
+     * 초승달의 앞날 호를 따라 카메라를 향하는 띠 (crescent 와 같은 호 계산). 양 끝이 뾰족하게 가늘어짐.
+     * 칼날 면이 카메라와 나란한 각도(옆·뒤)에서도 호 모양이 선으로 남게 하는 축 띠.
+     */
+    private static void bladeEdge(BufferBuilder bb, Vec3 c, Vec3 fwd, Vec3 side, float R, float arc, float width, float heat, float uvOff) {
+        final int seg = 16;
+        Vec3 o = c.subtract(fwd.scale(R * 0.75f));
+        float half = arc * 0.5f;
+        Vec3 prev = null;
+        float pw = 0f, ph = 0f;
+        for (int i = 0; i <= seg; i++) {
+            float s = (float) i / seg;
+            double th = -half + arc * s;
+            Vec3 p = o.add(fwd.scale(Math.cos(th) * R)).add(side.scale(Math.sin(th) * R));
+            float taper = (float) Math.pow(Math.sin(Math.PI * s), 0.6);
+            float w = width * taper, h = heat * (0.35f + 0.65f * taper);
+            if (prev != null) ribbonCam(bb, prev, p, pw, w, ph, h, s * 2f + uvOff - 0.12f, s * 2f + uvOff);
+            prev = p;
+            pw = w;
+            ph = h;
+        }
+    }
+
+    /**
      * 꼬이며 흔들리는 속이 빈 깔때기 (SkillFx.column 의 바람판: 기울기·회전·반지름 곡선 추가).
      * @param curve 반지름 곡선 지수 (1 = 직선, &gt;1 = 위쪽에서 급히 넓어짐)
      * @param spin 틱당 회전 (라디안)
      * @param rimMix 1 = 윤곽이 밝음(투명한 바람), 0 = 정면이 밝음
      */
+    /** funnel 의 몸 높이 비우기 (maskH = 바닥에서 이 높이까지, maskK = 0 이면 끔). 그리는 쪽이 켜고 끔 */
+    private static float maskH, maskK;
+
     private static void funnel(Vec3 base, float r0, float r1, float curve, float h, float heat, float twist, float spin, float uvOff,
                                float wobble, float time, double swX, double swZ, int seg, int rows, float rimMix) {
         if (h <= 0.05f || heat <= 0.001f) return;
@@ -1493,6 +1579,11 @@ final class WindFx {
         float top = 1f - clamp01((f - 0.82f) / 0.18f);
         float bottom = 0.55f + 0.45f * clamp01(f / 0.06f);
         float hv = heat * (0.25f + 0.75f * look) * bands * top * bottom;
+        if (maskK > 0f) {
+            // 몸 높이에서 카메라를 정면으로 보는 면(실루엣 가운데)을 어둡게 → 안의 사람이 비쳐 보임, 윤곽은 그대로 밝음
+            float band = 1f - clamp01((y - maskH) / 1.2f);
+            hv *= 1f - maskK * band * facing * facing;
+        }
         FxRender.vertex(bb, x, wy, z, u, -y * 0.16f, 1f, 1f, 1f, hv);
     }
 
@@ -1627,7 +1718,31 @@ final class WindFx {
         Player me = Minecraft.getInstance().player;
         if (me == null) return;
         double d = me.position().distanceTo(p);
-        if (d < range) ScreenFx.flash(rgb, strength * (float) (1 - d / range), ticks);
+        if (d < range) limitedFlash(rgb, strength * (float) (1 - d / range), ticks);
+    }
+
+    /** 화면 번쩍 (여러 스킬이 겹치면 FxLimits 가 한 틱 합계를 제한) */
+    private static void limitedFlash(int rgb, float strength, int ticks) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        float ok = FxLimits.allowFlash(mc.level.getGameTime(), strength);
+        if (ok > 0.01f) ScreenFx.flash(rgb, ok, ticks);
+    }
+
+    /** 원형 위험 범위 (공용 표시: 적 = 빨간 실선 + 경고, 내 것·아군 = 점선). 그린 뒤 더하기 섞기를 되돌림 */
+    private static void zone(Vec3 base, float r, float fill, @Nullable Entity caster, float alpha, float time) {
+        if (alpha <= 0.01f) return;
+        SkillFx.dangerZone(base, r, clamp01(fill), W, caster, alpha, time);
+        FxRender.additive();
+        RenderSystem.disableCull();
+    }
+
+    /** 직선 위험 범위 (공용 표시). 그린 뒤 더하기 섞기를 되돌림 */
+    private static void lane(Vec3 start, Vec3 dir, float len, float halfW, float fill, @Nullable Entity caster, float alpha, float time) {
+        if (alpha <= 0.01f || len <= 0.05f) return;
+        SkillFx.dangerLane(start, dir, len, halfW, clamp01(fill), W, caster, alpha, time);
+        FxRender.additive();
+        RenderSystem.disableCull();
     }
 
     private static void shakeAt(Vec3 p, float amp, float range) {

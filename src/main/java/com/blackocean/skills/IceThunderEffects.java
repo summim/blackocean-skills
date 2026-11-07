@@ -136,8 +136,9 @@ final class IceThunderEffects {
                 if (along < d - speed - 1.0 || along > d + 0.8 || lat > width + e.getBbWidth() * 0.5) continue;
                 if (!hit.add(e.getId())) continue;
                 SkillTargets.hurt(level, e, o, Element.ICE, skill.damage(), true);
-                SkillTargets.setVelocity(e, new Vec3(0, 0.75, 0).add(dir.scale(0.15)));
+                // 얼림이 위로 가는 속도를 없애므로 얼린 다음에 띄움
                 freeze(level, e, skill.durationTicks());
+                SkillTargets.setVelocity(e, new Vec3(0, 0.75, 0).add(dir.scale(0.15)));
             }
             return false;
         }
@@ -164,8 +165,8 @@ final class IceThunderEffects {
             for (LivingEntity e : SkillTargets.inCylinder(level, o, center, r, 2.0, 8.0, center.add(0, 1, 0))) {
                 double f = SkillTargets.edgeFraction(e, center, r);
                 SkillTargets.hurt(level, e, o, Element.ICE, (float) (skill.damage() * mult * (1.0 - 0.5 * f)), true);
+                freeze(level, e, freezeTicks); // 얼린 다음에 밀침 (얼림이 위로 가는 속도를 없앰)
                 SkillTargets.knock(e, out(center, e), 1.0 * (1 - 0.5 * f), 0.6);
-                freeze(level, e, freezeTicks);
             }
         }
 
@@ -212,6 +213,11 @@ final class IceThunderEffects {
             sound(start, "thunder.charge", 2.0f, 1.4f);
             SkillEvents.send(level, s, SkillEvents.LEAP, p, start, dest, (float) s.radius(), 0, ticks, -1);
             step(p);
+        }
+
+        @Override
+        boolean controlsOwner() {
+            return !landed;
         }
 
         Vec3 at(double t) {
@@ -306,6 +312,11 @@ final class IceThunderEffects {
             p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE, rise + SLAM + 10, 2, false, false, true));
             sound(start, "thunder.charge", 5.0f, 0.6f);
             SkillEvents.send(level, s, SkillEvents.JUDGMENT, p, start, target, (float) r, 0, rise, -1);
+        }
+
+        @Override
+        boolean controlsOwner() {
+            return impactAge < 0;
         }
 
         @Override

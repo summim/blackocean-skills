@@ -82,7 +82,8 @@ public final class SkillServer {
         int left = remainingTicks(p, skill);
         Skill charging = chargingSkill(p.getUUID());
         if (charging == skill) return; // 모으는 중에 같은 키를 또 누름 → 무시 (예전엔 잠시 뒤 거절 표시가 떴음)
-        if (left <= BUFFER_TICKS && (left > 0 || charging != null)) {
+        boolean busy = charging != null || movingBlocks(p, skill);
+        if (left <= BUFFER_TICKS && (left > 0 || busy)) {
             // 곧 쓸 수 있음 → 예약 (마지막에 누른 스킬이 이김)
             BUFFERED.put(p.getUUID(), new Buffered(skill, p.server.getTickCount() + Math.max(left, 0) + BUFFER_TICKS + 40));
             return;
@@ -106,7 +107,8 @@ public final class SkillServer {
      * @return 시작했으면 true
      */
     public static boolean cast(ServerPlayer p, Skill skill, boolean useCooldown) {
-        if (!p.isAlive() || p.isSpectator() || chargingSkill(p.getUUID()) != null) return false;
+        if (!p.isAlive() || p.isSpectator() || p.isSleeping() || chargingSkill(p.getUUID()) != null) return false;
+        if (movingBlocks(p, skill)) return false; // 돌진·도약 중에 또 이동 스킬 → 두 효과가 속도를 서로 덮어씀
         ServerLevel level = p.serverLevel();
         Vec3 eye = p.getEyePosition(), look = p.getLookAngle();
 
@@ -201,6 +203,21 @@ public final class SkillServer {
 
     private static long[] readyAt(UUID id) {
         return READY_AT.computeIfAbsent(id, k -> new long[N]);
+    }
+
+    /** 시전자를 움직이는 스킬 (서로 겹치면 매 틱 속도를 서로 덮어써서 엉뚱한 곳으로 감) */
+    private static boolean movesCaster(Skill s) {
+        return s == Skill.WIND_DASH || s == Skill.LIGHTNING_BLINK || s == Skill.THUNDER_LEAP || s == Skill.THUNDER_JUDGMENT;
+    }
+
+    /** 이동 스킬인데 지금 다른 이동 효과가 몸을 움직이는 중이면 true */
+    private static boolean movingBlocks(ServerPlayer p, Skill s) {
+        if (!movesCaster(s)) return false;
+        UUID id = p.getUUID();
+        for (ServerEffects.Effect e : EFFECTS) {
+            if (e.ownerId.equals(id) && e.controlsOwner()) return true;
+        }
+        return false;
     }
 
     /** 모으는 중(아직 발동 전)인 스킬. 탄환 연사 중(2발째부터)은 해당 없음. */
@@ -372,7 +389,7 @@ public final class SkillServer {
                 deny(p, b.skill());
                 continue;
             }
-            if (chargingSkill(p.getUUID()) != null || remainingTicks(p, b.skill()) > 0) continue;
+            if (chargingSkill(p.getUUID()) != null || remainingTicks(p, b.skill()) > 0 || movingBlocks(p, b.skill())) continue;
             it.remove();
             Element el = PlayerElements.get(p);
             if (el != b.skill().element || !b.skill().enabled() || !cast(p, b.skill(), true)) deny(p, b.skill());

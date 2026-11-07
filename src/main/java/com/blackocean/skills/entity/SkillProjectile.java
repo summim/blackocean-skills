@@ -120,6 +120,11 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
             return;
         }
         ServerLevel level = (ServerLevel) level();
+        // 시전자가 나감(또는 다른 차원) → 주인 없는 투사체는 PvP·팀 규칙을 확인할 수 없으므로 조용히 사라짐
+        if (getOwner() == null) {
+            discard();
+            return;
+        }
 
         // 블록
         BlockHitResult bh = SubLevels.clip(level, new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));

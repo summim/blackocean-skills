@@ -32,7 +32,8 @@ public final class SkillsConfig {
             damage = b.defineInRange("damage", s.dDamage, 0.0, 500.0);
             damage2 = b.defineInRange("damage2", s.dDamage2, 0.0, 500.0);
             range = b.defineInRange("range", s.dRange, 0.0, 96.0);
-            radius = b.defineInRange("radius", s.dRadius, 0.0, 32.0);
+            // 부채꼴 스킬(얼음 파편·뇌명 일격)의 radius 는 반각(도)이라 기본값이 32 를 넘음 → 범위를 따로
+            radius = b.defineInRange("radius", s.dRadius, 0.0, s.aim == Skill.Aim.CONE ? 89.0 : 32.0);
             duration = b.comment("(초)").defineInRange("duration", s.dDuration, 0.0, 30.0);
             speed = b.defineInRange("speed", s.dSpeed, 0.0, 3.9);
             b.pop();

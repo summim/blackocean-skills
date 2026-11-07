@@ -13,6 +13,7 @@ import com.blackocean.skills.network.SkillEventPayload;
 import com.blackocean.skills.network.SkillEvents;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.Tesselator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.sounds.SoundSource;
@@ -451,12 +452,25 @@ public final class FxManager {
             drawSprites(Sprite.Kind.EMBER, pt);
             drawSprites(Sprite.Kind.SPARK, pt);
             drawSprites(Sprite.Kind.GLOW, pt);
+        } catch (RuntimeException ex) {
+            // 연출 하나의 오류로 게임 전체가 멈추지 않게: 기록하고 연출을 모두 비움
+            fxError("render", ex);
+            Tesselator.getInstance().clear();
+            clear();
         } finally {
             FRAME_GLOWS.clear();
             glowPoolUsed = 0;
             for (ArrayList<Sprite> b : BUCKETS) b.clear();
             FxRender.end();
         }
+    }
+
+    private static final org.slf4j.Logger LOG = com.mojang.logging.LogUtils.getLogger();
+    private static int fxErrors;
+
+    /** 연출 오류 기록 (같은 오류로 기록이 넘치지 않게 몇 번만) */
+    public static void fxError(String where, Throwable ex) {
+        if (fxErrors++ < 5) LOG.error("[BlackOcean Skills] 연출 오류 ({}) — 연출을 비웁니다", where, ex);
     }
 
     /** 종류·능력별로 나눔 (GLOW·SPARK 는 흰 그림을 색칠하므로 능력 상관없이 한 칸) */

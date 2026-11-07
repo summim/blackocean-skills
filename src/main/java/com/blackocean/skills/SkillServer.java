@@ -47,6 +47,7 @@ public final class SkillServer {
     private static final Map<UUID, long[]> READY_AT = new HashMap<>();
     private static final List<Pending> PENDING = new ArrayList<>();
     private static final Map<UUID, Buffered> BUFFERED = new HashMap<>();
+    private static final Map<UUID, Long> LAST_REQUEST = new HashMap<>();
     private static final List<ServerEffects.Effect> EFFECTS = new ArrayList<>();
 
     /**
@@ -67,6 +68,17 @@ public final class SkillServer {
     /** 클라이언트가 1~5 키를 눌러 보낸 요청 (slot 0~4). 메인 스레드에서 호출된다. */
     public static void tryCast(ServerPlayer p, int slot) {
         if (slot < 0 || slot >= Skill.SLOTS) return;
+        // 요청 폭주 방지: 한 사람당 한 틱에 한 번만
+        long tick = p.server.getTickCount();
+        Long last = LAST_REQUEST.put(p.getUUID(), tick);
+        if (last != null && last == tick) return;
+        // 기절·얼림 중엔 스킬 못 씀 (명령어·API 발동은 예외)
+        net.minecraft.world.effect.MobEffectInstance slowFx = p.getEffect(net.minecraft.world.effect.MobEffects.MOVEMENT_SLOWDOWN);
+        if (slowFx != null && slowFx.getAmplifier() >= 5) {
+            p.displayClientMessage(Component.translatable("msg.blackocean_skills.stunned"), true);
+            PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(-1, 0, 0, true));
+            return;
+        }
         Element e = PlayerElements.get(p);
         if (e == null) {
             p.displayClientMessage(Component.translatable("msg.blackocean_skills.no_element"), true);
@@ -424,6 +436,7 @@ public final class SkillServer {
 
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         UUID id = event.getEntity().getUUID();
+        LAST_REQUEST.remove(id);
         PENDING.removeIf(x -> x.player().equals(id));
         BUFFERED.remove(id);
     }

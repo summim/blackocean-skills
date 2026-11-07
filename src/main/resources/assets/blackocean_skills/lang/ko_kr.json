@@ -127,5 +127,6 @@
   "death.attack.blackocean_skills.ice.player": "%1$s이(가) %2$s의 냉기에 얼어붙었습니다",
   "death.attack.blackocean_skills.thunder": "%1$s이(가) %2$s의 천둥 망치에 짓눌렸습니다",
   "death.attack.blackocean_skills.thunder.item": "%1$s이(가) %3$s을(를) 든 %2$s의 천둥 망치에 짓눌렸습니다",
-  "death.attack.blackocean_skills.thunder.player": "%1$s이(가) %2$s의 천둥 망치에 짓눌렸습니다"
+  "death.attack.blackocean_skills.thunder.player": "%1$s이(가) %2$s의 천둥 망치에 짓눌렸습니다",
+  "msg.blackocean_skills.stunned": "기절·얼림 중에는 스킬을 쓸 수 없어요"
 }

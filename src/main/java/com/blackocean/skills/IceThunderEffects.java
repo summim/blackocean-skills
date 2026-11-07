@@ -325,8 +325,11 @@ final class IceThunderEffects {
             o.fallDistance = 0;
             if (age <= rise) {
                 // 시전 지점 위 7칸으로 떠오름
-                Vec3 hover = start.add(0, 7.0, 0);
-                Vec3 v = hover.subtract(o.position()).scale(0.3);
+                // 정해진 길(부드럽게 감속하며 7칸 위로)을 따라감 → 핑이 높아도 출렁이지 않음
+                double k0 = ease((double) (age - 1) / rise), k1 = ease((double) age / rise);
+                Vec3 v = new Vec3(0, 7.0 * (k1 - k0), 0);
+                Vec3 err = start.add(0, 7.0 * k0, 0).subtract(o.position());
+                if (err.lengthSqr() < 9.0) v = v.add(err.scale(0.2));
                 SkillTargets.setVelocity(o, v);
                 if (age == rise) {
                     slamFrom = o.position();
@@ -356,6 +359,11 @@ final class IceThunderEffects {
                 SkillEvents.send(level, skill, SkillEvents.JUDGMENT, o, target, target, (float) rr, 2, n, -1);
             }
             return false;
+        }
+
+        static double ease(double t) {
+            t = Math.max(0, Math.min(1, t));
+            return 1 - (1 - t) * (1 - t);
         }
 
         void impact(ServerPlayer o) {

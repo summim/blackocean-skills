@@ -127,5 +127,6 @@
   "death.attack.blackocean_skills.ice.player": "%1$s was frozen solid by %2$s",
   "death.attack.blackocean_skills.thunder": "%1$s was crushed by %2$s's thunder hammer",
   "death.attack.blackocean_skills.thunder.item": "%1$s was crushed by %2$s's thunder hammer using %3$s",
-  "death.attack.blackocean_skills.thunder.player": "%1$s was crushed by %2$s's thunder hammer"
+  "death.attack.blackocean_skills.thunder.player": "%1$s was crushed by %2$s's thunder hammer",
+  "msg.blackocean_skills.stunned": "You can't use skills while stunned or frozen"
 }

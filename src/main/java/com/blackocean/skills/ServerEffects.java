@@ -160,6 +160,7 @@ final class ServerEffects {
             SkillTargets.knock(e, flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize(), s.speed() * f, 0.55);
         }
         for (Projectile pr : level.getEntitiesOfClass(Projectile.class, new AABB(c, c).inflate(r), x -> x.getOwner() != p && !(x instanceof ThrownTrident) && !(x instanceof FishingHook)
+                && !(x instanceof net.minecraft.world.entity.projectile.ThrownEnderpearl) && x.getDeltaMovement().lengthSqr() > 0.01
                 && (x.getOwner() == null || SkillTargets.canHit(p, x.getOwner())))) {
             pr.discard();
         }

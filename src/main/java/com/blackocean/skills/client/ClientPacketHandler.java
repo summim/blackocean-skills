@@ -1,17 +1,18 @@
 package com.blackocean.skills.client;
 
+import com.blackocean.skills.Element;
 import com.blackocean.skills.Skill;
 import com.blackocean.skills.client.fx.FxManager;
 import com.blackocean.skills.network.CastStartPayload;
 import com.blackocean.skills.network.CooldownSyncPayload;
-import com.blackocean.skills.network.FireFistImpactPayload;
-import com.blackocean.skills.network.SkillFxPayload;
+import com.blackocean.skills.network.ElementSyncPayload;
+import com.blackocean.skills.network.SkillEventPayload;
 import com.blackocean.skills.network.SkillStatsPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 
-/** 서버에서 온 신호를 화면 연출로 넘긴다. (클라이언트에서만 불림) */
+/** 서버에서 온 신호를 화면 연출·스킬 칸으로 넘긴다. (클라이언트에서만 불림) */
 public final class ClientPacketHandler {
     private ClientPacketHandler() {}
 
@@ -28,7 +29,7 @@ public final class ClientPacketHandler {
 
     public static void onCooldown(CooldownSyncPayload p) {
         if (p.skill() < 0) {
-            SkillBarHud.resetAll();
+            if (!p.denied()) SkillBarHud.resetAll();
         } else {
             Skill skill = Skill.byIndex(p.skill());
             if (skill == null) return;
@@ -38,17 +39,19 @@ public final class ClientPacketHandler {
         if (p.denied()) FxManager.cancelPredictedCharge();
     }
 
-    public static void onImpact(FireFistImpactPayload p) {
+    public static void onEvent(SkillEventPayload p) {
         if (Minecraft.getInstance().level == null) return;
-        FxManager.onImpact(p);
-    }
-
-    public static void onSkillFx(SkillFxPayload p) {
-        if (Minecraft.getInstance().level == null) return;
-        FxManager.onSkillFx(p);
+        FxManager.onEvent(p);
     }
 
     public static void onStats(SkillStatsPayload p) {
         ClientSkillStats.set(p);
+    }
+
+    public static void onElement(ElementSyncPayload p) {
+        Element before = ClientElement.get();
+        Element now = Element.byIndex(p.element());
+        ClientElement.set(now);
+        if (before != now) com.blackocean.skills.client.fx.AimPreview.stop(); // 조준 중이던 스킬은 이제 내 것이 아님
     }
 }

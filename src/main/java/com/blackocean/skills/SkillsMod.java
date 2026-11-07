@@ -4,6 +4,8 @@ import com.blackocean.skills.SkillServer;
 import com.blackocean.skills.network.SkillsNetwork;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.item.CreativeModeTabs;
+import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 import net.neoforged.bus.api.IEventBus;
@@ -32,6 +34,14 @@ public final class SkillsMod {
     public SkillsMod(IEventBus modBus, ModContainer container) {
         SkillsRegistry.ENTITIES.register(modBus);
         SkillsRegistry.SOUNDS.register(modBus);
+        SkillsRegistry.ITEMS.register(modBus);
+        SkillsRegistry.ATTACHMENTS.register(modBus);
+        // 열매 4종: 음식 탭에 표시
+        modBus.addListener(BuildCreativeModeTabContentsEvent.class, e -> {
+            if (e.getTabKey() == CreativeModeTabs.FOOD_AND_DRINKS) {
+                for (Element el : Element.VALUES) e.accept(SkillsRegistry.FRUITS.get(el).get());
+            }
+        });
         container.registerConfig(ModConfig.Type.COMMON, SkillsConfig.SPEC);
 
         modBus.addListener(RegisterPayloadHandlersEvent.class, SkillsNetwork::register);
@@ -39,13 +49,19 @@ public final class SkillsMod {
         modBus.addListener(ModConfigEvent.Reloading.class, e -> {
             MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
             if (server != null && e.getConfig().getSpec() == SkillsConfig.SPEC) {
-                server.execute(() -> server.getPlayerList().getPlayers().forEach(SkillServer::sendStats));
+                server.execute(() -> server.getPlayerList().getPlayers().forEach(pl -> {
+                    SkillServer.sendStats(pl);
+                    PlayerElements.sync(pl); // defaultElement 를 바꿨을 수도 있음
+                }));
             }
         });
 
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, SkillServer::onServerTick);
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, SkillServer::onLogout);
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class, SkillServer::onLogin);
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class, PlayerElements::onLogin);
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerRespawnEvent.class, PlayerElements::onRespawn);
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, PlayerElements::onDimension);
         NeoForge.EVENT_BUS.addListener(ServerStoppedEvent.class, e -> SkillServer.clear());
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, SkillsCommands::register);
     }

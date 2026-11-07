@@ -4,10 +4,13 @@ import com.blackocean.skills.Skill;
 import com.blackocean.skills.SkillsRegistry;
 import com.blackocean.skills.client.FireFistTravelSound;
 import com.blackocean.skills.client.SkillsClientConfig;
-import com.blackocean.skills.fire.FireBulletProjectile;
-import com.blackocean.skills.fire.FireFistProjectile;
-import com.blackocean.skills.network.FireFistImpactPayload;
-import com.blackocean.skills.network.SkillFxPayload;
+import com.blackocean.skills.Element;
+import com.blackocean.skills.SkillAim;
+import com.blackocean.skills.SkillServer;
+import com.blackocean.skills.client.ClientSkillStats;
+import com.blackocean.skills.entity.SkillProjectile;
+import com.blackocean.skills.network.SkillEventPayload;
+import com.blackocean.skills.network.SkillEvents;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import net.minecraft.client.Minecraft;
@@ -43,6 +46,8 @@ public final class FxManager {
 
     private static final List<ChargeFx> CHARGES = new ArrayList<>();
     private static final Map<Integer, ProjectileFx> PROJECTILES = new HashMap<>();
+    /** 막 생긴 투사체: 어떤 스킬인지(생성 정보)가 한 틱 늦게 올 수 있어서 다음 틱에 연출을 붙인다 */
+    private static final java.util.List<SkillProjectile> JOINED = new java.util.ArrayList<>();
     private static final List<ImpactFx> IMPACTS = new ArrayList<>();
     private static final List<RingWave> RINGS = new ArrayList<>();
     private static final List<Sprite> SPRITES = new ArrayList<>();
@@ -57,16 +62,31 @@ public final class FxManager {
         CHARGES.clear();
         PROJECTILES.values().forEach(p -> p.stopSound());
         PROJECTILES.clear();
+        JOINED.clear();
         IMPACTS.clear();
         RINGS.clear();
         SPRITES.clear();
         FRAME_GLOWS.clear();
         SkillFx.clear();
+        FireFx.clear();
+        LightningFx.clear();
+        WindFx.clear();
+        WaterFx.clear();
         CameraShake.clear();
     }
 
     static void addRing(Vec3 center, Vec3 normal, float r0, float r1, int life, int delay, float alpha) {
         RINGS.add(new RingWave(center, normal, r0, r1, life, delay, alpha));
+    }
+
+    /** 능력 색 충격파 링 */
+    static void addRing(Vec3 center, Vec3 normal, float r0, float r1, int life, int delay, float alpha, Element el) {
+        RingWave w = new RingWave(center, normal, r0, r1, life, delay, alpha);
+        float[] c = FxRender.ringTint(el);
+        w.cr = c[0];
+        w.cg = c[1];
+        w.cb = c[2];
+        RINGS.add(w);
     }
 
     static void addFrameGlow(Sprite s) {
@@ -106,22 +126,30 @@ public final class FxManager {
     // 신호 처리
     // =====================================================================
 
-    /** 내가 스킬 키를 누른 순간 (서버 허락 전에 미리 연출 시작 → 손맛). 불기둥은 조준점을 서버가 정하므로 미리 하지 않음. */
-    public static void startPredictedCharge(Entity self, Skill skill) {
-        if (skill == Skill.FIRE_PILLAR) return;
+    /**
+     * 내가 스킬 키를 뗀 순간 (서버 허락 전에 미리 연출 시작 → 손맛).
+     * 바닥 조준 스킬은 서버와 같은 계산(SkillAim)으로 자리를 미리 정하고, 서버 신호가 오면 서버 자리로 맞춘다.
+     */
+    public static void startPredictedCharge(net.minecraft.world.entity.player.Player self, Skill skill) {
         for (ChargeFx c : CHARGES) {
             if (c.caster == self && !c.done) return;
         }
-        CHARGES.add(new ChargeFx(self, skill, skill.chargeTicks(), true, self.position(), 0f));
+        Vec3 target = self.position();
+        float size = 0f;
+        if (skill.aim == Skill.Aim.GROUND) {
+            Vec3 t = SkillAim.groundTarget(self.level(), self, self.getEyePosition(), self.getLookAngle(), ClientSkillStats.range(skill));
+            if (t == null) return; // 바닥 없음 → 서버도 거절함
+            target = t;
+            size = ClientSkillStats.radius(skill);
+        }
+        CHARGES.add(new ChargeFx(self, skill, Math.max(1, ClientSkillStats.chargeTicks(skill)), true, target, size));
         chargeSound(self, skill);
     }
 
+    /** 모으는 소리: 서버가 주변 사람에게 틀고(본인 제외), 본인은 여기서 바로 튼다 */
     private static void chargeSound(Entity caster, Skill skill) {
-        switch (skill) {
-            case FIRE_FIST -> playAt(caster.position(), SkillsRegistry.FIRE_FIST_CHARGE.get(), 1.4f, 1.0f);
-            case FIRE_BULLETS -> playAt(caster.position(), SkillsRegistry.FIRE_FIST_CHARGE.get(), 0.8f, 1.7f);
-            default -> { } // 불기둥·화염 고리 준비 소리는 서버가 모두에게 틀어 줌
-        }
+        SkillServer.ChargeSound cs = SkillServer.chargeSound(skill);
+        playAt(caster.position(), SkillsRegistry.snd(cs.name()), cs.volume(), cs.pitch());
     }
 
     /** 이 플레이어가 지금 스킬을 모으는 중인지 (내 화면 기준) */
@@ -138,9 +166,9 @@ public final class FxManager {
         CHARGES.removeIf(c -> c.caster == self && c.predicted && !c.confirmed);
     }
 
-    /** 화염 주먹·불꽃 탄환 엔티티가 내 화면에 나타남 (매 틱 모든 엔티티를 훑지 않도록 등장할 때만 등록). */
-    public static void onFistJoin(FireFistProjectile fist) {
-        PROJECTILES.computeIfAbsent(fist.getId(), id -> new ProjectileFx(fist));
+    /** 투사체가 내 화면에 나타남 (매 틱 모든 엔티티를 훑지 않도록 등장할 때만 등록). */
+    public static void onProjectileJoin(SkillProjectile proj) {
+        JOINED.add(proj);
     }
 
     public static void onCastStart(Entity caster, Skill skill, int chargeTicks, Vec3 target, float size) {
@@ -150,51 +178,95 @@ public final class FxManager {
                 if (c.caster == caster && c.predicted && !c.confirmed && !c.done && c.skill == skill) {
                     c.confirmed = true;
                     c.duration = Math.max(1, chargeTicks);
+                    if (skill.aim == Skill.Aim.GROUND) {
+                        c.target = target; // 서버가 정한 자리
+                        c.size = size;
+                    }
                     return;
                 }
             }
         }
-        ChargeFx c = new ChargeFx(caster, skill, chargeTicks, false, target, size);
+        CHARGES.removeIf(c -> c.caster == caster); // 같은 사람의 오래된 준비 연출 정리
+        ChargeFx c = new ChargeFx(caster, skill, Math.max(1, chargeTicks), false, target, size);
         c.confirmed = true;
         CHARGES.add(c);
-        chargeSound(caster, skill);
+        if (caster == mc.player) chargeSound(caster, skill); // 예약 발동 등 미리 시작 못 한 경우 (남의 시전 소리는 서버가 틀어 줌)
     }
 
-    /** 불기둥 분출·화염 고리 폭발 (서버가 피해를 준 그 틱) */
-    public static void onSkillFx(SkillFxPayload p) {
-        Vec3 pos = new Vec3(p.x(), p.y(), p.z());
-        // 같은 시전자의 준비 연출은 여기서 끝
+    /** 서버의 스킬 연출 신호 (서버가 피해를 준 바로 그 틱) */
+    public static void onEvent(SkillEventPayload e) {
         Minecraft mc = Minecraft.getInstance();
-        Entity caster = mc.level != null ? mc.level.getEntity(p.casterId()) : null;
-        if (caster != null) {
-            CHARGES.removeIf(c -> c.caster == caster && (c.skill == Skill.FIRE_PILLAR || c.skill == Skill.FLAME_RING));
+        if (mc.level == null) return;
+        Entity caster = e.casterId() >= 0 ? mc.level.getEntity(e.casterId()) : null;
+        Skill skill = Skill.byIndex(e.skill());
+        lod = lodAt(e.pos());
+        if (e.kind() == SkillEvents.TRANSFORM) {
+            Element el = Element.byIndex(e.target());
+            if (el != null) transform(e.pos(), el, caster);
+            return;
         }
-        switch (p.kind()) {
-            case SkillFxPayload.PILLAR_ERUPT -> SkillFx.addPillar(pos, p.size(), p.height(), p.duration(), false);
-            case SkillFxPayload.RING_BURST -> SkillFx.addRingBurst(pos, p.size(), p.duration());
-            default -> { }
+        if (skill == null) return;
+        if (e.kind() == SkillEvents.ULT_CAST) {
+            ScreenFx.ultimate(skill, caster, e.pos());
+            return;
+        }
+        if (e.kind() == SkillEvents.IMPACT || e.kind() == SkillEvents.PIERCE) {
+            if (e.kind() == SkillEvents.IMPACT) {
+                ProjectileFx proj = PROJECTILES.get(e.duration());
+                if (proj != null) proj.impact(e.pos());
+            }
+        } else if (caster != null) {
+            CHARGES.removeIf(c -> c.caster == caster && c.skill == skill); // 발동 → 준비 연출 끝
+        }
+        switch (skill.element) {
+            case FIRE -> {
+                switch (e.kind()) {
+                    case SkillEvents.IMPACT -> {
+                        if (skill == Skill.FIRE_SUN) FireFx.onEvent(e, skill, caster);
+                        else fistImpact(e, skill == Skill.FIRE_BULLETS);
+                    }
+                    case SkillEvents.ERUPT -> SkillFx.addPillar(e.pos(), e.size(), e.size2(), e.duration(), false);
+                    case SkillEvents.BURST -> SkillFx.addRingBurst(e.pos(), e.size(), e.duration());
+                    default -> FireFx.onEvent(e, skill, caster);
+                }
+            }
+            case LIGHTNING -> LightningFx.onEvent(e, skill, caster);
+            case WIND -> WindFx.onEvent(e, skill, caster);
+            case WATER -> WaterFx.onEvent(e, skill, caster);
         }
     }
 
-    public static void onImpact(FireFistImpactPayload p) {
-        Vec3 pos = new Vec3(p.x(), p.y(), p.z());
-        ProjectileFx proj = PROJECTILES.get(p.projectileId());
-        if (proj != null) {
-            proj.impact(pos);
-        }
-        Vec3 n = new Vec3(p.nx(), p.ny(), p.nz());
-        boolean blockHit = p.hitEntityId() < 0 && !p.fizzle();
+    /** 화염 주먹·불꽃 탄환 적중 */
+    private static void fistImpact(SkillEventPayload p, boolean small) {
+        Vec3 pos = p.pos();
+        Vec3 n = p.vec();
+        boolean fizzle = p.size2() > 0.5f;
+        boolean blockHit = p.target() < 0 && !fizzle;
         // 벽에 맞으면 벽면을 따라, 그 외(바닥·생물·공중)에는 수평으로 충격파가 퍼짐
         Vec3 ringNormal = blockHit && Math.abs(n.y) < 0.5 ? n : UP;
-        boolean small = p.kind() == 1;
-        IMPACTS.add(new ImpactFx(pos, n, ringNormal, p.fizzle(), small));
-        if (!small && !p.fizzle()) {
+        IMPACTS.add(new ImpactFx(pos, n, ringNormal, fizzle, small));
+        if (!small && !fizzle) {
             // 화염 주먹: 맞은 자리에서 짧게 솟구치는 불기둥 + 바닥이면 그을음 자국
             SkillFx.addPillar(pos.subtract(0, blockHit && n.y > 0.7 ? 0 : 0.6, 0), 0.95f, 4.8f, 7, true);
             if (blockHit) SkillFx.addDecal(pos, n, n.y > 0.7 ? 2.8f : 2.2f, 160);
-        } else if (small && blockHit && !p.fizzle()) {
+        } else if (small && blockHit) {
             SkillFx.addDecal(pos, n, 0.9f, 100);
         }
+    }
+
+    /** 열매를 먹은 순간: 그 능력 색의 기둥 + 고리 + 화면 번쩍 (본인) */
+    private static void transform(Vec3 pos, Element el, @org.jetbrains.annotations.Nullable Entity who) {
+        float[] c = FxRender.tint(el);
+        spawn(new Sprite(Sprite.Kind.GLOW, pos.add(0, 1, 0), Vec3.ZERO, 6f, 12f, 16).color(c[0], c[1], c[2], 1f).elem(el));
+        addRing(pos.add(0, 0.05, 0), UP, 0.5f, 8f, 16, 0, 1f, el);
+        addRing(pos.add(0, 1.0, 0), UP, 0.3f, 5f, 12, 3, 0.8f, el);
+        for (int i = 0; i < count(60); i++) {
+            Vec3 d = randomDir();
+            spawn(new Sprite(Sprite.Kind.SPARK, pos.add(0, 1, 0), d.scale(rand(0.3f, 0.9f)).add(0, 0.25, 0), 0.12f, 0.12f, 14 + RNG.nextInt(10))
+                    .color(c[0], c[1], c[2], 1f).physics(0.01f, 0.92f).elem(el));
+        }
+        SkillFx.addPillar(pos, 1.0f, 7f, 14, true, el);
+        if (who == Minecraft.getInstance().player) ScreenFx.flash(el.color, 0.65f, 18);
     }
 
     // =====================================================================
@@ -211,13 +283,20 @@ public final class FxManager {
 
         CHARGES.removeIf(c -> c.tick());
 
+        if (!JOINED.isEmpty()) {
+            for (SkillProjectile proj : JOINED) {
+                if (!proj.isRemoved()) PROJECTILES.computeIfAbsent(proj.getId(), id -> new ProjectileFx(proj));
+            }
+            JOINED.clear();
+        }
+
         // 날아가는 주먹 따라가기
         Iterator<ProjectileFx> it = PROJECTILES.values().iterator();
         while (it.hasNext()) {
             ProjectileFx s = it.next();
             if (!s.impacted) {
-                if (s.fist.isRemoved() || s.fist.level() != mc.level) s.impact(s.last); // 적중 신호 없이 사라짐 (멀어짐 등)
-                else s.track(s.fist);
+                if (s.proj.isRemoved() || s.proj.level() != mc.level) s.impact(s.last); // 적중 신호 없이 사라짐 (멀어짐 등)
+                else s.track(s.proj);
             }
             if (s.tickAfter()) {
                 s.stopSound();
@@ -227,6 +306,10 @@ public final class FxManager {
 
         IMPACTS.removeIf(ImpactFx::tick);
         SkillFx.tick();
+        FireFx.tick();
+        LightningFx.tick();
+        WindFx.tick();
+        WaterFx.tick();
         AimPreview.tick();
         RINGS.removeIf(r -> ++r.age >= r.delay + r.life);
         SPRITES.removeIf(Sprite::tick);
@@ -240,7 +323,7 @@ public final class FxManager {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES) return;
         if (Minecraft.getInstance().level == null) return;
         if (CHARGES.isEmpty() && PROJECTILES.isEmpty() && IMPACTS.isEmpty() && RINGS.isEmpty() && SPRITES.isEmpty() && SkillFx.isEmpty()
-                && !AimPreview.active()) return;
+                && FireFx.isEmpty() && LightningFx.isEmpty() && WindFx.isEmpty() && WaterFx.isEmpty() && !AimPreview.active()) return;
 
         FxRender.begin(event);
         try {
@@ -250,6 +333,11 @@ public final class FxManager {
             // 1) 연기 (반투명 덮기) — 불 뒤에 깔리도록 먼저
             FxRender.alphaBlend();
             SkillFx.renderAlpha(pt);
+            FireFx.renderAlpha(pt, time);
+            LightningFx.renderAlpha(pt, time);
+            WindFx.renderAlpha(pt, time);
+            WaterFx.renderAlpha(pt, time);
+            FxRender.alphaBlend();
             AimPreview.render(pt, time);
             FxRender.alphaBlend();
             drawSprites(Sprite.Kind.SMOKE, pt);
@@ -261,6 +349,15 @@ public final class FxManager {
             for (ChargeFx c : CHARGES) c.render(pt, time);
             for (ImpactFx i : IMPACTS) i.render(pt);
             SkillFx.renderAdditive(pt, time);
+            FxRender.additive();
+            FireFx.renderAdditive(pt, time);
+            FxRender.additive();
+            LightningFx.renderAdditive(pt, time);
+            FxRender.additive();
+            WindFx.renderAdditive(pt, time);
+            FxRender.additive();
+            WaterFx.renderAdditive(pt, time);
+            FxRender.additive();
             drawRings(pt);
             drawSprites(Sprite.Kind.FLAME, pt);
             drawSprites(Sprite.Kind.EMBER, pt);
@@ -273,19 +370,29 @@ public final class FxManager {
     }
 
     private static void drawSprites(Sprite.Kind kind, float pt) {
-        BufferBuilder bb;
-        switch (kind) {
-            case FLAME -> FxRender.spriteShader(FxRender.FLAME_SHEET);
-            case GLOW -> FxRender.spriteShader(FxRender.GLOW);
-            case SPARK -> FxRender.spriteShader(FxRender.SPARK);
-            case EMBER -> FxRender.spriteShader(FxRender.EMBER);
-            case SMOKE -> FxRender.spriteShader(FxRender.SMOKE);
-        }
-        RenderSystem.disableCull();
-        bb = FxRender.quads();
         List<Sprite> list = kind == Sprite.Kind.GLOW ? concat(SPRITES, FRAME_GLOWS) : SPRITES;
+        if (list.isEmpty()) return;
+        // 능력마다 그림이 달라서 능력별로 나눠 그림 (GLOW·SPARK 는 흰 그림을 색칠하므로 한 번에)
+        boolean shared = kind == Sprite.Kind.GLOW || kind == Sprite.Kind.SPARK;
+        for (Element el : shared ? new Element[]{Element.FIRE} : Element.VALUES) {
+            drawSprites(kind, pt, list, shared ? null : el);
+        }
+    }
+
+    private static void drawSprites(Sprite.Kind kind, float pt, List<Sprite> list, @org.jetbrains.annotations.Nullable Element only) {
+        boolean any = false;
         for (Sprite s : list) {
-            if (s.kind != kind) continue;
+            if (s.kind == kind && (only == null || s.elem == only)) {
+                any = true;
+                break;
+            }
+        }
+        if (!any) return;
+        FxRender.spriteShader(FxRender.spriteTexture(kind, only == null ? Element.FIRE : only));
+        RenderSystem.disableCull();
+        BufferBuilder bb = FxRender.quads();
+        for (Sprite s : list) {
+            if (s.kind != kind || (only != null && s.elem != only)) continue;
             float t = s.t(pt);
             Vec3 p = s.pos(pt);
             float size = s.size(pt);
@@ -332,7 +439,7 @@ public final class FxManager {
 
     private static void drawRings(float pt) {
         if (RINGS.isEmpty()) return;
-        FxRender.spriteShader(FxRender.SHOCK_RING);
+        FxRender.spriteShader(FxRender.SHOCK_RING_WHITE);
         RenderSystem.disableCull();
         BufferBuilder bb = FxRender.quads();
         for (RingWave r : RINGS) {
@@ -342,7 +449,7 @@ public final class FxManager {
             float e = 1f - (1f - t) * (1f - t) * (1f - t); // 빠르게 퍼졌다가 느려짐
             float radius = r.r0 + (r.r1 - r.r0) * e;
             float a = (1f - t) * (1f - t) * r.alpha;
-            FxRender.planeQuad(bb, r.center, r.normal, radius, r.rot, a, a * 0.5f, a * 0.18f, a);
+            FxRender.planeQuad(bb, r.center, r.normal, radius, r.rot, a * r.cr, a * r.cg, a * r.cb, a);
         }
         FxRender.draw(bb);
     }
@@ -411,10 +518,10 @@ public final class FxManager {
         final Entity caster;
         final Skill skill;
         final boolean predicted;
-        /** 불기둥: 경고 원 자리 */
-        final Vec3 target;
-        /** 불기둥: 반지름 */
-        final float size;
+        /** 바닥 조준 스킬: 자리 (서버 신호가 오면 서버 자리로 바뀜) */
+        Vec3 target;
+        /** 바닥 조준 스킬: 반지름 */
+        float size;
         boolean confirmed;
         boolean done;
         int duration;
@@ -441,6 +548,24 @@ public final class FxManager {
             // 서버가 거절하면(쿨타임 등) 미리 시작한 연출을 지운다
             if (predicted && !confirmed && age > duration + 6) return true;
             float k = progress(0f);
+
+            if (skill.element != Element.FIRE || skill == Skill.FIRE_SUN) {
+                // 번개·바람·물·작열의 태양: 능력별 연출 모듈
+                lod = lodAt(caster.position());
+                switch (skill.element) {
+                    case FIRE -> FireFx.tickCharge(this, k);
+                    case LIGHTNING -> LightningFx.tickCharge(this, k);
+                    case WIND -> WindFx.tickCharge(this, k);
+                    case WATER -> WaterFx.tickCharge(this, k);
+                }
+                // 투사체는 나가는 순간 끝, 나머지는 서버 발동 신호가 올 때까지 조금 더 기다림 (신호가 오면 바로 지움)
+                int wait = skill.aim == Skill.Aim.PROJECTILE ? 0 : 10;
+                if (age >= duration + wait && (confirmed || !predicted)) {
+                    done = true;
+                    return true;
+                }
+                return false;
+            }
 
             switch (skill) {
                 case FIRE_PILLAR -> {
@@ -548,6 +673,16 @@ public final class FxManager {
         void render(float pt, float time) {
             if (done) return;
             float k = progress(pt);
+            if (skill.element != Element.FIRE || skill == Skill.FIRE_SUN) {
+                switch (skill.element) {
+                    case FIRE -> FireFx.renderCharge(this, pt, k, time);
+                    case LIGHTNING -> LightningFx.renderCharge(this, pt, k, time);
+                    case WIND -> WindFx.renderCharge(this, pt, k, time);
+                    case WATER -> WaterFx.renderCharge(this, pt, k, time);
+                }
+                FxRender.additive();
+                return;
+            }
             switch (skill) {
                 case FIRE_PILLAR -> {
                     SkillFx.renderPillarWarn(target, size, k, time);
@@ -610,7 +745,8 @@ public final class FxManager {
 
     static final class ProjectileFx {
         Entity entity;
-        final FireFistProjectile fist;
+        final SkillProjectile proj;
+        final Skill skill;
         final ArrayDeque<Vec3> trail = new ArrayDeque<>(); // 최근 위치, 앞이 최신
         Vec3 dir = new Vec3(0, 0, 1);
         Vec3 last;
@@ -621,21 +757,25 @@ public final class FxManager {
         FireFistTravelSound sound;
         /** 불꽃 탄환 (작은 불덩이, 소리 없음, 궤적 가늘고 짧음) */
         final boolean small;
+        /** 화염 주먹·불꽃 탄환이 아닌 모양 (태양·바람 칼날·물 구슬) → 능력별 모듈이 그림 */
+        final boolean module;
 
-        ProjectileFx(FireFistProjectile e) {
+        ProjectileFx(SkillProjectile e) {
             this.entity = e;
-            this.fist = e;
-            this.small = e instanceof FireBulletProjectile;
+            this.proj = e;
+            this.skill = e.getSkill();
+            this.small = skill.shape == Skill.Shape.BULLET;
+            this.module = skill.shape != Skill.Shape.FIST && skill.shape != Skill.Shape.BULLET;
             this.last = e.position();
             Vec3 v = e.getDeltaMovement();
             if (v.lengthSqr() > 1.0E-6) dir = v.normalize();
-            if (!small) {
+            if (skill.shape == Skill.Shape.FIST) {
                 sound = new FireFistTravelSound(e);
                 Minecraft.getInstance().getSoundManager().play(sound);
             }
         }
 
-        void track(FireFistProjectile e) {
+        void track(SkillProjectile e) {
             Vec3 p = e.position();
             lod = lodAt(p);
             Vec3 d = p.subtract(last);
@@ -644,6 +784,16 @@ public final class FxManager {
             trail.addFirst(p);
             while (trail.size() > (small ? 7 : 14)) trail.removeLast();
             age++;
+
+            if (module) {
+                switch (skill.element) {
+                    case FIRE -> FireFx.trackProjectile(this, p);
+                    case LIGHTNING -> LightningFx.trackProjectile(this, p);
+                    case WIND -> WindFx.trackProjectile(this, p);
+                    case WATER -> WaterFx.trackProjectile(this, p);
+                }
+                return;
+            }
 
             Vec3 back = dir.scale(-1);
             if (small) {
@@ -710,7 +860,7 @@ public final class FxManager {
             if (sound != null) sound.fadeOut();
         }
 
-        private Vec3 head(float pt) {
+        Vec3 head(float pt) {
             if (impacted || entity == null) return impactPos != null ? impactPos : last;
             return entity.getPosition(pt);
         }
@@ -728,8 +878,14 @@ public final class FxManager {
             float fade = impacted ? Math.max(0f, 1f - (afterTicks + pt) / 8f) : 1f;
             if (fade <= 0f) return;
 
-            float wScale = small ? 0.38f : 1f;
-            FxRender.fireShader(2.2f, 0.22f, 1.2f);
+            if (skill.shape == Skill.Shape.BLADE) return; // 바람 칼날은 모듈이 잔상으로 그림
+            float wScale = switch (skill.shape) {
+                case BULLET -> 0.38f;
+                case SUN -> 2.6f;
+                case ORB -> 0.55f;
+                default -> 1f;
+            };
+            FxRender.elemShader(skill.element, 2.2f, 0.22f, 1.2f);
             RenderSystem.disableCull();
             BufferBuilder bb = FxRender.quads();
             double along = 0;
@@ -756,7 +912,7 @@ public final class FxManager {
                 along += segLen;
             }
             FxRender.draw(bb);
-            if (!small) renderSpirals(pts, fade, time);
+            if (skill.shape == Skill.Shape.FIST) renderSpirals(pts, fade, time);
         }
 
         /** 주먹 뒤로 꼬이며 따라오는 불꽃 띠 2가닥 (나선) */
@@ -810,6 +966,16 @@ public final class FxManager {
         void renderBody(float pt, float time) {
             if (impacted || entity == null) return;
             Vec3 c = head(pt);
+            if (module) {
+                switch (skill.element) {
+                    case FIRE -> FireFx.renderProjectile(this, c, pt, time);
+                    case LIGHTNING -> LightningFx.renderProjectile(this, c, pt, time);
+                    case WIND -> WindFx.renderProjectile(this, c, pt, time);
+                    case WATER -> WaterFx.renderProjectile(this, c, pt, time);
+                }
+                FxRender.additive();
+                return;
+            }
             if (small) {
                 // 탄환: 꿈틀거리는 작은 불덩이 + 빛
                 float r = 0.36f * Math.min(1f, 0.5f + (age + pt) / 3f);
@@ -982,6 +1148,8 @@ public final class FxManager {
         final float r0, r1, alpha, rot;
         final int life, delay;
         int age;
+        /** 링 색 (기본 = 불 주황) */
+        float cr = 1f, cg = 0.5f, cb = 0.18f;
 
         RingWave(Vec3 center, Vec3 normal, float r0, float r1, int life, int delay, float alpha) {
             this.center = center;

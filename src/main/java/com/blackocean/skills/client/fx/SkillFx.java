@@ -64,7 +64,7 @@ final class SkillFx {
         for (Decal d : DECALS) {
             float t = (d.age + pt) / d.life;
             float a = (t < 0.05f ? t / 0.05f : (t > 0.7f ? 1f - (t - 0.7f) / 0.3f : 1f)) * 0.85f;
-            FxRender.planeQuad(bb, d.pos.add(d.normal.scale(0.03 + d.layer * 0.004)), d.normal, d.radius, d.rot, 1f, 1f, 1f, a);
+            FxRender.planeQuad(bb, d.pos.add(d.normal.scale(0.03 + d.layer * 0.004)), d.normal, d.radius, d.rot, d.cr, d.cg, d.cb, a);
         }
         FxRender.draw(bb);
     }
@@ -122,8 +122,17 @@ final class SkillFx {
     // =====================================================================
 
     static void addDecal(Vec3 pos, Vec3 normal, float radius, int life) {
+        addDecal(pos, normal, radius, life, 1f, 1f, 1f);
+    }
+
+    /** 색을 입힌 바닥 자국 (그을음 그림 × 색: 물은 푸른 젖은 자국, 번개는 푸른 탄 자국 등) */
+    static void addDecal(Vec3 pos, Vec3 normal, float radius, int life, float r, float g, float b) {
         if (DECALS.size() > 40) DECALS.remove(0);
-        DECALS.add(new Decal(pos, normal.normalize(), radius, life, DECALS.size() % 8));
+        Decal d = new Decal(pos, normal.normalize(), radius, life, DECALS.size() % 8);
+        d.cr = r;
+        d.cg = g;
+        d.cb = b;
+        DECALS.add(d);
     }
 
     static final class Decal {
@@ -131,6 +140,7 @@ final class SkillFx {
         final float radius, rot;
         final int life, layer;
         int age;
+        float cr = 1f, cg = 1f, cb = 1f;
 
         Decal(Vec3 pos, Vec3 normal, float radius, int life, int layer) {
             this.pos = pos;
@@ -205,7 +215,12 @@ final class SkillFx {
      * 불기둥 분출. minor = true 면 화염 주먹 적중 때 함께 솟는 작은 불기둥 (흔들림·자국 없음, 입자 적게).
      */
     static void addPillar(Vec3 base, float radius, float height, int duration, boolean minor) {
-        PILLARS.add(new PillarFx(base, radius, height, duration, minor));
+        PILLARS.add(new PillarFx(base, radius, height, duration, minor, com.blackocean.skills.Element.FIRE));
+    }
+
+    /** 능력 색 기둥 (열매 먹었을 때 등) */
+    static void addPillar(Vec3 base, float radius, float height, int duration, boolean minor, com.blackocean.skills.Element el) {
+        PILLARS.add(new PillarFx(base, radius, height, duration, minor, el));
     }
 
     static final class PillarFx {
@@ -213,9 +228,25 @@ final class SkillFx {
         final float r, h;
         final int duration;
         final boolean minor;
+        final com.blackocean.skills.Element el;
         int age;
 
-        PillarFx(Vec3 base, float r, float h, int duration, boolean minor) {
+        /** 불이 아니면 불꽃·불씨를 그 능력 그림·색으로 */
+        private void spawn(Sprite sp) {
+            if (el != com.blackocean.skills.Element.FIRE) {
+                sp.elem(el);
+                if (sp.kind != Sprite.Kind.SMOKE) {
+                    float[] c = FxRender.tint(el);
+                    sp.r = c[0];
+                    sp.g = c[1];
+                    sp.b = c[2];
+                }
+            }
+            FxManager.spawn(sp);
+        }
+
+        PillarFx(Vec3 base, float r, float h, int duration, boolean minor, com.blackocean.skills.Element el) {
+            this.el = el;
             this.base = base;
             this.r = r;
             this.h = h;
@@ -225,12 +256,12 @@ final class SkillFx {
             float s = minor ? 0.5f : 1f;
 
             spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, 1.0, 0), Vec3.ZERO, 8f * s, 11f * s, 6).color(1f, 0.9f, 0.7f, 1f));
-            spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, h * 0.5, 0), Vec3.ZERO, h * 0.9f, h * 1.1f, 10).color(1f, 0.45f, 0.12f, 0.7f));
+            spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, h * 0.5, 0), Vec3.ZERO, h * 0.9f, h * 1.1f, 10).color(FxRender.tint(el)[0], FxRender.tint(el)[1], FxRender.tint(el)[2], 0.7f));
             Vec3 rc = base.add(0, 0.06, 0);
-            FxManager.addRing(rc, UP, r * 0.5f, r * (minor ? 2.4f : 3.6f), 10, 0, 1f);
+            FxManager.addRing(rc, UP, r * 0.5f, r * (minor ? 2.4f : 3.6f), 10, 0, 1f, el);
             if (!minor) {
-                FxManager.addRing(rc, UP, r * 0.3f, r * 2.2f, 8, 2, 0.8f);
-                addDecal(base, UP, r * 1.7f, 180);
+                FxManager.addRing(rc, UP, r * 0.3f, r * 2.2f, 8, 2, 0.8f, el);
+                if (el == com.blackocean.skills.Element.FIRE) addDecal(base, UP, r * 1.7f, 180); // 다른 능력은 각자 자국을 남김
             }
             // 위로 터져 오르는 불꽃 줄기
             for (int i = 0; i < count(minor ? 14 : 40); i++) {
@@ -311,20 +342,21 @@ final class SkillFx {
             float fade = t > duration ? 1f - clamp01((t - duration) / 12f) : 1f;
             float erosion = t > duration - 6 ? clamp01((t - duration + 6) / 16f) : 0.04f;
             // 바깥 불기둥: 굵고 붉은 외곽, 위로 갈수록 가늘어지며 꼬임
-            FxRender.fireShader(1.8f, erosion, 1.0f * fade + 0.1f);
+            FxRender.elemShader(el, 1.8f, erosion, 1.0f * fade + 0.1f);
             RenderSystem.disableCull();
             column(base, r * 1.05f, r * 0.62f, hh, 0.95f, 0.28f, 0f, 0.09f, time);
             // 안쪽 심지: 가늘고 하얗게 빛나며 반대로 꼬임
-            FxRender.fireShader(2.6f, erosion * 0.8f, 1.25f * fade + 0.1f);
+            FxRender.elemShader(el, 2.6f, erosion * 0.8f, 1.25f * fade + 0.1f);
             column(base, r * 0.42f, r * 0.2f, hh * 1.06f, 1f, -0.4f, 0.37f, 0.06f, time);
             // 바닥에 퍼진 불꽃 고리
-            FxRender.fireShader(1.4f, erosion, 0.9f * fade);
+            FxRender.elemShader(el, 1.4f, erosion, 0.9f * fade);
             BufferBuilder bb = FxRender.quads();
             FxRender.ring(bb, base.add(0, 0.05, 0), UP, r * 0.7f, r * (1.9f + 0.3f * clamp01(t / 6f)), 0.85f * fade, time * 0.25f, 56);
             FxRender.draw(bb);
             // 기둥 전체를 감싸는 빛
+            float[] tc = FxRender.tint(el);
             Sprite glow = new Sprite(Sprite.Kind.GLOW, base.add(0, hh * 0.45, 0), Vec3.ZERO, hh * 1.1f + r * 2f, 0, 1)
-                    .color(1f, 0.5f, 0.15f, 0.32f * fade);
+                    .color(tc[0], tc[1], tc[2], 0.32f * fade);
             glow.size1 = glow.size0;
             FxManager.addFrameGlow(glow);
         }

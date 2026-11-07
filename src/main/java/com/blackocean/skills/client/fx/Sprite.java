@@ -7,6 +7,8 @@ final class Sprite {
     enum Kind { FLAME, GLOW, SPARK, EMBER, SMOKE }
 
     final Kind kind;
+    /** 어느 능력의 그림으로 그릴지 (불꽃 시트·불씨·연기 그림이 능력마다 다름) */
+    com.blackocean.skills.Element elem = com.blackocean.skills.Element.FIRE;
     double x, y, z, px, py, pz;
     double vx, vy, vz;
     float size0, size1;
@@ -33,6 +35,11 @@ final class Sprite {
 
     Sprite color(float r, float g, float b, float a) {
         this.r = r; this.g = g; this.b = b; this.alpha = a;
+        return this;
+    }
+
+    Sprite elem(com.blackocean.skills.Element e) {
+        this.elem = e;
         return this;
     }
 

@@ -1,0 +1,6 @@
+-d
+/tmp/tmp.b286SrruCp/c
+-proc:none
+-Xmaxerrs
+9000
+@/tmp/tmp.b286SrruCp/f.txt

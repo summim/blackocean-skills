@@ -225,7 +225,11 @@ final class IceThunderEffects {
             o.fallDistance = 0;
             if (!landed) {
                 if (age < ticks) {
-                    SkillTargets.setVelocity(o, at((age + 1.0) / ticks).subtract(o.position()));
+                    // 경로의 기울기(속도) + 어긋난 만큼 조금만 보정 → 핑이 높아도 출렁이지 않음
+                    Vec3 v = at((age + 1.0) / ticks).subtract(at((double) age / ticks));
+                    Vec3 err = at((double) age / ticks).subtract(o.position());
+                    if (err.lengthSqr() < 9.0) v = v.add(err.scale(0.25));
+                    SkillTargets.setVelocity(o, v);
                     return false;
                 }
                 landed = true;
@@ -321,8 +325,10 @@ final class IceThunderEffects {
             }
             int t = age - rise;
             if (t <= SLAM) {
-                Vec3 want = slamFrom.lerp(target, (double) t / SLAM);
-                SkillTargets.setVelocity(o, want.subtract(o.position()));
+                Vec3 v = target.subtract(slamFrom).scale(1.0 / SLAM);
+                Vec3 err = slamFrom.lerp(target, (double) (t - 1) / SLAM).subtract(o.position());
+                if (err.lengthSqr() < 9.0) v = v.add(err.scale(0.25));
+                SkillTargets.setVelocity(o, v);
                 if (t == SLAM) impact(o);
                 return false;
             }

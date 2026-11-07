@@ -151,8 +151,13 @@ public final class SkillsClient {
                 tryCast(mc, i); // 한 틱 안에 누르고 뗌 (아주 빠른 톡) → 바로 발동
             }
             if (released && AimPreview.aiming() == skill) {
+                // 떼는 순간 화면에 보이던 조준 그대로 발동 (보이던 표시를 계산한 시선, 안 보였으면 지금 시선)
+                float[] shown = AimPreview.shownAim(skill);
                 AimPreview.stop();
-                if (!aimCancelled) tryCast(mc, i);
+                if (!aimCancelled) {
+                    if (shown != null) tryCast(mc, i, shown[0], shown[1]);
+                    else tryCast(mc, i);
+                }
                 aimCancelled = false;
             }
             wasDown[i] = down;
@@ -187,6 +192,12 @@ public final class SkillsClient {
     }
 
     private static void tryCast(Minecraft mc, int slot) {
+        if (mc.player == null) return;
+        tryCast(mc, slot, mc.player.getYRot(), mc.player.getXRot());
+    }
+
+    /** yaw/pitch = 발동 방향 (조준 표시가 보이던 시선). 서버가 이 방향으로 고정해서 쏨 */
+    private static void tryCast(Minecraft mc, int slot, float yaw, float pitch) {
         if (mc.player == null || mc.level == null || mc.player.isSpectator() || !mc.player.isAlive()) return;
         Skill skill = ClientElement.skill(slot);
         if (skill == null) {
@@ -207,13 +218,29 @@ public final class SkillsClient {
         }
         if (left > 0 || FxManager.isCharging(mc.player)) {
             // 쿨타임이 거의 끝났거나 다른 스킬을 모으는 중 → 서버가 예약해 두었다가 되는 순간 바로 발동
+            // (예약 발동은 서버가 그 순간의 시선으로 쏨 → 미리 준비 연출을 시작하지 않고 서버 신호를 기다림)
             SkillBarHud.flashQueued(skill);
-            PacketDistributor.sendToServer(new CastRequestPayload(slot, mc.player.getYRot(), mc.player.getXRot()));
+            PacketDistributor.sendToServer(new CastRequestPayload(slot, yaw, pitch));
             return;
         }
-        // 떼는 즉시 내 화면에서 준비 연출 시작 (서버 응답을 기다리지 않음)
-        FxManager.startPredictedCharge(mc.player, skill);
+        // 떼는 즉시 내 화면에서 준비 연출 시작 (서버 응답을 기다리지 않음).
+        // 준비 연출·바닥 자리 예측도 보낼 방향과 같은 시선으로 계산 (잠깐 시선을 바꿨다가 바로 되돌림, 같은 틱 안이라 화면엔 영향 없음)
+        net.minecraft.client.player.LocalPlayer p = mc.player;
+        float oy = p.getYRot(), ox = p.getXRot();
+        boolean swap = oy != yaw || ox != pitch;
+        if (swap) {
+            p.setYRot(yaw);
+            p.setXRot(pitch);
+        }
+        try {
+            FxManager.startPredictedCharge(p, skill);
+        } finally {
+            if (swap) {
+                p.setYRot(oy);
+                p.setXRot(ox);
+            }
+        }
         SkillBarHud.flashPressed(skill);
-        PacketDistributor.sendToServer(new CastRequestPayload(slot, mc.player.getYRot(), mc.player.getXRot()));
+        PacketDistributor.sendToServer(new CastRequestPayload(slot, yaw, pitch));
     }
 }

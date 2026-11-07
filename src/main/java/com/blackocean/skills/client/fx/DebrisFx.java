@@ -76,6 +76,8 @@ public final class DebrisFx {
     private static final RandomSource MODEL_RAND = RandomSource.create(42L);
     private static final BlockPos.MutableBlockPos MPOS = new BlockPos.MutableBlockPos();
     private static final BlockPos.MutableBlockPos SPOS = new BlockPos.MutableBlockPos();
+    /** 맞은 점 바로 밑(대신 쓸) 블록 자리 */
+    private static final BlockPos.MutableBlockPos FPOS = new BlockPos.MutableBlockPos();
 
     // 그리기용 (재사용)
     private static final Matrix4f MAT = new Matrix4f();
@@ -134,7 +136,7 @@ public final class DebrisFx {
                 BlockState st = sample(level, sx, sy, sz, !wall);
                 if (st == null) {
                     st = fallback;
-                    SPOS.set(MPOS);
+                    SPOS.set(FPOS);
                 }
                 if (st == null) continue;
                 // 바깥으로 갈수록 낮고 멀리, 가운데는 높이 솟음
@@ -197,7 +199,7 @@ public final class DebrisFx {
                 BlockState st = sample(level, sx, ground.y + 1.0, sz, true);
                 if (st == null) {
                     st = fallback;
-                    SPOS.set(MPOS);
+                    SPOS.set(FPOS);
                 }
                 if (st == null) continue;
                 float f = range > 0 ? dist / range : 0f;
@@ -246,7 +248,7 @@ public final class DebrisFx {
             BlockState st = sample(level, sx, ground.y + 0.6, sz, true);
             if (st == null) {
                 st = fallback;
-                SPOS.set(MPOS);
+                SPOS.set(FPOS);
             }
             if (st == null) continue;
             float size = rand(0.18f, 0.38f);
@@ -403,13 +405,13 @@ public final class DebrisFx {
         return null;
     }
 
-    /** 맞은 점 바로 밑(벽이면 벽 안) 블록. 자리는 MPOS, 먼지 색은 lastDustRgb 에 */
+    /** 맞은 점 바로 밑(벽이면 벽 안) 블록. 자리는 FPOS, 먼지 색은 lastDustRgb 에 */
     @Nullable
     private static BlockState fallback(ClientLevel level, Vec3 p, Vec3 nrm) {
         BlockState s = sample(level, p.x - nrm.x * 0.3, p.y - nrm.y * 0.3, p.z - nrm.z * 0.3, true);
         if (s == null) s = sample(level, p.x, p.y - 0.2, p.z, true);
         if (s != null) {
-            MPOS.set(SPOS);
+            FPOS.set(SPOS);
             lastDustRgb = dustColor(level, s, SPOS);
         }
         return s;

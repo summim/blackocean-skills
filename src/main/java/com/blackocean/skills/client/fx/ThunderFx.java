@@ -695,7 +695,6 @@ final class ThunderFx {
             FxManager.addRing(start.add(0, 0.06, 0), UP, 0.3f, 2.0f, 6, 2, 0.8f, EL);
             ThunderParts.addWall(ThunderParts.ShockWall.ring(start, 0.4f, 2.6f, 0.9f, 8, 0));
             ThunderParts.addMark(new ThunderParts.Mark(CRACKS, start, UP, 1.8f, 70, 0, 2f, 0f, 0.6f, GOLD));
-            Vec3 flat = dest.subtract(start).multiply(1, 0, 1);
             Vec3 back = flat.lengthSqr() < 1.0E-4 ? new Vec3(0, 0, -1) : flat.normalize().scale(-1);
             DebrisFx.directed(start, back, 2.6f, 55f, 10, 0.6f);
             dust(start, 1.8f, 8, 0.7f);

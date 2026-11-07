@@ -54,6 +54,8 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
     private Skill skill = Skill.FIRE_FIST;
     private int life = 20;
     private final Set<Integer> pierced = new HashSet<>();
+    /** 타격 직전 소리(무거운 바람·궁극기 차오름)를 이미 틀었음 — 소리 전용, 판정과 무관 */
+    private boolean cued;
 
     public SkillProjectile(EntityType<? extends SkillProjectile> type, Level level) {
         super(type, level);
@@ -152,7 +154,36 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
             impact(level, to, new Vec3(0, 1, 0), null, true);
             return;
         }
+        if (!cued) cue(level, to);
         setPos(to.x, to.y, to.z);
+    }
+
+    /**
+     * 소리 전용: 무거운 투사체가 곧(바람 길이 안에) 맞을 것 같으면 그 자리에서 미리 바람·차오름 소리를 틂 →
+     * 소리의 끝이 타격 순간에 겹침. 화염 주먹·망치 = 무거운 바람(6틱), 작열의 태양 = 궁극기 차오름(16틱).
+     * 앞으로 갈 길만 미리 검사하고 판정·움직임은 바꾸지 않음.
+     */
+    private void cue(ServerLevel level, Vec3 at) {
+        int n = switch (skill) {
+            case FIRE_FIST, THUNDER_HAMMER -> SkillSounds.WHOOSH_TICKS;
+            case FIRE_SUN -> SkillSounds.SWELL_TICKS;
+            default -> 0;
+        };
+        if (n <= 0) {
+            cued = true;
+            return;
+        }
+        Vec3 ahead = at.add(getDeltaMovement().scale(n));
+        Vec3 hitAt = null;
+        if (skill == Skill.FIRE_SUN && tickCount + n >= life) hitAt = at.add(getDeltaMovement().scale(Math.max(0, life - tickCount)));
+        BlockHitResult bh = SubLevels.clip(level, new ClipContext(at, ahead, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
+        if (bh.getType() != HitResult.Type.MISS && (hitAt == null || bh.getLocation().distanceToSqr(at) < hitAt.distanceToSqr(at))) hitAt = bh.getLocation();
+        List<Hit> hs = entityHits(level, at, hitAt != null ? hitAt : ahead);
+        if (!hs.isEmpty()) hitAt = hs.get(0).pos;
+        if (hitAt == null) return;
+        cued = true;
+        if (skill == Skill.FIRE_SUN) SkillSounds.play(level, hitAt, "common.ult_swell", SkillSounds.R_ULT_CHARGE, 1.0f);
+        else SkillSounds.play(level, hitAt, "common.heavy_whoosh", SkillSounds.R_CAST, skill == Skill.THUNDER_HAMMER ? 0.95f : 1.05f);
     }
 
     private record Hit(Vec3 pos, LivingEntity entity, double dist) {}
@@ -242,14 +273,15 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
                     String snd = switch (skill) {
                         case FIRE_BULLETS -> "fire_bullets.impact";
                         case WATER_BULLET -> "water.splash";
-                        case ICE_SPEAR, ICE_SHARDS -> "ice.shatter";
+                        case ICE_SPEAR -> "ice.shatter";
+                        case ICE_SHARDS -> "ice.shard_hit"; // 가벼운 공격: 짧고 밝은 '틱' (창의 무거운 깨짐과 구분)
                         case THUNDER_HAMMER -> "thunder.hammer_impact";
                         default -> "fire_fist.impact";
                     };
                     float pitch = 0.95f + random.nextFloat() * 0.1f;
                     switch (skill) {
                         // 파편 7발·연사 5발: 같은 자리에서 한꺼번에 터지는 소리는 하나로 (겹치면 지글거리는 소음)
-                        case ICE_SHARDS -> SkillSounds.playLimited(level, pos, snd, SkillSounds.R_RAPID, pitch + 0.1f, 3, 3.0);
+                        case ICE_SHARDS -> SkillSounds.playLimited(level, pos, snd, SkillSounds.R_RAPID, pitch, 3, 3.0);
                         case FIRE_BULLETS -> SkillSounds.playLimited(level, pos, snd, SkillSounds.R_RAPID, pitch, 2, 2.0);
                         case FIRE_FIST, THUNDER_HAMMER -> SkillSounds.play(level, pos, snd, SkillSounds.R_BIG, pitch);
                         case ICE_SPEAR -> SkillSounds.play(level, pos, snd, SkillSounds.R_IMPACT, pitch - 0.08f);

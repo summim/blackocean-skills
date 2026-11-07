@@ -8,6 +8,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -130,22 +131,33 @@ final class ThunderParts {
 
     /** 피해 범위 경계를 잠깐 또렷하게 (터진 순간 "여기까지 맞았다") */
     static void addEdge(Vec3 c, float R, int life, int delay, float alpha) {
+        addEdge(c, R, life, delay, alpha, null);
+    }
+
+    /**
+     * 터진 틱의 판정 범위 (SkillFx.dangerZone, 가득 찬 상태). 피해는 한 틱이므로 최대 4틱만 보이고 사라짐
+     * → 그 뒤에 남는 금·불씨는 테두리가 없는 장식 = 안전.
+     */
+    static void addEdge(Vec3 c, float R, int life, int delay, float alpha, @Nullable Entity caster) {
         if (EDGES.size() >= 24) EDGES.remove(0);
-        EDGES.add(new Edge(c, R, life, delay, alpha));
+        EDGES.add(new Edge(c, R, Math.min(4, life), delay, alpha, caster));
     }
 
     static final class Edge {
         final Vec3 c;
         final float R, alpha;
         final int life, delay;
+        @Nullable
+        final Entity caster;
         int age;
 
-        Edge(Vec3 c, float R, int life, int delay, float alpha) {
+        Edge(Vec3 c, float R, int life, int delay, float alpha, @Nullable Entity caster) {
             this.c = c;
             this.R = R;
             this.life = Math.max(2, life);
             this.delay = Math.max(0, delay);
             this.alpha = alpha;
+            this.caster = caster;
         }
 
         boolean tick() {
@@ -155,8 +167,24 @@ final class ThunderParts {
         void render(float pt, float time) {
             float t = (age + pt - delay) / life;
             if (t < 0f || t >= 1f) return;
-            edgeRing(c, R, alpha * (t < 0.15f ? 1f : (1f - t) / 0.85f), time);
+            float a = Math.min(1f, alpha) * (t < 0.25f ? 1f : (1f - t) / 0.75f);
+            SkillFx.dangerZone(c, R, 1f, EL, caster, a, time);
+            FxRender.additive();
+            RenderSystem.disableCull();
         }
+    }
+
+    /** 서버 groundAt 과 같은 바닥 찾기 (위 3칸 ~ 아래 6.5칸). 못 찾으면 p 그대로 */
+    static Vec3 groundAt(@Nullable Entity who, Vec3 p) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return p;
+        Entity e = who != null && !who.isRemoved() && who.level() == mc.level ? who : mc.player;
+        if (e == null) return p;
+        Vec3 from = p.add(0, 3.0, 0);
+        net.minecraft.world.phys.BlockHitResult down = com.blackocean.skills.SubLevels.clip(mc.level,
+                new net.minecraft.world.level.ClipContext(from, from.add(0, -6.5, 0), net.minecraft.world.level.ClipContext.Block.COLLIDER,
+                        net.minecraft.world.level.ClipContext.Fluid.ANY, e));
+        return down.getType() == net.minecraft.world.phys.HitResult.Type.MISS ? p : down.getLocation();
     }
 
     static void addMark(Mark m) {
@@ -177,6 +205,14 @@ final class ThunderParts {
     static void frameGlow(Vec3 p, float size, float[] c, float a) {
         if (a <= 0.005f) return;
         FxManager.frameGlow(p.x, p.y, p.z, size, c[0], c[1], c[2], a);
+    }
+
+    /** 화면 번쩍 (여러 스킬이 겹쳐도 한 틱 밝기 합이 제한되도록 FxLimits 를 거침) */
+    static void flash(int rgb, float strength, int ticks) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        float ok = FxLimits.allowFlash(mc.level.getGameTime(), strength);
+        if (ok > 0.01f) ScreenFx.flash(rgb, ok, ticks);
     }
 
     static double distToPlayer(Vec3 p) {
@@ -540,7 +576,12 @@ final class ThunderParts {
             FxRender.elemShader(EL, 2.8f, 0.12f + 0.75f * t, 1.25f * fade + 0.15f);
             BufferBuilder bb = FxRender.quads();
             int seg = segs(r, a1 - a0);
-            wall(bb, c, r, h * (1f - 0.55f * t), a0, a1, heat, seg, time * 0.02f);
+            // 앞머리가 가장 높고 밝음 → 처음 2틱에 솟구쳤다가 퍼지며 낮아짐 (무거운 땅울림)
+            float surge = t < 0.2f ? 0.75f + 0.25f * (t / 0.2f) : 1f - 0.55f * (t - 0.2f) / 0.8f;
+            float hh = h * surge;
+            wall(bb, c, r, hh, a0, a1, heat, seg, time * 0.02f);
+            // 안쪽 두 번째 벽 (조금 낮고 어두움) → 옆·위에서 봐도 얇은 막이 아니라 두께 있는 흙·빛의 벽
+            wall(bb, c, r * 0.9f, hh * 0.6f, a0, a1, heat * 0.55f, seg, time * 0.02f + 0.37f);
             band(bb, c, r * 0.72f, r * 1.02f, a0, a1, heat * 0.85f, seg, time * 0.03f + 0.5f);
             FxRender.draw(bb);
         }

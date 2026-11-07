@@ -30,9 +30,10 @@ import static com.blackocean.skills.client.fx.FxManager.spawn;
 /**
  * 5번 궁극기 "작열의 태양" 연출.
  * <pre>
- *  준비 (30틱) : 머리 위에서 점점 커지는 태양 + 도는 코로나 고리 3개 + 빨려 드는 불꽃·불씨 + 홍염 + 큰 후광
- *               끝에서 시전자 주변이 따뜻하게 번쩍
- *  비행       : 이글거리는 핵 + 타서 흩어지는 겉껍질 + 코로나 고리 + 홍염 + 거대한 후광, 뒤로 흘리는 불꽃·불씨·열기 연기
+ *  준비 (30틱) : 머리 위(서버 발사 지점)에서 점점 커지는 태양 + 도는 코로나 고리 3개 + 빨려 드는 불꽃·불씨 + 홍염
+ *               끝에서 시전자 주변이 따뜻하게 번쩍 + 던지는 쪽으로 터지는 고리
+ *  비행 (~45틱): 이글거리는 핵 + 겉껍질 + 코로나 + 홍염, 뒤로 흘리는 불꽃·불씨·열기 연기
+ *               바닥에 떨어질 자리 예고 원 (판정 반지름, 닿을 때까지 차오름)
  *  적중       : 흰빛 섬광 핵 → 여러 겹 불덩이 → 둘레 불기둥 7개 → 큰 충격파 → 버섯 연기 기둥 + 큰 그을음 + 화면 번쩍·흔들림
  *  불바다     : 바닥에서 계속 핥아 오르는 불길 + 낮게 깔린 열기 원판 + 불씨·연기, 끝에서 사그라짐
  * </pre>
@@ -91,10 +92,9 @@ final class FireFx {
     // 준비: 머리 위에 태양이 생김
     // =====================================================================
 
-    /** 서버 발사 위치와 같은 머리 위 지점 (SkillAim.handPos lift 2.6 과 같은 계산, 벽 검사 생략) */
-    private static Vec3 sunAt(Entity caster, float pt) {
-        Vec3 look = caster.getViewVector(pt);
-        return caster.getEyePosition(pt).add(look.scale(0.6)).add(0, 2.6, 0);
+    /** 서버 발사 위치와 같은 머리 위 지점 (SkillAim.handPos lift 2.6 과 같은 계산, 고정된 조준 방향) */
+    private static Vec3 sunAt(FxManager.ChargeFx c, float pt) {
+        return c.origin(pt, 0, 2.6);
     }
 
     /** 준비 진행도 k 에 따른 태양 반지름 */
@@ -106,7 +106,7 @@ final class FireFx {
     static void tickCharge(FxManager.ChargeFx c, float k) {
         Entity caster = c.caster;
         if (caster == null || caster.isRemoved()) return;
-        Vec3 sun = sunAt(caster, 1f);
+        Vec3 sun = sunAt(c, 1f);
         float r = chargeRadius(k);
 
         // 사방에서 빨려 드는 불꽃 (4~7블록 밖에서 출발해 정확히 수명 끝에 표면에 닿음)
@@ -157,6 +157,9 @@ final class FireFx {
             spawn(new Sprite(Sprite.Kind.GLOW, body, Vec3.ZERO, 10f, 16f, 9).color(1f, 0.6f, 0.25f, 0.6f));
             FxManager.addRing(caster.position().add(0, 0.06, 0), UP, 0.6f, 7.5f, 12, 0, 0.9f, Element.FIRE);
             FxManager.addRing(sun, UP, r * 1.1f, r * 3.6f, 9, 0, 0.9f, Element.FIRE);
+            // 던지는 방향으로 열리는 고리 (태양이 그쪽으로 날아감)
+            Vec3 aim = c.aimDir();
+            FxManager.addRing(sun.add(aim.scale(r * 1.2)), aim, r * 0.6f, r * 2.4f, 7, 0, 0.9f, 1f, 0.92f, 0.75f);
             for (int i = 0; i < count(30); i++) {
                 Vec3 d = randomDir();
                 spawn(new Sprite(Sprite.Kind.SPARK, sun.add(d.scale(r)), d.scale(rand(0.4f, 0.9f)), 0.13f, 0.13f, 8 + RNG.nextInt(6))
@@ -181,7 +184,7 @@ final class FireFx {
     static void renderCharge(FxManager.ChargeFx c, float pt, float k, float time) {
         Entity caster = c.caster;
         if (caster == null || caster.isRemoved()) return;
-        Vec3 sun = sunAt(caster, pt);
+        Vec3 sun = sunAt(c, pt);
         float pulse = 1f + 0.04f * (float) Math.sin(time * (1.5f + 3f * k));
         float r = chargeRadius(k) * pulse;
         Minecraft mc = Minecraft.getInstance();
@@ -227,6 +230,7 @@ final class FireFx {
     // =====================================================================
 
     static void trackProjectile(FxManager.ProjectileFx p, Vec3 pos) {
+        predictLanding(p, pos);
         Vec3 back = p.dir.scale(-1);
         // 뒤로 흘러내리는 불꽃
         for (int i = 0; i < count(6); i++) {
@@ -265,7 +269,40 @@ final class FireFx {
         }
     }
 
+    /**
+     * 태양이 떨어질 자리: 날아가는 직선을 남은 사거리만큼 검사 → 맞는 곳의 폭발 구가 바닥과 만나는 원 (= 실제로 맞는 범위).
+     * 공중에서 끝나 바닥까지 폭발이 안 닿으면 예고 없음.
+     */
+    private static void predictLanding(FxManager.ProjectileFx p, Vec3 pos) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || mc.player == null) return;
+        float R = com.blackocean.skills.client.ClientSkillStats.radius(Skill.FIRE_SUN);
+        float range = com.blackocean.skills.client.ClientSkillStats.range(Skill.FIRE_SUN);
+        double traveled = p.origin.distanceTo(pos);
+        double left = Math.max(0.5, range - traveled);
+        Vec3 end = pos.add(p.dir.scale(left));
+        BlockHitResult hit = SubLevels.clip(mc.level, new ClipContext(pos, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
+        Vec3 at = hit.getType() == HitResult.Type.MISS ? end : hit.getLocation();
+        Vec3 ground;
+        if (hit.getType() != HitResult.Type.MISS && hit.getDirection() == net.minecraft.core.Direction.UP) ground = at;
+        else ground = groundBelow(at.add(0, 0.3, 0), R + 1.0);
+        if (ground == null) {
+            p.landAt = null;
+            return;
+        }
+        double h = Math.max(0.0, at.y + 0.25 - ground.y);
+        if (h >= R) {
+            p.landAt = null;
+            return;
+        }
+        p.landAt = ground;
+        p.landR = (float) Math.sqrt(R * R - h * h);
+        double toGo = pos.distanceTo(at);
+        p.landFill = (float) clamp01((float) (traveled / Math.max(0.5, traveled + toGo)));
+    }
+
     static void renderProjectile(FxManager.ProjectileFx p, Vec3 c, float pt, float time) {
+        if (p.landAt != null) SkillFx.telegraph(p.landAt, p.landR, p.landFill, 1f, 0.42f, 0.1f, 1f, time);
         float grow = clamp01((p.age + pt) / 3f);
         float r = SUN_R * (0.88f + 0.12f * grow) * (1f + 0.035f * (float) Math.sin(time * 2.3f));
         boolean near = c.distanceToSqr(FxRender.cam) < 96 * 96;
@@ -414,6 +451,8 @@ final class FireFx {
         final float size;
         /** 바닥 (없으면 null → 불기둥·그을음 없음) */
         @Nullable final Vec3 ground;
+        /** 폭발 구가 바닥과 만나는 원의 반지름 (= 바닥에서 맞는 범위) */
+        float footR;
         final float[] pillarAng = new float[7];
         final int[] pillarDelay = new int[7];
         int age;
@@ -434,20 +473,20 @@ final class FireFx {
             // 흰빛 섬광 + 넓은 주황 번짐
             spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 0.8f, size * 3.2f, 4).color(1f, 1f, 1f, 1f));
             spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 1.6f, size * 2.4f, 6).color(1f, 0.97f, 0.88f, 1f));
-            spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 2.6f, size * 3.8f, 16).color(1f, 0.55f, 0.18f, 0.8f));
-            spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 4.5f, size * 6f, 24).color(1f, 0.35f, 0.08f, 0.35f));
+            spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 2.0f, size * 2.6f, 14).color(1f, 0.55f, 0.18f, 0.8f));
+            spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 2.4f, size * 3f, 18).color(1f, 0.35f, 0.08f, 0.3f));
 
-            // 충격파 링 여러 개
+            // 충격파 링: 흰빛(판정 끝을 살짝 넘음) → 판정 끝 → 안쪽. 바닥 원의 끝 = 실제로 맞는 범위
             Vec3 rc = (g != null ? g : pos).add(0, 0.1, 0);
-            FxManager.addRing(rc, UP, 0.6f, size * 3.0f, 8, 0, 0.95f, 1f, 0.95f, 0.82f);
-            FxManager.addRing(rc.add(0, 0.03, 0), UP, size * 0.8f, size * 4.4f, 30, 6, 0.35f, Element.FIRE);
-            FxManager.addRing(rc, UP, 1.0f, size * 2.4f, 16, 0, 1f, Element.FIRE);
-            FxManager.addRing(rc, UP, 0.8f, size * 1.6f, 13, 2, 0.9f, Element.FIRE);
-            FxManager.addRing(rc.add(0, 0.05, 0), UP, 0.6f, size * 3.2f, 22, 4, 0.55f, Element.FIRE);
-            FxManager.addRing(pos, UP, 0.8f, size * 1.9f, 12, 1, 0.8f, Element.FIRE);
+            this.footR = g != null ? (float) Math.sqrt(Math.max(0.0, size * size - Math.pow(Math.max(0.0, pos.y - g.y), 2))) : size;
+            float fr = Math.max(1f, footR);
+            FxManager.addRing(rc, UP, 0.6f, fr * 1.15f, 6, 0, 0.95f, 1f, 0.95f, 0.82f);
+            FxManager.addRing(rc, UP, 1.0f, fr, 12, 0, 1f, Element.FIRE);
+            FxManager.addRing(rc, UP, 0.8f, fr * 0.6f, 10, 2, 0.9f, Element.FIRE);
+            FxManager.addRing(pos, UP, 0.8f, size * 0.9f, 10, 1, 0.8f, Element.FIRE);
             Vec3 tilt = new Vec3(rand(-1f, 1f), 0.25, rand(-1f, 1f)).normalize();
-            FxManager.addRing(pos, tilt, 0.6f, size * 1.5f, 11, 1, 0.7f, Element.FIRE);
-            if (Math.abs(n.y) < 0.7) FxManager.addRing(pos.add(n.scale(0.1)), n, 0.6f, size * 1.7f, 12, 0, 0.8f, Element.FIRE);
+            FxManager.addRing(pos, tilt, 0.6f, size * 0.8f, 9, 1, 0.7f, Element.FIRE);
+            if (Math.abs(n.y) < 0.7) FxManager.addRing(pos.add(n.scale(0.1)), n, 0.6f, size, 10, 0, 0.8f, Element.FIRE);
 
             // 사방으로 튀는 불꽃 줄기 (수백 개)
             for (int i = 0; i < count(220); i++) {
@@ -479,7 +518,7 @@ final class FireFx {
             if (g != null) {
                 // 땅이 크게 터져 조각이 사방으로 + 넓게 금 간 자국 (능력 색으로 오래 빛남)
                 DebrisFx.burst(g, UP, size * 0.7f, 110, 1.5f, Element.FIRE);
-                DebrisFx.crater(g, size * 1.15f, 420, Element.FIRE);
+                DebrisFx.crater(g, size * 0.9f, 360, Element.FIRE);
             }
 
             Minecraft mc = Minecraft.getInstance();
@@ -502,7 +541,7 @@ final class FireFx {
             FxManager.lod = FxManager.lodAt(pos);
 
             // 두 번째 땅 울림: 바깥쪽 땅이 한 번 더 들썩이며 조각이 튐
-            if (ground != null && age == 5) DebrisFx.burst(ground, UP, size * 1.05f, 45, 1.0f, null);
+            if (ground != null && age == 5) DebrisFx.burst(ground, UP, size * 0.95f, 45, 1.0f, null);
             if (ground != null && age == 4) CameraShake.addAt(ground, 2.5f, 40f);
 
             // 둘레에서 차례로 솟는 불기둥
@@ -600,9 +639,9 @@ final class FireFx {
                 FxRender.elemShader(Element.FIRE, 1.6f, er, 1.35f - 0.55f * clamp01(t / 30f));
                 FxManager.BlastSphere.draw(pos, r1, time * 1.8f);
             }
-            // 3) 바깥 불꽃 껍질 (더 크고 더 빨리 흩어짐)
+            // 3) 바깥 불꽃 껍질 (판정 끝까지, 더 빨리 흩어짐)
             if (near && t > 1f && t < 28f) {
-                float r2 = size * (0.2f + 0.95f * easeOutCubic((t - 1f) / 11f));
+                float r2 = size * (0.2f + 0.8f * easeOutCubic((t - 1f) / 9f));
                 float er = 0.25f + 0.75f * clamp01((t - 6f) / 20f);
                 FxRender.elemShader(Element.FIRE, 2.4f, er, 0.95f);
                 FxManager.BlastSphere.draw(pos, r2, time * 2.6f + 40f);
@@ -623,18 +662,19 @@ final class FireFx {
                 }
                 frameGlow(cap, size * 1.4f, 1f, 0.5f, 0.15f, 0.3f * fade);
             }
-            // 5) 바닥 열기 고리
+            // 5) 바닥 열기 고리 (판정 끝까지) + 끝이 한순간 또렷하게
+            if (ground != null) SkillFx.edgeFlash(ground.add(0, 0.09, 0), UP, Math.max(1f, footR), t, 12f, 1f, 0.6f, 0.25f);
             if (ground != null && t < 40f) {
                 float fade = 1f - clamp01((t - 12f) / 28f);
-                float rr = size * (0.4f + 0.75f * easeOutCubic(t / 12f));
+                float rr = footR * (0.4f + 0.6f * easeOutCubic(t / 10f));
                 FxRender.elemShader(Element.FIRE, 1.4f, 0.15f + 0.6f * (1f - fade), 1.0f * fade);
                 BufferBuilder bb = FxRender.quads();
                 FxRender.ring(bb, ground.add(0, 0.07, 0), UP, rr * 0.55f, rr * 1.05f, 0.8f * fade, time * 0.25f, 64);
                 FxRender.draw(bb);
             }
             // 6) 후광
-            float gfade = 1f - clamp01(t / 30f);
-            frameGlow(pos, size * 3.2f, 1f, 0.5f, 0.15f, 0.45f * gfade);
+            float gfade = 1f - clamp01(t / 26f);
+            frameGlow(pos, size * 2.6f, 1f, 0.5f, 0.15f, 0.45f * gfade);
             frameGlow(pos, size * 1.3f, 1f, 0.9f, 0.7f, 0.5f * (1f - clamp01(t / 12f)));
         }
     }
@@ -718,14 +758,21 @@ final class FireFx {
             FxRender.elemShader(Element.FIRE, 1.1f, 0.35f + 0.4f * (1f - f), 0.75f * f);
             BufferBuilder bb = FxRender.quads();
             FxRender.ring(bb, c, UP, r * 0.05f, r * 0.95f, 0.4f * pulse * f, time * 0.08f, 48);
-            FxRender.ring(bb, c.add(0, 0.01, 0), UP, r * 0.78f, r * 1.04f, 0.8f * f, -time * 0.15f, 56);
+            FxRender.ring(bb, c.add(0, 0.01, 0), UP, r * 0.78f, r, 0.8f * f, -time * 0.15f, 56);
+            FxRender.draw(bb);
+
+            // 불바다 범위 끝 (계속 타는 범위가 또렷하게)
+            FxRender.spriteShader(FxRender.BEAM);
+            bb = FxRender.quads();
+            float ea = 0.45f * f * (0.85f + 0.15f * pulse);
+            FxRender.band(bb, c.add(0, 0.015, 0), UP, r - 0.22f, r + 0.05f, ea, ea * 0.45f, ea * 0.12f, ea, 64, false);
             FxRender.draw(bb);
 
             // 바닥 붉은 번짐
             FxRender.spriteShader(FxRender.GLOW_WHITE);
             bb = FxRender.quads();
             float a = 0.38f * f * pulse;
-            FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, r * 1.35f, 0f, a, a * 0.42f, a * 0.1f, a);
+            FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, r * 1.15f, 0f, a, a * 0.42f, a * 0.1f, a);
             FxRender.draw(bb);
 
             frameGlow(pos.add(0, 1.2, 0), r * 2.2f, 1f, 0.45f, 0.12f, 0.18f * f);

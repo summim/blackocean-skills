@@ -20,6 +20,7 @@ import static com.blackocean.skills.client.fx.FxManager.count;
 import static com.blackocean.skills.client.fx.FxManager.easeOutCubic;
 import static com.blackocean.skills.client.fx.FxManager.rand;
 import static com.blackocean.skills.client.fx.FxManager.randomDir;
+import static com.blackocean.skills.client.fx.FxManager.smooth;
 import static com.blackocean.skills.client.fx.FxManager.spawn;
 
 /**
@@ -27,11 +28,11 @@ import static com.blackocean.skills.client.fx.FxManager.spawn;
  * <pre>
  *  공통   : 진짜 번개처럼 꺾이는 줄기 (중간점 변위 재귀 + 1~3개 갈래, 1~2틱마다 모양이 바뀌며 깜빡임)
  *           카메라를 향한 띠 2겹 (넓고 옅은 푸른/보랏빛 번짐 + 가늘고 하얀 심지)
- *  1 뇌격  : 손 주위 작은 전기 → 즉시 번개 + 연쇄 (BOLT)
- *  2 섬광  : 몸이 번쩍 → 출발·도착 사이 굵은 번개 + 양 끝 플라즈마 폭발 + 길을 따라 남는 전기 (BLINK)
- *  3 낙뢰  : 바닥 경고 원(푸른 전기) → 하늘에서 떨어지는 번개 3번 (STRIKE)
- *  4 방전  : 몸을 기어 다니는 전기 → 전기 돔 + 바닥을 따라 퍼지는 전기 (BURST + BOLT)
- *  5 뇌신  : 하늘로 번개를 쏘며 하늘이 어두워짐 → 도는 뇌운 + 낙뢰 비 + 마지막 거대 번개 (STORM + STRIKE)
+ *  1 뇌격  : 발사 지점(서버와 같은 손 위치)에 전기 → 조준 방향 섬광 고리 → 즉시 번개, 연쇄는 1틱씩 차례로 튐 (BOLT)
+ *  2 섬광  : 몸이 번쩍 + 조준 쪽으로 쏠리는 전기 → 출발·도착 사이 굵은 번개 + 양 끝 폭발, 판정 끝 고리 (BLINK)
+ *  3 낙뢰  : 바닥 예고 원(차오름) → 손에서 하늘로 번개 → 하늘에서 3번, 예고 원은 마지막 낙뢰까지 남음 (STRIKE)
+ *  4 방전  : 몸을 기어 다니는 전기 + 범위 예고 원 → 전기 돔 + 바닥 전기, 판정 끝 고리 (BURST + BOLT)
+ *  5 뇌신  : 하늘로 번개를 쏘며 하늘이 어두워짐 → 도는 뇌운 + 낙뢰 비 → 마지막 거대 번개 자리 예고 원 → 거대 번개 (STORM + STRIKE)
  * </pre>
  */
 final class LightningFx {
@@ -45,6 +46,19 @@ final class LightningFx {
     private static final List<BlinkFx> BLINKS = new ArrayList<>();
     private static final List<DomeFx> DOMES = new ArrayList<>();
     private static final List<StormFx> STORMS = new ArrayList<>();
+    /** 바닥 예고 원 (낙뢰가 다 떨어질 때까지 남음) */
+    private static final List<Warn> WARNS = new ArrayList<>();
+    /** 판정 끝 번쩍 고리 */
+    private static final List<Edge> EDGES = new ArrayList<>();
+    /** 연쇄 번개: 한 틱에 함께 온 연쇄를 1틱씩 늦춰 차례로 튀게 */
+    private static final List<Deferred> DEFERRED = new ArrayList<>();
+    private static int chainTick = -1, chainIdx;
+
+    private record Warn(Vec3 c, float R, int born, int life) {}
+
+    private record Edge(Vec3 c, float R, int born, float life, float r, float g, float b) {}
+
+    private record Deferred(int due, Vec3 a, Vec3 b, float w, int target, Skill skill, @Nullable Entity caster) {}
 
     /** 모듈 자체 틱 수 (최근 일 판단용) */
     private static int ticks;
@@ -62,7 +76,23 @@ final class LightningFx {
 
     static void onEvent(SkillEventPayload e, Skill skill, @Nullable Entity caster) {
         switch (e.kind()) {
-            case SkillEvents.BOLT -> bolt(e.pos(), e.vec(), e.size() > 0 ? e.size() : 1f, e.target(), skill, caster);
+            case SkillEvents.BOLT -> {
+                float w = e.size() > 0 ? e.size() : 1f;
+                if (skill == Skill.LIGHTNING_BOLT) {
+                    // 같은 틱에 온 연쇄는 1틱씩 늦게 (첫 번개 → 다음 대상 → ... 이 눈에 보이게)
+                    if (chainTick != ticks) {
+                        chainTick = ticks;
+                        chainIdx = 0;
+                    } else {
+                        chainIdx++;
+                    }
+                    if (chainIdx > 0 && DEFERRED.size() < 32) {
+                        DEFERRED.add(new Deferred(ticks + chainIdx, e.pos(), e.vec(), w, e.target(), skill, caster));
+                        return;
+                    }
+                }
+                bolt(e.pos(), e.vec(), w, e.target(), skill, caster);
+            }
             case SkillEvents.BLINK -> blink(e.pos(), e.vec(), e.size() > 0 ? e.size() : 2.5f, caster);
             case SkillEvents.STRIKE -> {
                 boolean giant = e.size2() > 0.5f;
@@ -78,6 +108,17 @@ final class LightningFx {
 
     static void tick() {
         ticks++;
+        if (!DEFERRED.isEmpty()) {
+            for (int i = 0; i < DEFERRED.size(); i++) {
+                Deferred d = DEFERRED.get(i);
+                if (d.due() <= ticks) {
+                    DEFERRED.remove(i--);
+                    bolt(d.a(), d.b(), d.w(), d.target(), d.skill(), d.caster());
+                }
+            }
+        }
+        WARNS.removeIf(w -> ticks - w.born() > w.life());
+        EDGES.removeIf(e -> ticks - e.born() > e.life() + 1);
         BOLTS.removeIf(Bolt::tick);
         STRIKES.removeIf(StrikeFx::tick);
         BLINKS.removeIf(BlinkFx::tick);
@@ -113,6 +154,15 @@ final class LightningFx {
         for (DomeFx d : DOMES) d.render(pt, time);
         for (StormFx s : STORMS) s.renderRim(pt, time);
 
+        // 3-1) 예고 원·판정 끝
+        for (Warn w : WARNS) {
+            float t = ticks - w.born() + pt;
+            float a = 1f - clamp01((t - (w.life() - 4)) / 4f);
+            SkillFx.telegraph(w.c(), w.R(), 1f, 0.45f, 0.72f, 1f, 0.8f * a, time);
+        }
+        for (StormFx s : STORMS) s.renderFinalWarn(pt, time);
+        for (Edge e : EDGES) SkillFx.edgeFlash(e.c(), UP, e.R(), ticks - e.born() + pt, e.life(), e.r(), e.g(), e.b());
+
         // 4) 이번 프레임 후광
         for (StrikeFx s : STRIKES) s.frameGlows(pt);
         for (StormFx s : STORMS) s.frameGlows(pt);
@@ -129,10 +179,21 @@ final class LightningFx {
     }
 
     static boolean isEmpty() {
-        return BOLTS.isEmpty() && STRIKES.isEmpty() && BLINKS.isEmpty() && DOMES.isEmpty() && STORMS.isEmpty();
+        return BOLTS.isEmpty() && STRIKES.isEmpty() && BLINKS.isEmpty() && DOMES.isEmpty() && STORMS.isEmpty()
+                && WARNS.isEmpty() && EDGES.isEmpty() && DEFERRED.isEmpty();
+    }
+
+    /** 판정 끝 고리 한 번 번쩍 (바닥 c, 반지름 R) */
+    private static void edge(Vec3 c, float R, float life) {
+        if (EDGES.size() >= 48) EDGES.remove(0);
+        EDGES.add(new Edge(c.add(0, 0.09, 0), R, ticks, life, 0.55f, 0.8f, 1f));
     }
 
     static void clear() {
+        WARNS.clear();
+        EDGES.clear();
+        DEFERRED.clear();
+        chainTick = -1;
         BOLTS.clear();
         STRIKES.clear();
         BLINKS.clear();
@@ -147,8 +208,15 @@ final class LightningFx {
         if (ce == null || ce.isRemoved()) return;
         switch (c.skill) {
             case LIGHTNING_BOLT -> {
-                Vec3 h = c.handPos(1f, 0.38);
+                Vec3 h = c.origin(1f, 0.3, 0);
                 FxManager.lod = FxManager.lodAt(h);
+                if (c.age == c.duration) {
+                    // 놓기: 조준 방향으로 열리는 섬광 고리 (번개가 정확히 여기서 나감)
+                    Vec3 d = c.aimDir();
+                    FxManager.addRing(h.add(d.scale(0.3)), d, 0.1f, 1.3f, 4, 0, 0.9f, 0.85f, 0.93f, 1f);
+                    FxManager.addRing(h.add(d.scale(1.0)), d, 0.1f, 0.9f, 4, 1, 0.6f, EL);
+                    spawn(sp(Sprite.Kind.GLOW, h, Vec3.ZERO, 1.2f, 2.6f, 3).color(0.85f, 0.93f, 1f, 1f));
+                }
                 for (int i = 0; i < Math.max(1, count(2 + (int) (2 * k))); i++) {
                     Vec3 s = h.add(randomDir().scale(0.12));
                     Vec3 t = h.add(randomDir().scale(rand(0.4f, 0.75f)));
@@ -167,17 +235,30 @@ final class LightningFx {
                 Vec3 body = ce.position().add(0, 0.9, 0);
                 spawn(sp(Sprite.Kind.GLOW, body, Vec3.ZERO, 1.5f, 3.2f, 3).color(0.6f, 0.82f, 1f, 0.8f));
                 bodyArcs(ce, 3);
+                // 갈 쪽으로 쏠리는 불꽃 (어디로 가는지 미리 읽힘)
+                Vec3 d = c.aimDir();
                 for (int i = 0; i < count(8); i++) {
-                    spawn(sp(Sprite.Kind.SPARK, body, randomDir().scale(rand(0.2f, 0.45f)), 0.07f, 0.07f, 4 + RNG.nextInt(4))
-                            .color(0.75f, 0.9f, 1f, 1f).physics(0.02f, 0.88f));
+                    spawn(sp(Sprite.Kind.SPARK, body, d.scale(rand(0.3f, 0.7f)).add(randomDir().scale(0.18)), 0.07f, 0.07f, 4 + RNG.nextInt(3))
+                            .color(0.75f, 0.9f, 1f, 1f).physics(0.0f, 0.86f));
                 }
             }
             case LIGHTNING_STRIKE -> {
                 tickWarn(c.target, c.size, k);
                 FxManager.lod = FxManager.lodAt(ce.position());
-                Vec3 h = c.handPos(1f, 0.38);
+                Vec3 h = c.origin(1f, 0.3, 0);
                 if (RNG.nextFloat() < 0.6f) {
                     addBolt(new Bolt(h.add(randomDir().scale(0.1)), h.add(randomDir().scale(rand(0.35f, 0.6f))), 0.2f, 2, 0, 3, 0, 0.32f, false));
+                }
+                if (c.age == Math.max(1, c.duration - 1)) {
+                    // 놓기: 손에서 목표 위 하늘로 번개를 쏘아 올림 → 거기서 낙뢰가 떨어짐
+                    Vec3 sky = c.target.add(0, 24, 0);
+                    addBolt(new Bolt(h, sky, 0.7f, 4, 0, 6, 1, 0.16f, false));
+                    spawn(sp(Sprite.Kind.GLOW, h, Vec3.ZERO, 1.4f, 2.8f, 3).color(0.85f, 0.93f, 1f, 1f));
+                    Vec3 up = sky.subtract(h).normalize();
+                    FxManager.addRing(h.add(up.scale(0.4)), up, 0.1f, 1.1f, 4, 0, 0.8f, EL);
+                    // 낙뢰가 다 떨어질 때까지 예고 원을 남김 (2·3번째 낙뢰)
+                    if (WARNS.size() >= 16) WARNS.remove(0);
+                    WARNS.add(new Warn(c.target, c.size, ticks, Math.max(6, com.blackocean.skills.client.ClientSkillStats.durationTicks(Skill.LIGHTNING_STRIKE)) + 6));
                 }
             }
             case LIGHTNING_DISCHARGE -> {
@@ -230,7 +311,7 @@ final class LightningFx {
         if (ce == null || ce.isRemoved()) return;
         switch (c.skill) {
             case LIGHTNING_BOLT -> {
-                Vec3 h = c.handPos(pt, 0.38);
+                Vec3 h = c.origin(pt, 0.3, 0);
                 float fl = 0.85f + 0.15f * (float) Math.sin(time * 3.1f);
                 frameGlow(h, (0.9f + 1.4f * k) * fl, 0.45f, 0.7f, 1f, 0.45f + 0.4f * k);
                 frameGlow(h, 0.3f + 0.35f * k, 0.9f, 0.95f, 1f, 0.9f);
@@ -241,7 +322,7 @@ final class LightningFx {
             }
             case LIGHTNING_STRIKE -> {
                 renderWarn(c.target, c.size, k, time);
-                frameGlow(c.handPos(pt, 0.38), 0.7f + 0.9f * k, 0.5f, 0.75f, 1f, 0.5f + 0.3f * k);
+                frameGlow(c.origin(pt, 0.3, 0), 0.7f + 0.9f * k, 0.5f, 0.75f, 1f, 0.5f + 0.3f * k);
             }
             case LIGHTNING_DISCHARGE -> {
                 Vec3 feet = ce.getPosition(pt);
@@ -254,6 +335,8 @@ final class LightningFx {
                 BufferBuilder bb = FxRender.quads();
                 FxRender.ring(bb, feet.add(0, 0.05, 0), UP, 0.3f + 1.6f * k, 0.7f + 1.9f * k, 0.55f + 0.4f * k, time * 0.5f, 48);
                 FxRender.draw(bb);
+                // 실제 판정 범위 예고 (시전자를 따라다님)
+                SkillFx.telegraph(feet, com.blackocean.skills.client.ClientSkillStats.radius(Skill.LIGHTNING_DISCHARGE), k, 0.45f, 0.72f, 1f, 0.9f, time);
             }
             case LIGHTNING_STORM -> {
                 renderWarn(c.target, c.size, k, time);
@@ -300,22 +383,30 @@ final class LightningFx {
             f.frameOffset = RNG.nextInt(64);
             spawn(f);
         }
-        FxManager.addRing(b, UP, 0.2f, 1.6f * w, 7, 0, 0.8f, EL);
+        // 맞은 곳 고리: 번개가 들어온 방향에 수직 (꽂힌 느낌)
+        Vec3 bd = b.subtract(a);
+        bd = bd.lengthSqr() < 1.0E-6 ? UP : bd.normalize();
+        FxManager.addRing(b, bd, 0.2f, 1.6f * w, 6, 0, 0.8f, EL);
         if (target >= 0) {
             Minecraft mc = Minecraft.getInstance();
             if (mc.level != null) {
                 Entity t = mc.level.getEntity(target);
-                if (t != null && !t.isRemoved()) bodyArcs(t, discharge ? 2 : 4);
+                if (t != null && !t.isRemoved()) {
+                    bodyArcs(t, discharge ? 2 : 4);
+                    FxManager.hitFlash(t, discharge ? 0.7f : 1f, EL);
+                }
             }
         }
         // 시작점
         if (!discharge) {
             FxManager.lod = FxManager.lodAt(a);
             spawn(sp(Sprite.Kind.GLOW, a, Vec3.ZERO, 1.6f * w, 2.4f * w, 4).color(0.75f, 0.9f, 1f, 1f));
-            for (int i = 0; i < count(5); i++) {
-                spawn(sp(Sprite.Kind.SPARK, a, randomDir().scale(rand(0.2f, 0.5f)), 0.07f, 0.07f, 5 + RNG.nextInt(4))
-                        .color(0.75f, 0.9f, 1f, 1f).physics(0.03f, 0.9f));
+            // 번개가 나간 쪽으로 튀는 불꽃 (손에서 뻗어 나간 느낌)
+            for (int i = 0; i < count(6); i++) {
+                spawn(sp(Sprite.Kind.SPARK, a, bd.scale(rand(0.3f, 0.6f)).add(randomDir().scale(0.2)), 0.07f, 0.07f, 4 + RNG.nextInt(3))
+                        .color(0.75f, 0.9f, 1f, 1f).physics(0.02f, 0.88f));
             }
+            if (w >= 1.1f) FxManager.addRing(a.add(bd.scale(0.4)), bd, 0.1f, 1.0f, 4, 0, 0.7f, 0.85f, 0.93f, 1f);
             if (caster != null && caster == Minecraft.getInstance().player && w >= 1.1f) CameraShake.add(0.7f);
         }
     }
@@ -324,13 +415,15 @@ final class LightningFx {
     private static void blink(Vec3 a, Vec3 b, float R, @Nullable Entity caster) {
         float len = (float) a.distanceTo(b);
         int depth = len > 8 ? 6 : 5;
-        addBolt(new Bolt(a, b, 1.7f, 9, 0, depth, 3, 0.18f, false));
-        addBolt(new Bolt(a, b, 0.8f, 7, 1, depth - 1, 1, 0.22f, false));
-        addBolt(new Bolt(a, b, 0.6f, 6, 3, depth - 1, 2, 0.24f, false));
-        if (BLINKS.size() >= 16) BLINKS.remove(0);
-        BLINKS.add(new BlinkFx(a, b, R));
         Vec3 dir = b.subtract(a);
         dir = dir.lengthSqr() < 1.0E-6 ? UP : dir.normalize();
+        // 길은 출발한 몸의 앞(손 높이)에서 시작해 도착한 몸으로 이어짐
+        Vec3 a2 = a.add(dir.scale(0.45)).add(0, 0.25, 0);
+        addBolt(new Bolt(a2, b, 1.7f, 7, 0, depth, 3, 0.18f, false));
+        addBolt(new Bolt(a2, b, 0.8f, 6, 1, depth - 1, 1, 0.22f, false));
+        addBolt(new Bolt(a, b, 0.6f, 5, 2, depth - 1, 2, 0.24f, false));
+        if (BLINKS.size() >= 16) BLINKS.remove(0);
+        BLINKS.add(new BlinkFx(a2, b, R));
         blinkEnd(a, dir, R);
         blinkEnd(b, dir, R);
         Minecraft mc = Minecraft.getInstance();
@@ -346,7 +439,7 @@ final class LightningFx {
     private static void blinkEnd(Vec3 p, Vec3 dir, float R) {
         FxManager.lod = FxManager.lodAt(p);
         spawn(sp(Sprite.Kind.GLOW, p, Vec3.ZERO, 3f, 5f, 6).color(0.85f, 0.93f, 1f, 1f));
-        spawn(sp(Sprite.Kind.GLOW, p, Vec3.ZERO, R * 2.4f, R * 3f, 10).color(0.4f, 0.58f, 1f, 0.55f));
+        spawn(sp(Sprite.Kind.GLOW, p, Vec3.ZERO, R * 1.6f, R * 2f, 8).color(0.4f, 0.58f, 1f, 0.55f));
         for (int i = 0; i < count(10); i++) {
             Vec3 v = randomDir().scale(rand(0.1f, 0.24f));
             Sprite f = sp(Sprite.Kind.FLAME, p.add(v.scale(2)), v, rand(0.9f, 1.3f), rand(1.8f, 2.4f), 7 + RNG.nextInt(5))
@@ -360,9 +453,10 @@ final class LightningFx {
                     .color(0.75f, 0.9f, 1f, 1f).physics(0.04f, 0.9f));
         }
         Vec3 feet = p.subtract(0, 0.85, 0);
-        FxManager.addRing(feet, UP, 0.3f, R * 1.8f, 10, 0, 1f, EL);
-        FxManager.addRing(p, UP, 0.2f, R * 1.2f, 8, 1, 0.8f, EL);
-        FxManager.addRing(p, dir, 0.2f, R * 1.0f, 7, 0, 0.7f, EL);
+        FxManager.addRing(feet.add(0, 0.06, 0), UP, 0.3f, R, 7, 0, 1f, EL);
+        FxManager.addRing(p, UP, 0.2f, R * 0.7f, 6, 1, 0.8f, EL);
+        FxManager.addRing(p, dir, 0.2f, R * 0.8f, 6, 0, 0.7f, EL);
+        edge(feet, R, 7f);
         // 바닥 쪽으로 튀는 짧은 전기
         for (int i = 0; i < 3; i++) {
             Vec3 t = feet.add(rand(-1.5f, 1.5f), 0.1, rand(-1.5f, 1.5f));
@@ -384,16 +478,17 @@ final class LightningFx {
             float ang = base + i * TAU / n + rand(-0.15f, 0.15f);
             double cs = Math.cos(ang), sn = Math.sin(ang);
             Vec3 s = g.add(cs * 0.6, 0.2, sn * 0.6);
-            float er = R * rand(0.85f, 1.05f);
+            float er = R * rand(0.85f, 1.0f);
             Vec3 t = g.add(cs * er, 0.15, sn * er);
             addBolt(new Bolt(s, t, 0.55f, 6 + RNG.nextInt(3), RNG.nextInt(3), 4, 1, 0.22f, true));
         }
         Vec3 rc = g.add(0, 0.06, 0);
-        FxManager.addRing(rc, UP, 0.5f, R * 1.3f, 11, 0, 1f, EL);
-        FxManager.addRing(rc, UP, 0.3f, R * 0.9f, 9, 2, 0.85f, EL);
-        FxManager.addRing(chest, UP, 0.4f, R * 1.1f, 8, 1, 0.6f, EL);
+        FxManager.addRing(rc, UP, 0.5f, R, 7, 0, 1f, EL);
+        FxManager.addRing(rc, UP, 0.3f, R * 0.6f, 7, 2, 0.85f, EL);
+        FxManager.addRing(chest, UP, 0.4f, R * 0.85f, 7, 1, 0.6f, EL);
+        edge(g, R, 9f);
         spawn(sp(Sprite.Kind.GLOW, chest, Vec3.ZERO, 6f, 10f, 6).color(0.88f, 0.95f, 1f, 1f));
-        spawn(sp(Sprite.Kind.GLOW, chest, Vec3.ZERO, R * 2f, R * 3f, 10).color(0.4f, 0.58f, 1f, 0.6f));
+        spawn(sp(Sprite.Kind.GLOW, chest, Vec3.ZERO, R * 1.4f, R * 2f, 9).color(0.4f, 0.58f, 1f, 0.6f));
         for (int i = 0; i < count(22); i++) {
             float ang = RNG.nextFloat() * TAU;
             Vec3 d = new Vec3(Math.cos(ang), rand(-0.1f, 0.25f), Math.sin(ang));
@@ -409,8 +504,7 @@ final class LightningFx {
                     .color(0.75f, 0.9f, 1f, 1f).physics(0.04f, 0.9f));
         }
         spawn(sp(Sprite.Kind.GLOW, chest, Vec3.ZERO, 2f, 9f, 3).color(1f, 1f, 1f, 1f));
-        FxManager.addRing(rc, UP, 0.3f, R * 1.8f, 6, 0, 0.85f, 0.9f, 0.96f, 1f);
-        FxManager.addRing(rc.add(0, 0.02, 0), UP, R * 0.5f, R * 2.2f, 20, 5, 0.3f, EL);
+        FxManager.addRing(rc, UP, 0.3f, R * 1.15f, 5, 0, 0.85f, 0.9f, 0.96f, 1f);
         DebrisFx.burst(g, UP, R * 0.45f, 22, 0.95f, EL);
         DebrisFx.crater(g, R * 0.6f, 200, EL);
         Minecraft mc = Minecraft.getInstance();
@@ -432,8 +526,9 @@ final class LightningFx {
         STORMS.add(new StormFx(c, R, dur));
         FxManager.lod = FxManager.lodAt(c);
         Vec3 rc = c.add(0, 0.08, 0);
-        FxManager.addRing(rc, UP, R * 0.3f, R * 1.25f, 16, 0, 0.9f, EL);
-        FxManager.addRing(rc, UP, R * 0.2f, R * 0.9f, 12, 3, 0.7f, EL);
+        FxManager.addRing(rc, UP, R * 0.3f, R, 12, 0, 0.9f, EL);
+        FxManager.addRing(rc, UP, R * 0.2f, R * 0.6f, 10, 3, 0.7f, EL);
+        edge(c, R, 12f);
         CameraShake.addAt(c, 2.0f, R + 28f);
         ScreenFx.impact(c.add(0, 18, 0), 0x9FC8FF, 0.25f, R + 30f);
     }
@@ -494,31 +589,22 @@ final class LightningFx {
         }
     }
 
-    /** 푸른 전기 경고 원 (매 프레임, 더하기 섞기) */
+    /** 푸른 전기 경고 원 (매 프레임, 더하기 섞기): 또렷한 판정 끝 + 차오르는 원판 + 흐르는 전기 고리 */
     private static void renderWarn(Vec3 base, float R, float k, float time) {
-        float pulse = 0.7f + 0.3f * (float) Math.sin(time * (1.5f + 3f * k));
         Vec3 c = base.add(0, 0.05, 0);
         RenderSystem.disableCull();
-
-        FxRender.spriteShader(FxRender.SHOCK_RING_WHITE);
-        BufferBuilder bb = FxRender.quads();
-        float a = (0.35f + 0.65f * k) * pulse;
-        FxRender.planeQuad(bb, c, UP, R * 1.08f, time * 0.05f, a * 0.45f, a * 0.72f, a, a);
-        float a2 = a * 0.6f;
-        FxRender.planeQuad(bb, c.add(0, 0.01, 0), UP, R * (0.45f + 0.45f * k), -time * 0.09f, a2 * 0.55f, a2 * 0.78f, a2, a2);
-        FxRender.draw(bb);
+        SkillFx.telegraph(base, R, k, 0.45f, 0.72f, 1f, 1f, time);
 
         FxRender.spriteShader(FxRender.GLOW_WHITE);
-        bb = FxRender.quads();
-        float g = 0.2f + 0.5f * k * k;
-        FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, R * 1.3f, 0f, g * 0.35f, g * 0.55f, g, g);
+        BufferBuilder bb = FxRender.quads();
+        float g = 0.15f + 0.4f * k * k;
+        FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, R * 1.05f, 0f, g * 0.35f, g * 0.55f, g, g);
         FxRender.draw(bb);
 
         FxRender.elemShader(EL, 2.2f, 0.3f - 0.25f * k, 0.8f + 0.5f * k);
         bb = FxRender.quads();
         int seg = R > 6 ? 72 : 48;
-        FxRender.ring(bb, c.add(0, 0.03, 0), UP, R * (0.92f - 0.08f * k), R * 1.04f, (0.6f + 0.4f * k) * pulse, time * 0.4f, seg);
-        FxRender.ring(bb, c.add(0, 0.035, 0), UP, R * 0.48f, R * 0.55f, 0.25f + 0.5f * k, -time * 0.6f, seg);
+        FxRender.ring(bb, c.add(0, 0.03, 0), UP, R * (0.88f - 0.08f * k), R * 0.98f, (0.5f + 0.4f * k), time * 0.4f, seg);
         FxRender.draw(bb);
     }
 
@@ -764,20 +850,21 @@ final class LightningFx {
             Vec3 mid = p.add(0, 1.0, 0);
             spawn(sp(Sprite.Kind.GLOW, mid, Vec3.ZERO, 2.5f * s, 11f * s, 3).color(1f, 1f, 1f, 1f));
             spawn(sp(Sprite.Kind.GLOW, mid, Vec3.ZERO, 7f * s, 10f * s, 5).color(0.85f, 0.93f, 1f, 1f));
-            spawn(sp(Sprite.Kind.GLOW, mid, Vec3.ZERO, R * 3f, R * 4.5f, 10).color(0.45f, 0.65f, 1f, 0.7f));
+            spawn(sp(Sprite.Kind.GLOW, mid, Vec3.ZERO, R * 2f, R * 2.8f, 8).color(0.45f, 0.65f, 1f, 0.7f));
             Vec3 rc = p.add(0, 0.06, 0);
-            FxManager.addRing(rc, UP, 0.3f, R * (giant ? 6f : 2.8f), giant ? 9 : 6, 0, 0.9f, 0.9f, 0.96f, 1f);
+            // 흰 충격파(판정 끝을 살짝 넘음) → 판정 끝 고리 → 안쪽. 판정 끝이 한 번 또렷하게 번쩍
+            FxManager.addRing(rc, UP, 0.3f, R * 1.2f, giant ? 7 : 5, 0, 0.9f, 0.9f, 0.96f, 1f);
+            edge(p, R, giant ? 14f : 7f);
             if (giant) {
-                FxManager.addRing(rc.add(0, 0.02, 0), UP, R, R * 7.5f, 34, 6, 0.35f, EL);
-                FxManager.addRing(rc, UP, 1f, R * 5f, 18, 0, 1f, EL);
-                FxManager.addRing(rc, UP, 0.6f, R * 3.4f, 14, 3, 0.9f, EL);
-                FxManager.addRing(p.add(0, 3, 0), UP, 0.5f, R * 3f, 12, 1, 0.7f, EL);
-                FxManager.addRing(p.add(0, 1.5, 0), UP, 0.5f, R * 4f, 16, 6, 0.6f, EL);
+                FxManager.addRing(rc, UP, 1f, R, 12, 0, 1f, EL);
+                FxManager.addRing(rc, UP, 0.6f, R * 0.6f, 10, 3, 0.9f, EL);
+                FxManager.addRing(p.add(0, 3, 0), UP, 0.5f, R * 0.9f, 10, 1, 0.7f, EL);
+                FxManager.addRing(p.add(0, 1.5, 0), UP, 0.5f, R * 0.8f, 12, 5, 0.6f, EL);
                 if (DOMES.size() >= 16) DOMES.remove(0);
-                DOMES.add(new DomeFx(p.add(0, 0.5, 0), R * 1.5f, 18, 3f));
+                DOMES.add(new DomeFx(p.add(0, 0.5, 0), R, 16, 3f));
             } else {
-                FxManager.addRing(rc, UP, 0.3f, R * 2.2f, 10, 0, 1f, EL);
-                FxManager.addRing(rc, UP, 0.2f, R * 1.4f, 8, 2, 0.8f, EL);
+                FxManager.addRing(rc, UP, 0.3f, R, 7, 0, 1f, EL);
+                FxManager.addRing(rc, UP, 0.2f, R * 0.6f, 6, 2, 0.8f, EL);
             }
             for (int i = 0; i < count(giant ? 90 : (minor ? 16 : 32)); i++) {
                 Vec3 d = new Vec3(rand(-1f, 1f), rand(0.3f, 1.4f), rand(-1f, 1f)).normalize();
@@ -796,14 +883,14 @@ final class LightningFx {
             }
             // 땅이 터지고 금 간 자국이 푸르게 빛남
             if (giant) {
-                DebrisFx.burst(p, UP, R * 1.1f, 100, 1.5f, EL);
-                DebrisFx.crater(p, R * 1.8f, 400, EL);
+                DebrisFx.burst(p, UP, R * 0.9f, 100, 1.5f, EL);
+                DebrisFx.crater(p, R, 320, EL);
             } else if (minor) {
                 DebrisFx.burst(p, UP, R * 0.35f, 7, 0.6f, null);
-                DebrisFx.crater(p, R * 0.8f, 140, EL);
+                DebrisFx.crater(p, R * 0.7f, 100, EL);
             } else {
                 DebrisFx.burst(p, UP, R * 0.5f, 16, 0.85f, EL);
-                DebrisFx.crater(p, R * 1.05f, 180, EL);
+                DebrisFx.crater(p, R * 0.9f, 140, EL);
             }
 
             double d = distToPlayer(p);
@@ -831,7 +918,7 @@ final class LightningFx {
                 for (int i = 0; i < count(giant ? 4 : (minor ? 1 : 2)); i++) {
                     float ang = RNG.nextFloat() * TAU;
                     double cs = Math.cos(ang), sn = Math.sin(ang);
-                    float r0 = R * rand(0f, 0.3f), r1 = R * rand(0.8f, 1.6f);
+                    float r0 = R * rand(0f, 0.3f), r1 = R * rand(0.75f, 1.0f);
                     addBolt(new Bolt(p.add(cs * r0, 0.15, sn * r0), p.add(cs * r1, 0.12, sn * r1), 0.35f * s, 2 + RNG.nextInt(2), 0, 3, 1, 0.3f, true));
                 }
             }
@@ -841,7 +928,7 @@ final class LightningFx {
                 em.frameOffset = RNG.nextInt(100);
                 spawn(em);
             }
-            if (giant && age == 4) DebrisFx.burst(p, UP, R * 1.6f, 40, 1.0f, null);
+            if (giant && age == 4) DebrisFx.burst(p, UP, R, 40, 1.0f, null);
             if (giant && age < 12) {
                 // 거대 번개 기둥을 따라 솟는 플라즈마
                 for (int i = 0; i < count(5); i++) {
@@ -874,14 +961,14 @@ final class LightningFx {
             float t = (age + pt) / (giant ? 18f : 8f);
             if (t >= 1f) return;
             float a = (1f - t) * (1f - t) * (0.75f + 0.25f * flick);
-            FxRender.planeQuad(bb, p.add(0, 0.08, 0), UP, R * (giant ? 3.2f : 2.2f), 0f, a * 0.45f, a * 0.65f, a, a);
+            FxRender.planeQuad(bb, p.add(0, 0.08, 0), UP, R * (giant ? 1.5f : 1.25f), 0f, a * 0.45f, a * 0.65f, a, a);
         }
 
         void frameGlows(float pt) {
             float t = (age + pt) / (giant ? 14f : 6f);
             if (t >= 1f) return;
             float a = (1f - t) * (1f - t) * flick;
-            frameGlow(p.add(0, 1.0, 0), R * (giant ? 6f : 4f), 0.7f, 0.85f, 1f, a);
+            frameGlow(p.add(0, 1.0, 0), R * (giant ? 3f : 2.4f), 0.7f, 0.85f, 1f, a);
             if (giant) frameGlow(p.add(0, 12, 0), 26f, 0.5f, 0.65f, 1f, a * 0.6f);
         }
     }
@@ -1143,12 +1230,22 @@ final class LightningFx {
             }
         }
 
+        /** 마지막 거대 번개 자리 예고: 끝나기 30틱 전부터 가운데에 차오르는 원 (서버: max(3, 반지름×0.45)) */
+        void renderFinalWarn(float pt, float time) {
+            float t = age + pt;
+            float start = Math.max(0f, dur - 30f);
+            if (t < start || t > dur + 1f) return;
+            float k = clamp01((t - start) / (dur - start));
+            float big = Math.max(3f, R * 0.45f);
+            SkillFx.telegraph(c, big, k, 0.65f, 0.82f, 1f, smooth(k * 4f), time);
+        }
+
         /** 바닥에 깔린 옅은 푸른 빛 */
         void emitGround(BufferBuilder bb, float pt) {
             float f = fade(age + pt);
             if (f <= 0.01f) return;
             float a = 0.22f * f;
-            FxRender.planeQuad(bb, c.add(0, 0.07, 0), UP, R * 1.25f, 0f, a * 0.4f, a * 0.6f, a, a);
+            FxRender.planeQuad(bb, c.add(0, 0.07, 0), UP, R * 1.05f, 0f, a * 0.4f, a * 0.6f, a, a);
         }
 
         /** 바닥 테두리 고리 */

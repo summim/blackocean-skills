@@ -373,6 +373,32 @@ public final class FxRender {
         }
     }
 
+    /**
+     * 또렷한 띠 고리 (BEAM 텍스처와 함께, spriteShader(BEAM)). 범위 끝 표시·예고 원용.
+     * 밝기가 둘레를 따라 출렁이지 않고 고르다 (ring() 과 다름). 색은 미리 알파를 곱한 값 (더하기 섞기).
+     * @param flat true 면 띠 전체가 고르게 밝음 (채워지는 원판), false 면 가운데 줄이 밝고 양쪽이 부드럽게 사라짐 (선)
+     */
+    static void band(BufferBuilder bb, Vec3 c, Vec3 n, float rIn, float rOut, float r, float g, float b, float a, int segments, boolean flat) {
+        if (rOut <= 0.01f || a <= 0.003f) return;
+        rIn = Math.max(0f, rIn);
+        basisInto(n.x, n.y, n.z);
+        double ax = BA[0], ay = BA[1], az = BA[2], bx = BB[0], by = BB[1], bz = BB[2];
+        float uIn = flat ? 0.5f : 0f, uOut = flat ? 0.5f : 1f;
+        double ca0 = 1, sa0 = 0;
+        for (int i = 0; i < segments; i++) {
+            double a1 = Math.PI * 2 * (i + 1) / segments;
+            double ca1 = Math.cos(a1), sa1 = Math.sin(a1);
+            double d0x = ax * ca0 + bx * sa0, d0y = ay * ca0 + by * sa0, d0z = az * ca0 + bz * sa0;
+            double d1x = ax * ca1 + bx * sa1, d1y = ay * ca1 + by * sa1, d1z = az * ca1 + bz * sa1;
+            vertex(bb, c.x + d0x * rIn, c.y + d0y * rIn, c.z + d0z * rIn, uIn, 0f, r, g, b, a);
+            vertex(bb, c.x + d1x * rIn, c.y + d1y * rIn, c.z + d1z * rIn, uIn, 1f, r, g, b, a);
+            vertex(bb, c.x + d1x * rOut, c.y + d1y * rOut, c.z + d1z * rOut, uOut, 1f, r, g, b, a);
+            vertex(bb, c.x + d0x * rOut, c.y + d0y * rOut, c.z + d0z * rOut, uOut, 0f, r, g, b, a);
+            ca0 = ca1;
+            sa0 = sa1;
+        }
+    }
+
     /** n 에 수직인 두 방향. */
     static Vec3[] basis(Vec3 n) {
         Vec3 ref = Math.abs(n.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);

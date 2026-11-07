@@ -928,11 +928,15 @@ final class WindFx {
                         ribbonCam(bb, pts[s].add(off), pts[s + 1].add(off), 0.13f, 0.08f, h0, h1, f0 * 2f + l * 0.3f, f1 * 2f + l * 0.3f);
                     }
                 }
+                // 넓은 바람 꼬리: 이동 축을 따라 가로·세로로 교차한 띠 2장 (뒤에서 봐도 + 모양 단면이 남아 납작해지지 않음)
+                Vec3 sideH = new Vec3(-dir.z, 0, dir.x);
                 for (int s = 0; s < n - 1; s++) {
                     float f0 = (float) s / (n - 1), f1 = (float) (s + 1) / (n - 1);
-                    float h0 = (1f - f0) * FxManager.smooth(f0 / 0.2f) * 0.45f * fadeEnd;
-                    float h1 = (1f - f1) * FxManager.smooth(f1 / 0.2f) * 0.45f * fadeEnd;
-                    ribbonCam(bb, pts[s], pts[s + 1], 1.8f * (1f - 0.5f * f0), 1.8f * (1f - 0.5f * f1), h0, h1, f0 * 1.5f, f1 * 1.5f);
+                    float h0 = (1f - f0) * FxManager.smooth(f0 / 0.2f) * 0.32f * fadeEnd;
+                    float h1 = (1f - f1) * FxManager.smooth(f1 / 0.2f) * 0.32f * fadeEnd;
+                    float w0 = 1.8f * (1f - 0.5f * f0), w1 = 1.8f * (1f - 0.5f * f1);
+                    ribbonSide(bb, pts[s], pts[s + 1], sideH, w0, w1, h0, h1, f0 * 1.5f, f1 * 1.5f);
+                    ribbonSide(bb, pts[s], pts[s + 1], UP, w0 * 0.8f, w1 * 0.8f, h0, h1, f0 * 1.5f + 0.4f, f1 * 1.5f + 0.4f);
                 }
                 FxRender.draw(bb);
             }

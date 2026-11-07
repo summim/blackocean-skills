@@ -1,0 +1,6 @@
+-d
+/tmp/claude-0/-home-claude/f4bf05ab-a56a-58f8-b8ef-def985ad00ac/scratchpad/c5
+-proc:none
+-Xmaxerrs
+20000
+@/tmp/claude-0/-home-claude/f4bf05ab-a56a-58f8-b8ef-def985ad00ac/scratchpad/f5.txt

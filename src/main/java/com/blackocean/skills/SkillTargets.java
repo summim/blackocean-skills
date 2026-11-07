@@ -1,5 +1,11 @@
 package com.blackocean.skills;
 
+import net.minecraft.core.registries.Registries;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -10,7 +16,10 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
-/** 모든 스킬이 함께 쓰는 "누구를 맞힐 수 있나" 규칙과 도우미. */
+import java.util.ArrayList;
+import java.util.List;
+
+/** 모든 스킬이 함께 쓰는 "누구를 맞힐 수 있나" 규칙과 피해·상태 도우미 (서버). */
 public final class SkillTargets {
     private SkillTargets() {}
 
@@ -44,10 +53,77 @@ public final class SkillTargets {
         return SubLevels.clip(level, new ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, viewer)).getType() == HitResult.Type.MISS;
     }
 
+    /** 원 안(가로 거리)·높이 범위 안에서 맞힐 수 있는 생물. 시야 검사는 seeFrom 이 있을 때만. */
+    public static List<LivingEntity> inCylinder(ServerLevel level, @Nullable Entity owner, Vec3 base, double r, double below, double above,
+                                                @Nullable Vec3 seeFrom) {
+        AABB box = new AABB(base.x - r - 1, base.y - below, base.z - r - 1, base.x + r + 1, base.y + above, base.z + r + 1);
+        List<LivingEntity> out = new ArrayList<>();
+        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, box, x -> canHit(owner, x))) {
+            double dx = e.getX() - base.x, dz = e.getZ() - base.z;
+            double reach = r + e.getBbWidth() * 0.5;
+            if (dx * dx + dz * dz > reach * reach) continue;
+            if (seeFrom != null && owner != null && !canSee(level, owner, seeFrom, e)) continue;
+            out.add(e);
+        }
+        return out;
+    }
+
+    /** 공 모양 범위 안의 생물과 거리 비율 (0 = 중심, 1 = 가장자리) */
+    public static List<LivingEntity> inSphere(ServerLevel level, @Nullable Entity owner, Vec3 c, double r, boolean needSight) {
+        List<LivingEntity> out = new ArrayList<>();
+        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(c, c).inflate(r + 1), x -> canHit(owner, x))) {
+            double d = Math.max(0.0, e.getBoundingBox().getCenter().distanceTo(c) - e.getBbWidth() * 0.5);
+            if (d > r) continue;
+            if (needSight && owner != null && !canSee(level, owner, c, e)) continue;
+            out.add(e);
+        }
+        return out;
+    }
+
+    public static double edgeFraction(LivingEntity e, Vec3 c, double r) {
+        double d = Math.max(0.0, e.getBoundingBox().getCenter().distanceTo(c) - e.getBbWidth() * 0.5);
+        return r <= 0 ? 0 : Math.min(1.0, d / r);
+    }
+
+    /** 능력별 피해 종류 (사망 메시지에 시전자 이름이 나오게) */
+    public static DamageSource source(ServerLevel level, @Nullable Entity direct, @Nullable Entity owner, Element element) {
+        return switch (element) {
+            case FIRE -> level.damageSources().explosion(direct != null ? direct : owner, owner);
+            case LIGHTNING -> new DamageSource(level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
+                    .getHolderOrThrow(DamageTypes.LIGHTNING_BOLT), direct != null ? direct : owner, owner);
+            default -> owner instanceof Player pl ? level.damageSources().playerAttack(pl)
+                    : owner instanceof LivingEntity le ? level.damageSources().mobAttack(le) : level.damageSources().generic();
+        };
+    }
+
+    public static void hurt(ServerLevel level, LivingEntity e, @Nullable Entity owner, Element element, float dmg) {
+        if (dmg <= 0) return;
+        e.hurt(source(level, null, owner, element), dmg);
+        if (element == Element.FIRE && SkillsConfig.ALLOW_FIRE.get()) e.igniteForSeconds(3.0f);
+    }
+
     /** 밀쳐내기 (서버). 플레이어에게도 바로 전달되도록 hurtMarked 를 켠다. */
     public static void knock(Entity e, Vec3 dir, double strength, double up) {
         if (strength <= 0 && up <= 0) return;
         e.push(dir.x * strength, up, dir.z * strength);
         e.hurtMarked = true;
+    }
+
+    /** 속도를 직접 정함 (끌어당기기·회오리) */
+    public static void setVelocity(Entity e, Vec3 v) {
+        e.setDeltaMovement(v);
+        e.hurtMarked = true;
+    }
+
+    /** 느려짐 (amp 0 = I) */
+    public static void slow(LivingEntity e, int ticks, int amp) {
+        if (ticks > 0) e.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, ticks, amp, false, true, true));
+    }
+
+    /** 감전·속박: 거의 못 움직임 */
+    public static void stun(LivingEntity e, int ticks) {
+        if (ticks <= 0) return;
+        e.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, ticks, 5, false, true, true));
+        e.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, ticks, 1, false, false, true));
     }
 }

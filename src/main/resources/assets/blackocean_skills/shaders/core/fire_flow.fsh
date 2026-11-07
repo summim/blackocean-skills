@@ -1,6 +1,6 @@
 #version 150
 
-// 흐르는 화염 셰이더
+// 흐르는 능력 셰이더 (불·번개·바람·물 공용, 색 단계표만 다름)
 // - 노이즈 텍스처를 크기·속도가 다른 두 겹으로 흘려 일렁임을 만든다.
 // - 정점 색 알파 = 열기 (1 = 흰빛 중심, 0 = 붉은 가장자리).
 // - 열기를 색 단계표로 바꾸고, 애니풍으로 띠를 살짝 나눠 외곽선이 읽히게 한다.
@@ -8,6 +8,7 @@
 // 더하기 섞기(ONE, ONE)로 그리므로 색에 알파를 미리 곱해서 내보낸다.
 
 uniform sampler2D Sampler0;
+uniform sampler2D Sampler1;
 uniform vec4 ColorModulator;
 uniform float GameTime;
 uniform vec4 FireParams;
@@ -17,19 +18,9 @@ in vec4 vertexColor;
 
 out vec4 fragColor;
 
+// 색 단계표 (능력마다 다른 그림: fire/lightning/wind/water_ramp.png, 왼쪽 = 가장 뜨거운 색)
 vec3 ramp(float t) {
-    t = clamp(t, 0.0, 1.0);
-    vec3 c0 = vec3(0.20, 0.01, 0.00);
-    vec3 c1 = vec3(0.75, 0.08, 0.02);
-    vec3 c2 = vec3(1.00, 0.36, 0.04);
-    vec3 c3 = vec3(1.00, 0.68, 0.18);
-    vec3 c4 = vec3(1.00, 0.92, 0.60);
-    vec3 c5 = vec3(1.00, 1.00, 0.95);
-    if (t < 0.20) return mix(c0, c1, t / 0.20);
-    if (t < 0.45) return mix(c1, c2, (t - 0.20) / 0.25);
-    if (t < 0.70) return mix(c2, c3, (t - 0.45) / 0.25);
-    if (t < 0.88) return mix(c3, c4, (t - 0.70) / 0.18);
-    return mix(c4, c5, (t - 0.88) / 0.12);
+    return texture(Sampler1, vec2(1.0 - clamp(t, 0.0, 1.0), 0.5)).rgb;
 }
 
 // 부드러운 계단: 연속값을 4단계 띠로 나누되 경계는 살짝 흐리게

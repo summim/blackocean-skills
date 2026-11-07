@@ -1,9 +1,12 @@
 package com.blackocean.skills.client.fx;
 
-import com.blackocean.skills.SubLevels;
+import com.blackocean.skills.Element;
 import com.blackocean.skills.Skill;
+import com.blackocean.skills.SkillAim;
+import com.blackocean.skills.SkillServer;
 import com.blackocean.skills.SkillTargets;
 import com.blackocean.skills.SkillsMod;
+import com.blackocean.skills.SubLevels;
 import com.blackocean.skills.client.ClientSkillStats;
 import com.blackocean.skills.client.SkillBarHud;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -24,20 +27,22 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * 스킬 키를 꾹 누르고 있는 동안 보이는 조준 표시. 서버와 같은 계산으로 그려서 실제로 날아갈 곳과 맞는다.
+ * 스킬 키를 꾹 누르고 있는 동안 보이는 조준 표시. 서버와 같은 계산(SkillAim)으로 그려서 실제 판정과 맞는다.
  * <pre>
- *  1 화염 주먹 / 2 불꽃 탄환 : 손에서 앞으로 흐르는 화살표 길(폭 = 판정 폭, 길이 = 사거리, 벽·적에서 멈춤)
- *                            + 떨어지는 자리의 폭발 범위 원
- *  3 불기둥                 : 조준한 바닥의 불기둥 범위 원 + 발밑 최대 사거리 원 (바닥이 없으면 빨간 원)
- *  4 화염 고리              : 발밑의 불의 파도 범위 원
+ *  PROJECTILE : 손에서 앞으로 흐르는 화살표 길 (폭 = 판정 폭, 벽·적에서 멈춤) + 떨어지는 곳의 폭발 범위 원
+ *  LINE       : 번개·물줄기 길 + 끝 표시 (번개는 연쇄 범위)
+ *  GROUND     : 조준한 바닥의 범위 원 + 발밑 최대 사거리 원 (바닥이 없으면 빨간 원)
+ *  SELF       : 발밑 범위 원
+ *  DASH/WAVE  : 땅 위로 앞으로 뻗는 길 (폭·거리)
+ *  BLINK      : 도착 지점 원 + 길 (갈 곳이 없으면 빨간 원)
  * </pre>
- * 쿨타임이 많이 남았으면 회색빛 빨강으로 보인다.
+ * 색은 능력 색, 쿨타임이 많이 남았으면 빨갛게.
  */
 public final class AimPreview {
     static final ResourceLocation RING = SkillsMod.id("textures/fx/aim_ring.png");
     static final ResourceLocation ARROW = SkillsMod.id("textures/fx/aim_arrow.png");
     private static final Vec3 UP = new Vec3(0, 1, 0);
-    /** 이만큼(틱) 누르고 있어야 보임. 톡 치고 떼는 빠른 사용에는 표시가 번쩍이지 않게. */
+    /** 이만큼(틱) 누르고 있어야 보임 (톡 치는 빠른 사용에는 번쩍이지 않게) */
     private static final int SHOW_AFTER = 2;
 
     @Nullable
@@ -61,7 +66,6 @@ public final class AimPreview {
         return aiming;
     }
 
-    /** 실제로 화면에 보이는 중인지 (안내 문구 표시용) */
     public static boolean visible() {
         return aiming != null && held >= SHOW_AFTER;
     }
@@ -78,70 +82,109 @@ public final class AimPreview {
         if (!visible()) return;
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
-        if (p == null || mc.level == null) return;
         Skill s = aiming;
-        if (s == null) return;
+        if (p == null || mc.level == null || s == null) return;
 
         float fadeIn = Math.min(1f, (held - SHOW_AFTER + pt) / 3f);
-        boolean blocked = SkillBarHud.remaining(s) > com.blackocean.skills.SkillServer.BUFFER_TICKS;
-        float r = blocked ? 0.75f : 1f, g = blocked ? 0.28f : 0.55f, b = blocked ? 0.22f : 0.12f;
+        boolean blocked = SkillBarHud.remaining(s) > SkillServer.BUFFER_TICKS;
+        float[] c = blocked ? new float[]{0.75f, 0.28f, 0.22f} : color(s.element);
         float a = (blocked ? 0.55f : 0.85f) * fadeIn;
+        float range = ClientSkillStats.range(s), radius = ClientSkillStats.radius(s);
+        Level level = mc.level;
+        Vec3 eye = p.getEyePosition(pt), look = p.getViewVector(pt);
 
         FxRender.alphaBlend();
         RenderSystem.disableCull();
-        switch (s) {
-            case FIRE_FIST -> projectile(mc.level, p, pt, time, 0.3, ClientSkillStats.fistRange(), ClientSkillStats.fistHitRadius(),
-                    ClientSkillStats.fistSplash(), r, g, b, a);
-            case FIRE_BULLETS -> projectile(mc.level, p, pt, time, 0.38, ClientSkillStats.bulletsRange(), 0.45f,
-                    ClientSkillStats.bulletsSplash(), r, g, b, a);
-            case FIRE_PILLAR -> pillar(mc.level, p, pt, time, r, g, b, a);
-            case FLAME_RING -> {
+        switch (s.aim) {
+            case PROJECTILE -> {
+                double side = s == Skill.FIRE_SUN ? 0 : s == Skill.FIRE_BULLETS ? 0.38 : 0.3;
+                double lift = s == Skill.FIRE_SUN ? 2.6 : 0;
+                projectile(level, p, eye, look, side, lift, range, s.hit, s.shape == Skill.Shape.BLADE ? 0f : radius, time, c, a);
+            }
+            case LINE -> {
+                Vec3 end = projectile(level, p, eye, look, 0.3, 0, range, s.hit, 0f, time, c, a);
+                if (s == Skill.LIGHTNING_BOLT && end != null) {
+                    // 연쇄 범위: 맞은 곳 주변 원 (옅게)
+                    rings(SkillAim.groundBelow(level, p, end).add(0, 0.06, 0), UP, radius, time, c, a * 0.4f);
+                }
+            }
+            case GROUND -> {
+                Vec3 feet = p.getPosition(pt).add(0, 0.05, 0);
+                quad(RING, feet, UP, range, 0f, c, a * 0.2f); // 최대 사거리
+                Vec3 target = SkillAim.groundTarget(level, p, eye, look, range);
+                if (target == null) {
+                    Vec3 far = eye.add(look.scale(Math.min(range, 12)));
+                    rings(far, look.scale(-1), radius, time, new float[]{0.85f, 0.15f, 0.12f}, a * 0.8f);
+                    return;
+                }
+                rings(target.add(0, 0.06, 0), UP, radius, time, c, a);
+                float h = heightOf(s);
+                if (h > 0) quad(RING, target.add(0, h, 0), UP, radius * 0.75f, -time * 0.05f, c, a * 0.22f);
+            }
+            case SELF -> rings(SkillAim.groundBelow(level, p, p.getPosition(pt)).add(0, 0.06, 0), UP, radius, time, c, a);
+            case DASH, WAVE -> {
+                Vec3 feet = SkillAim.groundBelow(level, p, p.getPosition(pt)).add(0, 0.08, 0);
+                Vec3 dir = SkillAim.flatLook(look, p.getViewYRot(pt));
+                float halfW = s.aim == Skill.Aim.WAVE ? radius : Math.max(0.6f, radius * 0.7f);
+                Vec3 end = feet.add(dir.scale(range));
+                arrow(feet, end, dir, halfW, time, c, a, true);
+                quad(RING, end.add(0, 0.01, 0), UP, Math.max(0.8f, halfW * 0.6f), time * 0.05f, c, a * 0.6f);
+            }
+            case BLINK -> {
                 Vec3 feet = p.getPosition(pt);
-                float rad = ClientSkillStats.ringRadius();
-                rings(feet.add(0, 0.06, 0), UP, rad, time, r, g, b, a);
+                Vec3 dest = SkillAim.blinkDestination(level, p, feet, eye, look, range);
+                if (dest == null) {
+                    rings(eye.add(look.scale(2)), look.scale(-1), 0.8f, time, new float[]{0.85f, 0.15f, 0.12f}, a * 0.8f);
+                    return;
+                }
+                Vec3 g0 = feet.add(0, 0.08, 0), g1 = dest.add(0, 0.08, 0);
+                Vec3 d = g1.subtract(g0);
+                if (d.lengthSqr() > 0.25) arrow(g0, g1, d.normalize(), 0.45f, time, c, a * 0.8f, d.y * d.y < 0.5 * d.lengthSqr());
+                rings(SkillAim.groundBelow(level, p, dest).add(0, 0.06, 0), UP, radius, time, c, a);
             }
         }
     }
 
+    private static float[] color(Element el) {
+        return switch (el) {
+            case FIRE -> new float[]{1f, 0.55f, 0.12f};
+            case LIGHTNING -> new float[]{0.45f, 0.8f, 1f};
+            case WIND -> new float[]{0.45f, 1f, 0.7f};
+            case WATER -> new float[]{0.3f, 0.65f, 1f};
+        };
+    }
+
+    private static float heightOf(Skill s) {
+        return switch (s) {
+            case FIRE_PILLAR -> 9f;
+            case WIND_WHIRLWIND -> 7f;
+            case WIND_TEMPEST -> 22f;
+            default -> 0f;
+        };
+    }
+
     // ---------------------------------------------------------------------
-    // 1·2: 투사체 길
+    // 투사체·줄기 길. 돌려주는 값 = 멈추는 곳
     // ---------------------------------------------------------------------
 
-    private static void projectile(Level level, LocalPlayer p, float pt, float time, double side, float range, float hitR,
-                                   float splash, float r, float g, float b, float a) {
-        Vec3 eye = p.getEyePosition(pt);
-        Vec3 look = p.getViewVector(pt);
-        Vec3 right = look.cross(UP);
-        right = right.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : right.normalize();
-        Vec3 start = eye.add(look.scale(1.6)).add(right.scale(side)).add(0, -0.3, 0);
-        BlockHitResult wall = SubLevels.clip(level, new ClipContext(eye, start, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
-        if (wall.getType() != HitResult.Type.MISS) start = wall.getLocation().subtract(look.scale(0.15));
-
-        // 서버와 같은 조준: 조준점이 가리키는 곳으로 방향을 맞춤
-        Vec3 far = eye.add(look.scale(range));
-        BlockHitResult bh = SubLevels.clip(level, new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
-        Vec3 aim = bh.getType() == HitResult.Type.MISS ? far : bh.getLocation();
-        EntityHitResult eh = ProjectileUtil.getEntityHitResult(level, p, eye, aim,
-                p.getBoundingBox().expandTowards(aim.subtract(eye)).inflate(1.0),
-                e -> e.isPickable() && !e.isSpectator() && !SkillTargets.isSameRide(p, e));
-        if (eh != null) aim = eh.getLocation();
-        if (aim.distanceToSqr(eye) > (range + 4.0) * (range + 4.0)) aim = far; // 안전장치: 좌표가 튀면 무시
-        Vec3 d = aim.subtract(start);
-        Vec3 dir = (d.lengthSqr() < 4.0 || d.normalize().dot(look) < 0.5) ? look : d.normalize();
-
-        // 실제로 날아가다 멈출 곳
+    @Nullable
+    private static Vec3 projectile(Level level, LocalPlayer p, Vec3 eye, Vec3 look, double side, double lift, float range, float hitR,
+                                   float splash, float time, float[] c, float a) {
+        Vec3 start = SkillAim.handPos(level, p, eye, look, side, lift);
+        Vec3 dir = SkillAim.aimDirection(level, p, eye, look, start, range);
         Vec3 end = start.add(dir.scale(range));
         Vec3 normal = null;
         BlockHitResult path = SubLevels.clip(level, new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
-        if (path.getType() != HitResult.Type.MISS && path.getLocation().distanceToSqr(start) <= (range + 1.0) * (range + 1.0)) {
+        if (path.getType() != HitResult.Type.MISS) {
             end = path.getLocation();
             Direction f = path.getDirection();
             normal = new Vec3(f.getStepX(), f.getStepY(), f.getStepZ());
         }
-        final Vec3 s0 = start;
+        final Vec3 s0 = start, s1 = start.add(dir.scale(range));
+        final float r = hitR;
         EntityHitResult target = ProjectileUtil.getEntityHitResult(level, p, start, end, new AABB(start, end).inflate(hitR + 1.0),
                 e -> e instanceof LivingEntity && e.isAlive() && !e.isSpectator() && e != p && !SkillTargets.isSameRide(p, e)
-                        && e.getBoundingBox().inflate(hitR).clip(s0, s0.add(dir.scale(range))).isPresent());
+                        && e.getBoundingBox().inflate(r).clip(s0, s1).isPresent());
         if (target != null) {
             Vec3 hit = target.getEntity().getBoundingBox().inflate(hitR).clip(start, end).orElse(target.getLocation());
             if (hit.distanceToSqr(start) < end.distanceToSqr(start)) {
@@ -149,39 +192,43 @@ public final class AimPreview {
                 normal = UP;
             }
         }
+        Vec3 right = look.cross(UP);
+        right = right.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : right.normalize();
+        Vec3 flatSide = dir.cross(UP);
+        boolean flat = flatSide.lengthSqr() > 1.0E-4;
+        arrow(start, end, dir, Math.max(0.3f, hitR), time, c, a, flat);
 
-        // 화살표 길 (바닥과 나란한 띠, 앞으로 흐르는 화살표)
-        double len = start.distanceTo(end);
-        if (len > 0.3) {
-            Vec3 sideV = dir.cross(UP);
-            if (sideV.lengthSqr() < 1.0E-4) sideV = right;
-            sideV = sideV.normalize().scale(Math.max(0.3, hitR));
-            float tile = (float) (Math.max(0.6, hitR * 2.0) * 1.2);
-            FxRender.spriteShader(ARROW);
-            BufferBuilder bb = FxRender.quads();
-            int steps = Math.min(64, Math.max(1, (int) Math.ceil(len / 1.5)));
-            for (int i = 0; i < steps; i++) {
-                double t0 = len * i / steps, t1 = len * (i + 1) / steps;
-                Vec3 p0 = start.add(dir.scale(t0)), p1 = start.add(dir.scale(t1));
-                float a0 = a * fadeAlong(t0, len), a1 = a * fadeAlong(t1, len);
-                float v0 = (float) (t0 / tile) - time * 0.06f, v1 = (float) (t1 / tile) - time * 0.06f;
-                FxRender.vertex(bb, p0.x - sideV.x, p0.y - sideV.y, p0.z - sideV.z, 0f, v0, r, g, b, a0);
-                FxRender.vertex(bb, p0.x + sideV.x, p0.y + sideV.y, p0.z + sideV.z, 1f, v0, r, g, b, a0);
-                FxRender.vertex(bb, p1.x + sideV.x, p1.y + sideV.y, p1.z + sideV.z, 1f, v1, r, g, b, a1);
-                FxRender.vertex(bb, p1.x - sideV.x, p1.y - sideV.y, p1.z - sideV.z, 0f, v1, r, g, b, a1);
-            }
-            FxRender.draw(bb);
-        }
-
-        // 떨어지는 자리: 폭발 범위 원 (아무것도 안 맞으면 흐릿하게, 날아가는 방향을 향해)
         if (normal != null) {
-            rings(end.add(normal.scale(0.06)), normal, Math.max(0.6f, splash), time, r, g, b, a);
+            if (splash > 0) rings(end.add(normal.scale(0.06)), normal, Math.max(0.6f, splash), time, c, a);
+            else quad(RING, end.add(normal.scale(0.06)), normal, Math.max(0.5f, hitR), time * 0.05f, c, a * 0.7f);
         } else {
-            FxRender.spriteShader(RING);
-            BufferBuilder bb = FxRender.quads();
-            FxRender.planeQuad(bb, end, dir.scale(-1), Math.max(0.5f, splash * 0.5f), time * 0.05f, r, g, b, a * 0.45f);
-            FxRender.draw(bb);
+            quad(RING, end, dir.scale(-1), Math.max(0.5f, splash * 0.5f), time * 0.05f, c, a * 0.45f);
         }
+        return end;
+    }
+
+    /** 앞으로 흐르는 화살표 띠. flat 이면 땅과 나란하게, 아니면 카메라를 향하게 */
+    private static void arrow(Vec3 start, Vec3 end, Vec3 dir, float halfW, float time, float[] c, float a, boolean flat) {
+        double len = start.distanceTo(end);
+        if (len < 0.3) return;
+        Vec3 sideV = flat ? dir.cross(UP) : dir.cross(FxRender.cam.subtract(start));
+        if (sideV.lengthSqr() < 1.0E-6) sideV = new Vec3(1, 0, 0);
+        sideV = sideV.normalize().scale(halfW);
+        float tile = Math.max(0.6f, halfW * 2f) * 1.2f;
+        FxRender.spriteShader(ARROW);
+        BufferBuilder bb = FxRender.quads();
+        int steps = Math.max(1, (int) Math.ceil(len / 1.5));
+        for (int i = 0; i < steps; i++) {
+            double t0 = len * i / steps, t1 = len * (i + 1) / steps;
+            Vec3 p0 = start.add(dir.scale(t0)), p1 = start.add(dir.scale(t1));
+            float a0 = a * fadeAlong(t0, len), a1 = a * fadeAlong(t1, len);
+            float v0 = (float) (t0 / tile) - time * 0.06f, v1 = (float) (t1 / tile) - time * 0.06f;
+            FxRender.vertex(bb, p0.x - sideV.x, p0.y - sideV.y, p0.z - sideV.z, 0f, v0, c[0], c[1], c[2], a0);
+            FxRender.vertex(bb, p0.x + sideV.x, p0.y + sideV.y, p0.z + sideV.z, 1f, v0, c[0], c[1], c[2], a0);
+            FxRender.vertex(bb, p1.x + sideV.x, p1.y + sideV.y, p1.z + sideV.z, 1f, v1, c[0], c[1], c[2], a1);
+            FxRender.vertex(bb, p1.x - sideV.x, p1.y - sideV.y, p1.z - sideV.z, 0f, v1, c[0], c[1], c[2], a1);
+        }
+        FxRender.draw(bb);
     }
 
     private static float fadeAlong(double t, double len) {
@@ -190,62 +237,20 @@ public final class AimPreview {
         return in * Math.min(1f, out);
     }
 
-    // ---------------------------------------------------------------------
-    // 3: 불기둥 자리
-    // ---------------------------------------------------------------------
-
-    private static void pillar(Level level, LocalPlayer p, float pt, float time, float r, float g, float b, float a) {
-        float range = ClientSkillStats.pillarRange();
-        float radius = ClientSkillStats.pillarRadius();
-        Vec3 eye = p.getEyePosition(pt);
-        Vec3 look = p.getViewVector(pt);
-        Vec3 far = eye.add(look.scale(range));
-        Vec3 target = null;
-        BlockHitResult bh = SubLevels.clip(level, new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
-        Vec3 from;
-        if (bh.getType() != HitResult.Type.MISS && bh.getDirection() == Direction.UP) {
-            target = bh.getLocation();
-            from = null;
-        } else if (bh.getType() != HitResult.Type.MISS) {
-            from = bh.getLocation().add(Vec3.atLowerCornerOf(bh.getDirection().getNormal()).scale(0.3));
-        } else {
-            from = far;
-        }
-        if (target == null && from != null) {
-            BlockHitResult down = SubLevels.clip(level, new ClipContext(from, from.add(0, -10, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, p));
-            if (down.getType() != HitResult.Type.MISS) target = down.getLocation();
-        }
-
-        // 발밑: 최대 사거리 원 (옅게)
-        Vec3 feet = p.getPosition(pt).add(0, 0.05, 0);
-        FxRender.spriteShader(RING);
+    private static void quad(ResourceLocation tex, Vec3 c, Vec3 n, float radius, float rot, float[] col, float a) {
+        FxRender.spriteShader(tex);
         BufferBuilder bb = FxRender.quads();
-        FxRender.planeQuad(bb, feet, UP, range, 0f, r, g, b, a * 0.22f);
-        FxRender.draw(bb);
-
-        if (target == null) {
-            // 세울 바닥이 없음 → 바라보는 곳에 빨간 원
-            Vec3 miss = from != null ? from : far;
-            rings(miss, look.scale(-1), radius, time, 0.85f, 0.15f, 0.12f, a * 0.8f);
-            return;
-        }
-        rings(target.add(0, 0.06, 0), UP, radius, time, r, g, b, a);
-        // 기둥 높이를 알려 주는 위쪽 옅은 원
-        bb = FxRender.quads();
-        FxRender.planeQuad(bb, target.add(0, ClientSkillStats.pillarHeight(), 0), UP, radius * 0.75f, -time * 0.05f, r, g, b, a * 0.25f);
+        FxRender.planeQuad(bb, c, n, radius, rot, col[0], col[1], col[2], a);
         FxRender.draw(bb);
     }
 
-    // ---------------------------------------------------------------------
-    // 공통: 범위 원 (테두리 원 + 안쪽에서 퍼져 나가는 원)
-    // ---------------------------------------------------------------------
-
-    private static void rings(Vec3 c, Vec3 n, float radius, float time, float r, float g, float b, float a) {
+    /** 범위 원: 테두리 원 + 안쪽에서 퍼져 나가는 원 */
+    private static void rings(Vec3 c, Vec3 n, float radius, float time, float[] col, float a) {
         FxRender.spriteShader(RING);
         BufferBuilder bb = FxRender.quads();
-        FxRender.planeQuad(bb, c, n, radius, time * 0.03f, r, g, b, a);
+        FxRender.planeQuad(bb, c, n, radius, time * 0.03f, col[0], col[1], col[2], a);
         float wave = (time * 0.05f) % 1f;
-        FxRender.planeQuad(bb, c.add(n.scale(0.01)), n, radius * wave, 0f, r, g, b, a * 0.6f * (1f - wave));
+        FxRender.planeQuad(bb, c.add(n.scale(0.01)), n, radius * wave, 0f, col[0], col[1], col[2], a * 0.6f * (1f - wave));
         FxRender.draw(bb);
     }
 }

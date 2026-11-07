@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "blackocean_skills:item/fire_fruit"
+  }
+}

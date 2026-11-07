@@ -36,6 +36,19 @@ public final class FxRender {
     public static final ResourceLocation SPARK = tex("spark");
     public static final ResourceLocation EMBER = tex("ember");
     public static final ResourceLocation SMOKE = tex("smoke_sheet");
+    // ---- 능력 공용 흰 그림 (색은 정점 색으로 입힘) ----
+    public static final ResourceLocation GLOW_WHITE = tex("glow_white");
+    public static final ResourceLocation SPARK_WHITE = tex("spark_white");
+    public static final ResourceLocation EMBER_WHITE = tex("ember_white");
+    public static final ResourceLocation SHOCK_RING_WHITE = tex("shock_ring_white");
+    public static final ResourceLocation BEAM = tex("beam");
+    public static final ResourceLocation LEAF = tex("leaf");
+    public static final ResourceLocation DROPLET = tex("droplet");
+    public static final ResourceLocation MIST = tex("mist_sheet");
+    public static final ResourceLocation PLASMA_SHEET = tex("plasma_sheet");
+    public static final ResourceLocation WISP_SHEET = tex("wisp_sheet");
+    public static final ResourceLocation SPLASH_SHEET = tex("splash_sheet");
+    private static final ResourceLocation[] RAMPS = {tex("fire_ramp"), tex("lightning_ramp"), tex("wind_ramp"), tex("water_ramp")};
 
     static Vec3 cam = Vec3.ZERO;
     static float partial;
@@ -105,6 +118,14 @@ public final class FxRender {
      * @return 셰이더를 못 불러왔으면 false → 대신 궤적 텍스처로 그림
      */
     static boolean fireShader(float speed, float erosion, float intensity) {
+        return elemShader(com.blackocean.skills.Element.FIRE, speed, erosion, intensity);
+    }
+
+    /**
+     * 능력 색의 흐르는 셰이더 (불·번개·바람·물). 색 단계표(Sampler1)만 바뀌고 모양 계산은 같다.
+     * 정점 색 알파 = 열기 (1 = 흰빛 중심, 0 = 가장자리 색).
+     */
+    static boolean elemShader(com.blackocean.skills.Element el, float speed, float erosion, float intensity) {
         ShaderInstance s = FxShaders.fireFlow;
         if (s == null) {
             spriteShader(TRAIL);
@@ -113,7 +134,48 @@ public final class FxRender {
         s.safeGetUniform("FireParams").set(speed, erosion, intensity, 0.0f);
         RenderSystem.setShader(() -> s);
         RenderSystem.setShaderTexture(0, NOISE);
+        RenderSystem.setShaderTexture(1, RAMPS[el.ordinal()]);
         return true;
+    }
+
+    /** 스프라이트 종류·능력별 그림 */
+    static ResourceLocation spriteTexture(Sprite.Kind kind, com.blackocean.skills.Element el) {
+        return switch (kind) {
+            case FLAME -> switch (el) {
+                case FIRE -> FLAME_SHEET;
+                case LIGHTNING -> PLASMA_SHEET;
+                case WIND -> WISP_SHEET;
+                case WATER -> SPLASH_SHEET;
+            };
+            case GLOW -> GLOW_WHITE;
+            case SPARK -> SPARK_WHITE;
+            case EMBER -> switch (el) {
+                case WIND -> LEAF;
+                case WATER -> DROPLET;
+                default -> EMBER_WHITE;
+            };
+            case SMOKE -> el == com.blackocean.skills.Element.FIRE ? SMOKE : MIST;
+        };
+    }
+
+    /** 능력 대표 색 (빛·불꽃 줄기 등) */
+    static float[] tint(com.blackocean.skills.Element el) {
+        return switch (el) {
+            case FIRE -> new float[]{1f, 0.55f, 0.18f};
+            case LIGHTNING -> new float[]{0.55f, 0.82f, 1f};
+            case WIND -> new float[]{0.6f, 1f, 0.8f};
+            case WATER -> new float[]{0.35f, 0.7f, 1f};
+        };
+    }
+
+    /** 충격파 링 색 */
+    static float[] ringTint(com.blackocean.skills.Element el) {
+        return switch (el) {
+            case FIRE -> new float[]{1f, 0.5f, 0.15f};
+            case LIGHTNING -> new float[]{0.45f, 0.75f, 1f};
+            case WIND -> new float[]{0.55f, 1f, 0.78f};
+            case WATER -> new float[]{0.3f, 0.65f, 1f};
+        };
     }
 
     // ---------- 버퍼 ----------

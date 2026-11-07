@@ -442,7 +442,8 @@ final class IceFx {
         ux /= ul;
         uy /= ul;
         uz /= ul;
-        double vx = ay * uz - az * uy, vy = az * ux - ax * uz, vz = ax * uy - ay * ux;
+        // v = u × a → (u, a, v) 가 오른손 좌표계 → 메시의 바깥쪽 감기 순서가 그대로 유지됨
+        double vx = uy * az - uz * ay, vy = uz * ax - ux * az, vz = ux * ay - uy * ax;
         double c = Math.cos(roll), s = Math.sin(roll);
         out[0] = ux * c + vx * s;
         out[1] = uy * c + vy * s;
@@ -1366,8 +1367,8 @@ final class IceFx {
             Vec3 core = c.add(0, 1.0, 0);
             flashGlow(core, 6f, 9f, 5, C_WHITE, 1f);
             flashGlow(core, R * 2.6f, R * 3.4f, 12, C_CYAN, 0.6f);
-            FxManager.addRing(c.add(0, 0.08, 0), UP, 0.5f, R * 1.45f, 11, 0, 1f, I);
-            FxManager.addRing(c.add(0, 0.1, 0), UP, 0.3f, R * 1.1f, 9, 2, 0.8f, I);
+            FxManager.addRing(c.add(0, 0.08, 0), UP, 0.5f, R * 1.2f, 11, 0, 1f, I);
+            FxManager.addRing(c.add(0, 0.1, 0), UP, 0.3f, R * 0.95f, 9, 2, 0.8f, I);
             FxManager.addRing(core, UP, 0.4f, R * 1.25f, 8, 1, 0.7f, I);
             // 바깥으로 쏟아지는 안개 벽 + 얼음 조각 + 반짝이
             mistRing(c, 0.8f, R * 0.06f, 22, 1.4f, 0.42f);

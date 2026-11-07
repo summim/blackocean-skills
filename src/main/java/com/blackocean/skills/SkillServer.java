@@ -58,7 +58,7 @@ public final class SkillServer {
     /** yaw/pitch = 키를 뗀 순간 플레이어가 보던 방향 (조준 표시와 실제 공격 방향이 같게 고정) */
     private record Pending(UUID player, int entity, Skill skill, long fireAt, int cooldown, int shot, @Nullable Vec3 target, ResourceKey<Level> dim, float yaw, float pitch) {}
 
-    private record Buffered(Skill skill, long expireAt) {}
+    private record Buffered(Skill skill, long expireAt, float yaw, float pitch) {}
 
     private SkillServer() {}
 
@@ -110,7 +110,7 @@ public final class SkillServer {
         boolean busy = charging != null || movingBlocks(p, skill);
         if (left <= BUFFER_TICKS && (left > 0 || busy)) {
             // 곧 쓸 수 있음 → 예약 (마지막에 누른 스킬이 이김)
-            BUFFERED.put(p.getUUID(), new Buffered(skill, p.server.getTickCount() + Math.max(left, 0) + BUFFER_TICKS + 40));
+            BUFFERED.put(p.getUUID(), new Buffered(skill, p.server.getTickCount() + Math.max(left, 0) + BUFFER_TICKS + 40, yaw, pitch));
             return;
         }
         if (left > 0) {
@@ -444,6 +444,12 @@ public final class SkillServer {
         SkillSounds.play(level, start, snd, radius, pitch);
     }
 
+    /** 예약 발동: 키를 뗀 순간의 방향으로 (그사이 크게 돌아섰으면 지금 방향) */
+    private static boolean castBuffered(ServerPlayer p, Buffered b) {
+        boolean turned = Math.abs(net.minecraft.util.Mth.wrapDegrees(b.yaw() - p.getYRot())) > 60f || Math.abs(b.pitch() - p.getXRot()) > 60f;
+        return turned ? cast(p, b.skill(), true) : cast(p, b.skill(), true, b.yaw(), b.pitch());
+    }
+
     private static void tickBuffered(MinecraftServer server, long now) {
         Iterator<Map.Entry<UUID, Buffered>> it = BUFFERED.entrySet().iterator();
         while (it.hasNext()) {
@@ -462,7 +468,7 @@ public final class SkillServer {
             if (chargingSkill(p.getUUID()) != null || remainingTicks(p, b.skill()) > 0 || movingBlocks(p, b.skill())) continue;
             it.remove();
             Element el = PlayerElements.get(p);
-            if (el != b.skill().element || !b.skill().enabled() || !cast(p, b.skill(), true)) deny(p, b.skill());
+            if (el != b.skill().element || !b.skill().enabled() || !castBuffered(p, b)) deny(p, b.skill());
         }
     }
 

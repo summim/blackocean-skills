@@ -114,6 +114,7 @@ final class IceThunderEffects {
 
         @Override
         boolean step(ServerPlayer o) {
+            if (!o.isAlive()) return true;
             if (age < at) return false;
             run.accept(o);
             return true;

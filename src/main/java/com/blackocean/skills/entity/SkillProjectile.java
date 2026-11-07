@@ -131,8 +131,13 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
         BlockHitResult bh = SubLevels.clip(level, new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
         Vec3 end = bh.getType() == HitResult.Type.MISS ? to : bh.getLocation();
 
-        // 생물 (선 위에서 가까운 순서)
-        List<Hit> hits = entityHits(level, from, end);
+        // 생물 (선 위에서 가까운 순서). 첫 틱은 시전자 눈에서부터 검사 → 코앞(눈과 손 사이)의 적을 지나치지 않음
+        Vec3 sweepFrom = from;
+        if (tickCount <= 1 && getOwner() instanceof LivingEntity ol && ol.level() == level) {
+            Vec3 eye = ol.getEyePosition();
+            if (eye.distanceToSqr(from) < 9.0) sweepFrom = eye;
+        }
+        List<Hit> hits = entityHits(level, sweepFrom, end);
         boolean pierce = skill.shape == Skill.Shape.BLADE;
         for (Hit h : hits) {
             if (pierce) {

@@ -93,10 +93,11 @@ final class ServerEffects {
 
         LivingEntity first = null;
         double best = Double.MAX_VALUE;
-        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(start, end).inflate(s.hit + 1), x -> SkillTargets.canHit(p, x))) {
-            Optional<Vec3> hit = e.getBoundingBox().inflate(s.hit).clip(start, end);
-            if (hit.isPresent() && hit.get().distanceToSqr(start) < best) {
-                best = hit.get().distanceToSqr(start);
+        // 눈에서부터 검사 (코앞의 적도 맞음)
+        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(eye, end).inflate(s.hit + 1), x -> SkillTargets.canHit(p, x))) {
+            Optional<Vec3> hit = e.getBoundingBox().inflate(s.hit).clip(eye, end);
+            if (hit.isPresent() && hit.get().distanceToSqr(eye) < best) {
+                best = hit.get().distanceToSqr(eye);
                 first = e;
             }
         }

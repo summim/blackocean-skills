@@ -77,7 +77,7 @@ public final class FxRender {
     // ---------- 눈부심 방지 (2.3) ----------
     // 1) 카메라 1.5칸 안의 모든 연출은 가까울수록 옅어짐 (0.4칸 안 = 안 보임) → 얼굴 앞에서 터져도 화면이 하얗게 덮이지 않음
     // 2) 큰 더하기 층(불덩이 구·기둥·큰 후광)이 카메라와 캐릭터 몸 사이를 지나가면 그 부분만 옅게 → 몸·대상이 계속 보임
-    private static final double NEAR_FADE = 1.5, NEAR_CUT = 0.4;
+    private static final double NEAR_FADE = 1.0, NEAR_CUT = 0.3; // 손 앞(약 1.6칸)의 모으기 연출은 1인칭에서도 또렷하게 남김
     private static final int MAX_SHIELD = 8;
     /** 몸 가운데 (카메라 기준), 거리, 단위 방향, 반지름 */
     private static final float[] SH_X = new float[MAX_SHIELD], SH_Y = new float[MAX_SHIELD], SH_Z = new float[MAX_SHIELD],

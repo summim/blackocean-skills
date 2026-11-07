@@ -7,10 +7,10 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * 서버 → 클라이언트: 스킬이 실제로 일어난 순간 (서버가 피해를 준 바로 그 틱).
+ * 서버 → 클라이언트: 스킬이 실제로 일어난 순간 (서버가 피해를 준 바로 그 틱). kind = SkillEvents 종류 번호.
  * 화면 연출은 전부 이 신호 하나로 받는다. 각 칸의 뜻은 type 마다 다르다 (SkillEvents 참고).
  */
-public record SkillEventPayload(int skill, int type, int casterId,
+public record SkillEventPayload(int skill, int kind, int casterId,
                                 double x, double y, double z,
                                 float ax, float ay, float az,
                                 float size, float size2, int duration, int target) implements CustomPacketPayload {
@@ -18,7 +18,7 @@ public record SkillEventPayload(int skill, int type, int casterId,
     public static final StreamCodec<FriendlyByteBuf, SkillEventPayload> CODEC = StreamCodec.<FriendlyByteBuf, SkillEventPayload>of(
             (buf, p) -> {
                 buf.writeVarInt(p.skill() + 1);
-                buf.writeVarInt(p.type());
+                buf.writeVarInt(p.kind());
                 buf.writeVarInt(p.casterId() + 1);
                 buf.writeDouble(p.x());
                 buf.writeDouble(p.y());

@@ -10,7 +10,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * 연출 신호 종류와 보내는 도우미 (서버).
  * <pre>
- * 종류        pos             vec            size        size2         duration    target
+ * 종류(kind)  pos             vec            size        size2         duration    target
  * IMPACT     맞은 곳          맞은 면 방향    폭발 반지름   1=허공에서 끝  투사체 id     맞은 생물
  * PIERCE     꿰뚫은 곳        날아가는 방향   -           -             투사체 id     맞은 생물
  * ERUPT      기둥 바닥         -             반지름        높이           유지 틱      -

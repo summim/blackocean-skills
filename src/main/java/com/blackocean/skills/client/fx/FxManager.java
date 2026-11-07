@@ -197,18 +197,18 @@ public final class FxManager {
         Entity caster = e.casterId() >= 0 ? mc.level.getEntity(e.casterId()) : null;
         Skill skill = Skill.byIndex(e.skill());
         lod = lodAt(e.pos());
-        if (e.type() == SkillEvents.TRANSFORM) {
+        if (e.kind() == SkillEvents.TRANSFORM) {
             Element el = Element.byIndex(e.target());
             if (el != null) transform(e.pos(), el, caster);
             return;
         }
         if (skill == null) return;
-        if (e.type() == SkillEvents.ULT_CAST) {
+        if (e.kind() == SkillEvents.ULT_CAST) {
             ScreenFx.ultimate(skill, caster, e.pos());
             return;
         }
-        if (e.type() == SkillEvents.IMPACT || e.type() == SkillEvents.PIERCE) {
-            if (e.type() == SkillEvents.IMPACT) {
+        if (e.kind() == SkillEvents.IMPACT || e.kind() == SkillEvents.PIERCE) {
+            if (e.kind() == SkillEvents.IMPACT) {
                 ProjectileFx proj = PROJECTILES.get(e.duration());
                 if (proj != null) proj.impact(e.pos());
             }
@@ -217,7 +217,7 @@ public final class FxManager {
         }
         switch (skill.element) {
             case FIRE -> {
-                switch (e.type()) {
+                switch (e.kind()) {
                     case SkillEvents.IMPACT -> {
                         if (skill == Skill.FIRE_SUN) FireFx.onEvent(e, skill, caster);
                         else fistImpact(e, skill == Skill.FIRE_BULLETS);

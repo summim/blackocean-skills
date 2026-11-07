@@ -24,15 +24,41 @@ import static com.blackocean.skills.client.fx.FxManager.smooth;
 import static com.blackocean.skills.client.fx.FxManager.spawn;
 
 /**
- * 번개 능력 연출.
+ * 번개 능력 연출 설계 (2.3).
+ * <p>
+ * 번개의 말투: 갑작스럽고 들쭉날쭉하게 갈라짐. 켜질 때는 한순간 최대 밝기(1~2틱, 한 번 깜빡), 곧바로 "눈에 남은 잔상"
+ * (같은 모양 그대로 어둡고 푸르게 식으며 띄엄띄엄 꺼짐) → 작은 불꽃만 남고 사라짐. 흰 심지 → 하늘색 → 짙은 파랑 가장자리 3겹 띠.
+ * 불처럼 흐르거나 피어오르지 않음 (움직임은 모양이 1~2틱마다 통째로 바뀌는 것뿐). 빛 번짐 = 겹친 후광, 바닥 빛 = 바닥 빛 웅덩이.
+ * 띠는 구간마다 카메라를 향하고, 정확히 카메라 쪽을 향한 구간은 화면 옆 방향으로 펼쳐서 앞·뒤에서 봐도 납작하게 사라지지 않음.
+ * 꺾인 길 자체가 3D 라 옆에서는 갈래가, 앞·뒤에서는 지그재그 점 묶음 + 후광으로 읽힘. 피해 범위는 전부 SkillFx.danger*.
  * <pre>
- *  공통   : 진짜 번개처럼 꺾이는 줄기 (중간점 변위 재귀 + 1~3개 갈래, 1~2틱마다 모양이 바뀌며 깜빡임)
- *           카메라를 향한 띠 2겹 (넓고 옅은 푸른/보랏빛 번짐 + 가늘고 하얀 심지)
- *  1 뇌격  : 발사 지점(서버와 같은 손 위치)에 전기 → 조준 방향 섬광 고리 → 즉시 번개, 연쇄는 1틱씩 차례로 튐 (BOLT)
- *  2 섬광  : 몸이 번쩍 + 조준 쪽으로 쏠리는 전기 → 출발·도착 사이 굵은 번개 + 양 끝 폭발, 판정 끝 고리 (BLINK)
- *  3 낙뢰  : 바닥 예고 원(차오름) → 손에서 하늘로 번개 → 하늘에서 3번, 예고 원은 마지막 낙뢰까지 남음 (STRIKE)
- *  4 방전  : 몸을 기어 다니는 전기 + 범위 예고 원 → 전기 돔 + 바닥 전기, 판정 끝 고리 (BURST + BOLT)
- *  5 뇌신  : 하늘로 번개를 쏘며 하늘이 어두워짐 → 도는 뇌운 + 낙뢰 비 → 마지막 거대 번개 자리 예고 원 → 거대 번개 (STORM + STRIKE)
+ * ┌ 1 뇌격 (가벼움) ─────────────────────────────────────────────────────────────────
+ * │ 실루엣 : 손에서 조준 방향으로 한 줄로 꽂히는 갈래 번개, 연쇄 대상마다 1틱씩 차례로 튀는 지그재그
+ * │ 주된 형태 : 굵은 본줄기 + 2~3 갈래 / 보조 : 같은 길의 가는 둘째 줄기(40~60%), 손 섬광 고리, 튀는 불꽃
+ * │ 충격 : 맞은 곳 흰 섬광 + 들어온 방향에 수직인 고리, 몸을 기어 다니는 전기 / 사라짐 : 잔상 → 불꽃
+ * │ 가벼움 : 준비 0.25초(손 끝 작은 전기만), 예고 없음(즉시, 조준 미리보기만), 짧은 "찌직", 흔들림 거의 없음
+ * ├ 2 섬광 이동 ───────────────────────────────────────────────────────────────────────
+ * │ 실루엣 : 출발 → 도착을 잇는 굵은 번개 다발 + 양 끝 폭발 구
+ * │ 주된 형태 : 3겹 번개 다발 / 보조 : 지나간 길에 남는 직선 잔상 띠, 길을 따라 튀는 짧은 전기
+ * │ 충격 : 양 끝 흰 섬광 + 바닥 고리 + 판정 끝 짧은 번쩍 (순간 피해라 예고 없음) / 사라짐 : 잔상 띠가 식으며 불꽃
+ * ├ 3 낙뢰 ─────────────────────────────────────────────────────────────────────────────
+ * │ 실루엣 : 하늘에서 수직으로 떨어지는 굵은 기둥 번개 + 바닥에서 사방으로 기는 전기
+ * │ 예고 : dangerZone(판정 반지름) 이 준비 동안 차오름 → 손에서 하늘로 번개 → 낙뢰 3번, 마지막 낙뢰까지 dangerZone(가득) 유지
+ * │ 주된 형태 : 눈부신 중심 기둥 + 갈래 번개 / 보조 : 바닥 빛 웅덩이, 기는 전기, 땅 조각, 푸르게 빛나는 금
+ * │ 충격 : 흰 섬광 + 흰 충격파 + 판정 끝 번쩍 (≤4틱), 화면 번쩍(제한기) / 사라짐 : 같은 길 잔상 번개 → 불꽃·전하 입자
+ * ├ 4 방전 ─────────────────────────────────────────────────────────────────────────────
+ * │ 실루엣 : 시전자를 감싸며 순간 부푸는 전기 돔 + 바닥을 따라 원 끝까지 뻗는 방사형 전기
+ * │ 예고 : 몸을 기어 다니는 전기 + 시전자를 따라다니는 dangerZone 이 차오름
+ * │ 충격 : 돔이 4틱에 판정 끝까지 → 대상마다 번개, 판정 끝 번쩍 / 사라짐 : 돔이 노이즈로 갉아 먹혀 꺼짐, 금이 식음
+ * ├ 5 뇌신의 심판 (궁극기, 무거움) ─────────────────────────────────────────────────
+ * │ 실루엣 : 하늘을 덮는 도는 먹구름 원반 + 그 아래로 쏟아지는 낙뢰 비 + 마지막 거대 기둥 번개
+ * │ 예고 : 준비 동안 dangerZone(폭풍 반지름) 이 차오르고 하늘이 어두워짐 (어두움은 겹쳐도 쌓이지 않음)
+ * │ 지속 피해 : 폭풍 동안 dangerZone(폭풍 반지름, 가득) — 그 안 어디든 낙뢰가 떨어짐 (작은 낙뢰는 각자 짧은 번쩍만)
+ * │ 마지막 : 끝나기 1.5초 전부터 가운데에 dangerZone(max(3, 0.45R)) 이 차올라, 다 차는 순간 거대 번개
+ * │ 주된 형태 : 거대 기둥 번개 + 3갈래 + 전기 돔 / 보조 : 구름 속 번쩍임(구름을 안에서 밝힘), 구름 사이 번개, 바닥 빛
+ * │ 충격 : 아주 밝은 흰 섬광(제한기 거침), 큰 흔들림, 땅이 크게 터짐 / 사라짐 : 구름이 흩어지고 잔상 번개 → 불꽃
+ * │ 무거움 : 1.2초 준비 동안 머리 위로 번개를 쏘아 올림, 낮게 구르는 천둥, 마지막 한 방에 모든 힘이 모임
+ * └──────────────────────────────────────────────────────────────────────────────
  * </pre>
  */
 final class LightningFx {
@@ -54,7 +80,7 @@ final class LightningFx {
     private static final List<Deferred> DEFERRED = new ArrayList<>();
     private static int chainTick = -1, chainIdx;
 
-    private record Warn(Vec3 c, float R, int born, int life) {}
+    private record Warn(Vec3 c, float R, int born, int life, @Nullable Entity caster) {}
 
     private record Edge(Vec3 c, float R, int born, float life, float r, float g, float b) {}
 
@@ -101,7 +127,7 @@ final class LightningFx {
                 STRIKES.add(new StrikeFx(e.pos(), e.size() > 0 ? e.size() : 2.4f, giant, minor));
             }
             case SkillEvents.BURST -> discharge(e.pos(), e.size() > 0 ? e.size() : 7f, e.duration() > 0 ? e.duration() : 14, caster);
-            case SkillEvents.STORM -> storm(e.pos(), e.size() > 0 ? e.size() : 11f, Math.max(20, e.duration()));
+            case SkillEvents.STORM -> storm(e.pos(), e.size() > 0 ? e.size() : 11f, Math.max(20, e.duration()), caster);
             default -> { }
         }
     }
@@ -142,10 +168,11 @@ final class LightningFx {
         }
 
         // 2) 바닥에 번지는 빛
-        if (!STRIKES.isEmpty() || !STORMS.isEmpty()) {
+        if (!STRIKES.isEmpty() || !STORMS.isEmpty() || !BLINKS.isEmpty()) {
             FxRender.spriteShader(FxRender.GLOW_WHITE);
             BufferBuilder bb = FxRender.quads();
             for (StrikeFx s : STRIKES) s.emitGround(bb, pt);
+            for (BlinkFx k : BLINKS) k.emitGround(bb, pt);
             for (StormFx s : STORMS) s.emitGround(bb, pt);
             FxRender.draw(bb);
         }
@@ -158,7 +185,7 @@ final class LightningFx {
         for (Warn w : WARNS) {
             float t = ticks - w.born() + pt;
             float a = 1f - clamp01((t - (w.life() - 4)) / 4f);
-            SkillFx.telegraph(w.c(), w.R(), 1f, 0.45f, 0.72f, 1f, 0.8f * a, time);
+            SkillFx.dangerZone(w.c(), w.R(), 1f, EL, w.caster(), 0.85f * a, time);
         }
         for (StormFx s : STORMS) s.renderFinalWarn(pt, time);
         for (Edge e : EDGES) SkillFx.edgeFlash(e.c(), UP, e.R(), ticks - e.born() + pt, e.life(), e.r(), e.g(), e.b());
@@ -258,7 +285,7 @@ final class LightningFx {
                     FxManager.addRing(h.add(up.scale(0.4)), up, 0.1f, 1.1f, 4, 0, 0.8f, EL);
                     // 낙뢰가 다 떨어질 때까지 예고 원을 남김 (2·3번째 낙뢰)
                     if (WARNS.size() >= 16) WARNS.remove(0);
-                    WARNS.add(new Warn(c.target, c.size, ticks, Math.max(6, com.blackocean.skills.client.ClientSkillStats.durationTicks(Skill.LIGHTNING_STRIKE)) + 6));
+                    WARNS.add(new Warn(c.target, c.size, ticks, Math.max(6, com.blackocean.skills.client.ClientSkillStats.durationTicks(Skill.LIGHTNING_STRIKE)) + 6, ce));
                 }
             }
             case LIGHTNING_DISCHARGE -> {
@@ -321,7 +348,7 @@ final class LightningFx {
                 frameGlow(body, 1.6f + 3.2f * k, 0.5f, 0.75f, 1f, 0.45f + 0.5f * k);
             }
             case LIGHTNING_STRIKE -> {
-                renderWarn(c.target, c.size, k, time);
+                renderWarn(c.target, c.size, k, time, ce);
                 frameGlow(c.origin(pt, 0.3, 0), 0.7f + 0.9f * k, 0.5f, 0.75f, 1f, 0.5f + 0.3f * k);
             }
             case LIGHTNING_DISCHARGE -> {
@@ -336,10 +363,10 @@ final class LightningFx {
                 FxRender.ring(bb, feet.add(0, 0.05, 0), UP, 0.3f + 1.6f * k, 0.7f + 1.9f * k, 0.55f + 0.4f * k, time * 0.5f, 48);
                 FxRender.draw(bb);
                 // 실제 판정 범위 예고 (시전자를 따라다님)
-                SkillFx.telegraph(feet, com.blackocean.skills.client.ClientSkillStats.radius(Skill.LIGHTNING_DISCHARGE), k, 0.45f, 0.72f, 1f, 0.9f, time);
+                SkillFx.dangerZone(feet, com.blackocean.skills.client.ClientSkillStats.radius(Skill.LIGHTNING_DISCHARGE), k, EL, ce, 0.95f, time);
             }
             case LIGHTNING_STORM -> {
-                renderWarn(c.target, c.size, k, time);
+                renderWarn(c.target, c.size, k, time, ce);
                 Vec3 p = ce.getPosition(pt);
                 frameGlow(p.add(0, 1.0, 0), 2f + 3f * k, 0.45f, 0.62f, 1f, 0.3f + 0.4f * k);
                 frameGlow(p.add(0, ce.getBbHeight() + 0.4, 0), 0.8f + 1.6f * k, 0.8f, 0.92f, 1f, 0.6f + 0.3f * k);
@@ -456,7 +483,7 @@ final class LightningFx {
         FxManager.addRing(feet.add(0, 0.06, 0), UP, 0.3f, R, 7, 0, 1f, EL);
         FxManager.addRing(p, UP, 0.2f, R * 0.7f, 6, 1, 0.8f, EL);
         FxManager.addRing(p, dir, 0.2f, R * 0.8f, 6, 0, 0.7f, EL);
-        edge(feet, R, 7f);
+        edge(feet, R, 5f);
         // 바닥 쪽으로 튀는 짧은 전기
         for (int i = 0; i < 3; i++) {
             Vec3 t = feet.add(rand(-1.5f, 1.5f), 0.1, rand(-1.5f, 1.5f));
@@ -486,7 +513,7 @@ final class LightningFx {
         FxManager.addRing(rc, UP, 0.5f, R, 7, 0, 1f, EL);
         FxManager.addRing(rc, UP, 0.3f, R * 0.6f, 7, 2, 0.85f, EL);
         FxManager.addRing(chest, UP, 0.4f, R * 0.85f, 7, 1, 0.6f, EL);
-        edge(g, R, 9f);
+        edge(g, R, 6f);
         spawn(sp(Sprite.Kind.GLOW, chest, Vec3.ZERO, 6f, 10f, 6).color(0.88f, 0.95f, 1f, 1f));
         spawn(sp(Sprite.Kind.GLOW, chest, Vec3.ZERO, R * 1.4f, R * 2f, 9).color(0.4f, 0.58f, 1f, 0.6f));
         for (int i = 0; i < count(22); i++) {
@@ -519,16 +546,18 @@ final class LightningFx {
     }
 
     /** 뇌신의 심판 시작 */
-    private static void storm(Vec3 c, float R, int dur) {
+    private static void storm(Vec3 c, float R, int dur, @Nullable Entity caster) {
         boolean already = ticks - stormDarkTick < 80 && stormDarkPos.distanceTo(c) < 8;
         if (!already) ScreenFx.darken(c, R, 0.7f, dur + 30);
         if (STORMS.size() >= 4) STORMS.remove(0);
-        STORMS.add(new StormFx(c, R, dur));
+        StormFx sf = new StormFx(c, R, dur);
+        sf.caster = caster;
+        STORMS.add(sf);
         FxManager.lod = FxManager.lodAt(c);
         Vec3 rc = c.add(0, 0.08, 0);
         FxManager.addRing(rc, UP, R * 0.3f, R, 12, 0, 0.9f, EL);
         FxManager.addRing(rc, UP, R * 0.2f, R * 0.6f, 10, 3, 0.7f, EL);
-        edge(c, R, 12f);
+        edge(c, R, 6f);
         CameraShake.addAt(c, 2.0f, R + 28f);
         ScreenFx.impact(c.add(0, 18, 0), 0x9FC8FF, 0.25f, R + 30f);
     }
@@ -589,11 +618,11 @@ final class LightningFx {
         }
     }
 
-    /** 푸른 전기 경고 원 (매 프레임, 더하기 섞기): 또렷한 판정 끝 + 차오르는 원판 + 흐르는 전기 고리 */
-    private static void renderWarn(Vec3 base, float R, float k, float time) {
+    /** 전기 경고 원 (매 프레임, 더하기 섞기): 위험 범위(판정 끝 + 차오름, 적·아군 구분) + 흐르는 전기 고리 */
+    private static void renderWarn(Vec3 base, float R, float k, float time, @Nullable Entity caster) {
         Vec3 c = base.add(0, 0.05, 0);
         RenderSystem.disableCull();
-        SkillFx.telegraph(base, R, k, 0.45f, 0.72f, 1f, 1f, time);
+        SkillFx.dangerZone(base, R, k, EL, caster, 1f, time);
 
         FxRender.spriteShader(FxRender.GLOW_WHITE);
         BufferBuilder bb = FxRender.quads();
@@ -601,10 +630,11 @@ final class LightningFx {
         FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, R * 1.05f, 0f, g * 0.35f, g * 0.55f, g, g);
         FxRender.draw(bb);
 
-        FxRender.elemShader(EL, 2.2f, 0.3f - 0.25f * k, 0.8f + 0.5f * k);
+        // 안쪽에서 흐르는 전기 띠 (판정 끝보다 안쪽, 경계선과 겹치지 않게)
+        FxRender.elemShader(EL, 2.2f, 0.3f - 0.25f * k, 0.7f + 0.4f * k);
         bb = FxRender.quads();
         int seg = R > 6 ? 72 : 48;
-        FxRender.ring(bb, c.add(0, 0.03, 0), UP, R * (0.88f - 0.08f * k), R * 0.98f, (0.5f + 0.4f * k), time * 0.4f, seg);
+        FxRender.ring(bb, c.add(0, 0.03, 0), UP, R * (0.72f - 0.08f * k), R * 0.86f, (0.45f + 0.35f * k), time * 0.4f, seg);
         FxRender.draw(bb);
     }
 
@@ -682,7 +712,22 @@ final class LightningFx {
             double cx = cam.x - (p0.x + p1.x) * 0.5, cy = cam.y - (p0.y + p1.y) * 0.5, cz = cam.z - (p0.z + p1.z) * 0.5;
             double sx = uy * cz - uz * cy, sy = uz * cx - ux * cz, sz = ux * cy - uy * cx;
             double sl = Math.sqrt(sx * sx + sy * sy + sz * sz);
-            if (sl < 1.0E-6) continue;
+            double cl = Math.sqrt(cx * cx + cy * cy + cz * cz);
+            if (sl < 0.12 * cl || sl < 1.0E-6) {
+                // 구간이 거의 카메라를 향함 (번개를 정면·뒤에서 봄): 화면 옆 방향을 구간에 수직으로 맞춰 펼침 → 납작하게 사라지지 않음
+                double lx = FxRender.LEFT.x, ly = FxRender.LEFT.y, lz = FxRender.LEFT.z;
+                double d = lx * ux + ly * uy + lz * uz;
+                sx = lx - ux * d;
+                sy = ly - uy * d;
+                sz = lz - uz * d;
+                sl = Math.sqrt(sx * sx + sy * sy + sz * sz);
+                if (sl < 1.0E-6) {
+                    sx = FxRender.UP.x;
+                    sy = FxRender.UP.y;
+                    sz = FxRender.UP.z;
+                    sl = 1.0;
+                }
+            }
             sx /= sl;
             sy /= sl;
             sz /= sl;
@@ -707,7 +752,7 @@ final class LightningFx {
 
     static final class Bolt {
         /** 굵기 1 당 바깥 번짐 / 심지 폭 (블록) */
-        private static final float GLOW_W = 0.85f, CORE_W = 0.22f;
+        private static final float GLOW_W = 0.85f, MID_W = 0.42f, CORE_W = 0.2f;
 
         final Vec3 a, b;
         final float width, jag;
@@ -764,39 +809,66 @@ final class LightningFx {
             vOff = RNG.nextFloat();
         }
 
+        /** 켜져 있는 틱 수 (이 동안 최대 밝기, 그 뒤는 잔상). 짧은 번개는 그 수명의 절반 */
+        private int onTicks() {
+            return Math.max(1, Math.min(2, life / 2));
+        }
+
         /** @return true 면 끝 */
         boolean tick() {
             age++;
             if (age < delay) return false;
             int local = age - delay;
             if (local >= life) return true;
-            if (--regen <= 0) {
+            boolean on = local < onTicks();
+            // 켜져 있는 동안에만 모양이 바뀜 (잔상은 눈에 남은 같은 모양)
+            if (on && --regen <= 0) {
                 rebuild();
                 regen = 1 + RNG.nextInt(2);
             }
-            flick = local < 2 ? 1f : (RNG.nextFloat() < 0.18f ? 0.25f : rand(0.65f, 1f));
+            if (on) {
+                // 켜짐: 최대 밝기, 두 번째 틱에 한 번 깜빡
+                flick = local == 1 && RNG.nextFloat() < 0.4f ? 0.5f : 1f;
+            } else {
+                // 잔상: 갈수록 자주 꺼졌다 켜지며 사라짐
+                float tt = (float) (local - onTicks()) / Math.max(1, life - onTicks());
+                flick = RNG.nextFloat() < 0.12f + 0.45f * tt ? 0f : rand(0.75f, 1f);
+            }
             return false;
         }
 
+        /** 0 = 안 보임. 켜짐 = 1, 잔상 = 0.4 에서 식어 감 */
         float alpha(float pt) {
             if (age < delay) return 0f;
-            float t = (age - delay + pt) / life;
-            if (t >= 1f) return 0f;
-            float fade = t < 0.2f ? 1f : clamp01((1f - t) / 0.8f);
-            return fade * fade * flick;
+            float local = age - delay + pt;
+            if (local >= life) return 0f;
+            int on = onTicks();
+            if (local < on) return flick;
+            float tt = clamp01((local - on) / Math.max(1f, life - on));
+            return 0.4f * (1f - tt) * (1f - 0.5f * tt) * flick;
+        }
+
+        /** 잔상인지 (색이 식은 파랑으로) */
+        private boolean burning(float pt) {
+            return age - delay + pt >= onTicks();
         }
 
         void emit(BufferBuilder bb, float pt) {
             float al = alpha(pt);
             if (al < 0.01f) return;
+            boolean burn = burning(pt);
             for (int p = 0; p < paths.size(); p++) {
                 Vec3[] pts = paths.get(p);
                 float w = width * pathW[p];
                 float end = p == 0 ? 0.65f : 0.1f;
-                float ga = al * 0.45f;
-                ribbon(bb, pts, w * GLOW_W, end, gr * ga, gg * ga, gb * ga, ga, vOff);
+                // 짙은 파랑 바깥 번짐 → 하늘색 중간 → 흰 심지 (잔상은 심지가 하늘색으로 식음)
+                float ga = al * 0.4f;
+                ribbon(bb, pts, w * GLOW_W, end, gr * 0.7f * ga, gg * 0.75f * ga, gb * ga, ga, vOff);
+                float ma = al * (p == 0 ? 0.55f : 0.45f);
+                ribbon(bb, pts, w * MID_W, end, 0.35f * ma, 0.85f * ma, ma, ma, vOff + 0.25f);
                 float ca = al * (p == 0 ? 1f : 0.85f);
-                ribbon(bb, pts, w * CORE_W, end, 0.9f * ca, 0.95f * ca, ca, ca, vOff + 0.5f);
+                if (burn) ribbon(bb, pts, w * CORE_W * 0.8f, end, 0.55f * ca, 0.85f * ca, ca, ca, vOff + 0.5f);
+                else ribbon(bb, pts, w * CORE_W, end, 0.95f * ca, 0.97f * ca, ca, ca, vOff + 0.5f);
             }
         }
     }
@@ -820,6 +892,7 @@ final class LightningFx {
             this.minor = minor;
             this.s = giant ? 2.2f : (minor ? 0.8f : 1f);
             this.life = giant ? 24 : 10;
+            // 판정 끝 번쩍은 짧게 (충격 정점 ≤ 4틱)
             this.coreLife = giant ? 12 : 5;
             float height = giant ? 34f : (minor ? 19f : 30f);
             this.top = p.add(rand(-1f, 1f) * R * 0.8f, height, rand(-1f, 1f) * R * 0.8f);
@@ -854,7 +927,7 @@ final class LightningFx {
             Vec3 rc = p.add(0, 0.06, 0);
             // 흰 충격파(판정 끝을 살짝 넘음) → 판정 끝 고리 → 안쪽. 판정 끝이 한 번 또렷하게 번쩍
             FxManager.addRing(rc, UP, 0.3f, R * 1.2f, giant ? 7 : 5, 0, 0.9f, 0.9f, 0.96f, 1f);
-            edge(p, R, giant ? 14f : 7f);
+            if (!minor) edge(p, R, giant ? 8f : 5f);
             if (giant) {
                 FxManager.addRing(rc, UP, 1f, R, 12, 0, 1f, EL);
                 FxManager.addRing(rc, UP, 0.6f, R * 0.6f, 10, 3, 0.9f, EL);
@@ -1024,6 +1097,15 @@ final class LightningFx {
             ribbon(bb, path, 0.35f, 1f, 0.8f * ca, 0.9f * ca, ca, ca, 0.5f);
         }
 
+        /** 출발·도착 발밑 바닥 빛 웅덩이 (가짜 조명) */
+        void emitGround(BufferBuilder bb, float pt) {
+            float t = (age + pt) / 7f;
+            if (t >= 1f) return;
+            float a0 = (1f - t) * (1f - t) * 0.55f;
+            FxRender.planeQuad(bb, a.add(0, -1.12, 0), UP, R * 1.1f, 0f, a0 * 0.4f, a0 * 0.62f, a0, a0);
+            FxRender.planeQuad(bb, b.add(0, -0.87, 0), UP, R * 1.1f, 0f, a0 * 0.4f, a0 * 0.62f, a0, a0);
+        }
+
         void frameGlows(float pt) {
             float t = (age + pt) / LIFE;
             if (t >= 1f) return;
@@ -1099,6 +1181,7 @@ final class LightningFx {
         final Vec3 c;
         final float R, cloudR, cloudY;
         final int dur;
+        @Nullable Entity caster;
         final float[] pa = new float[PUFFS], pr = new float[PUFFS], ps = new float[PUFFS], py = new float[PUFFS],
                 pshade = new float[PUFFS], prot = new float[PUFFS];
         final int[] pf = new int[PUFFS];
@@ -1235,9 +1318,9 @@ final class LightningFx {
             float t = age + pt;
             float start = Math.max(0f, dur - 30f);
             if (t < start || t > dur + 1f) return;
-            float k = clamp01((t - start) / (dur - start));
+            float k = clamp01((t - start) / Math.max(1f, dur - start));
             float big = Math.max(3f, R * 0.45f);
-            SkillFx.telegraph(c, big, k, 0.65f, 0.82f, 1f, smooth(k * 4f), time);
+            SkillFx.dangerZone(c, big, k, EL, caster, smooth(k * 4f) * (1f - clamp01(t - dur)), time);
         }
 
         /** 바닥에 깔린 옅은 푸른 빛 */
@@ -1248,15 +1331,20 @@ final class LightningFx {
             FxRender.planeQuad(bb, c.add(0, 0.07, 0), UP, R * 1.05f, 0f, a * 0.4f, a * 0.6f, a, a);
         }
 
-        /** 바닥 테두리 고리 */
+        /**
+         * 폭풍 범위 = 낙뢰가 떨어질 수 있는 곳 (서버: 반지름 R 안 아무 데나, 4틱마다). 폭풍 동안 위험 범위 (가득 참),
+         * 끝나는 순간 함께 사라짐. 그 안쪽에 흐르는 전기 띠 (테두리와 겹치지 않는 장식).
+         */
         void renderRim(float pt, float time) {
-            float f = fade(age + pt);
+            float t = age + pt;
+            float on = clamp01(t / 10f) * (1f - clamp01((t - dur) / 3f));
+            if (on > 0.01f) SkillFx.dangerZone(c, R, 1f, EL, caster, 0.8f * on, time);
+            float f = fade(t);
             if (f <= 0.01f) return;
-            FxRender.elemShader(EL, 2.4f, 0.2f + 0.6f * (1f - f), 0.9f * f + 0.1f);
+            FxRender.elemShader(EL, 2.4f, 0.3f + 0.6f * (1f - f), 0.7f * f + 0.1f);
             RenderSystem.disableCull();
             BufferBuilder bb = FxRender.quads();
-            FxRender.ring(bb, c.add(0, 0.08, 0), UP, R * 0.94f, R * 1.04f, 0.85f * f, time * 0.35f, 80);
-            FxRender.ring(bb, c.add(0, 0.09, 0), UP, R * 0.56f, R * 0.6f, 0.4f * f, -time * 0.5f, 56);
+            FxRender.ring(bb, c.add(0, 0.08, 0), UP, R * 0.78f, R * 0.9f, 0.55f * f, time * 0.35f, 80);
             FxRender.draw(bb);
         }
 

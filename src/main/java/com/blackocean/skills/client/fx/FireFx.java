@@ -28,14 +28,50 @@ import static com.blackocean.skills.client.fx.FxManager.smooth;
 import static com.blackocean.skills.client.fx.FxManager.spawn;
 
 /**
- * 5번 궁극기 "작열의 태양" 연출.
+ * 불 능력 연출 설계 (2.3). 이 파일은 5번 궁극기 "작열의 태양"을 그리고, 1~4번은 FxManager(주먹·탄환)·SkillFx(기둥·고리)가 그린다.
+ * <p>
+ * 불의 말투: 위로 말려 오르는 혀 모양 불길, 흰-노랑 핵 → 주황 → 짙은 빨강 가장자리, 어두운 연기로 대비,
+ * 사라질 때는 연기가 피어오르고 불씨가 떠다니다 꺼진다. 무거운 것 = 주먹·태양, 가벼운 것 = 탄환.
+ * 빛 번짐은 겹친 부드러운 후광(가짜 블룸), 바닥 빛은 바닥 빛 웅덩이 그림(가짜 조명)으로. 피해 범위는 전부 SkillFx.danger*.
  * <pre>
- *  준비 (30틱) : 머리 위(서버 발사 지점)에서 점점 커지는 태양 + 도는 코로나 고리 3개 + 빨려 드는 불꽃·불씨 + 홍염
- *               끝에서 시전자 주변이 따뜻하게 번쩍 + 던지는 쪽으로 터지는 고리
- *  비행 (~45틱): 이글거리는 핵 + 겉껍질 + 코로나 + 홍염, 뒤로 흘리는 불꽃·불씨·열기 연기
- *               바닥에 떨어질 자리 예고 원 (판정 반지름, 닿을 때까지 차오름)
- *  적중       : 흰빛 섬광 핵 → 여러 겹 불덩이 → 둘레 불기둥 7개 → 큰 충격파 → 버섯 연기 기둥 + 큰 그을음 + 화면 번쩍·흔들림
- *  불바다     : 바닥에서 계속 핥아 오르는 불길 + 낮게 깔린 열기 원판 + 불씨·연기, 끝에서 사그라짐
+ * ┌ 1 화염 주먹 (무거움) ───────────────────────────────────────────────────────────
+ * │ 정지 화면 실루엣 : 앞이 뭉툭한 3D 주먹 + 뒤로 길게 꼬리 치는 불꽃 혀, 그 뒤 나선 2가닥
+ * │ 주된 형태       : fist_core/fist_shell 메시 (정면 흰빛 → 윤곽 빨강, 3D 라 어느 각도에서도 부피)
+ * │ 보조 층         : 카메라를 향한 궤적 띠 + 궤적 단면 고리(앞·뒤에서 볼 때 띠 대신 보임) + 나선 띠(40~60% 밝기)
+ * │                  + 잔상 메시 3개 + 떨어지는 불씨·연기, 아래 바닥 빛 웅덩이
+ * │ 충격 모양       : 흰 핵 섬광 → 판정 반지름까지 부푸는 불덩이 구 + 땅 조각·금 간 자국 + 짧은 불기둥, 판정 끝 번쩍(≤4틱 정점)
+ * │ 사라짐          : 바닥 잔불이 핥아 오르다 줄고, 연기 기둥이 피어오르며 불씨가 떠다니다 꺼짐 (테두리 없음)
+ * │ 무거움 표현     : 3겹 고리가 조여 드는 긴 준비(0.4초), 손 앞 원뿔 고리 + 반동 불꽃, 낮게 울리는 비행음, 큰 흔들림·밀림
+ * ├ 2 불꽃 탄환 (가벼움) ───────────────────────────────────────────────────────────
+ * │ 실루엣 : 작은 불덩이 5발이 좌우 손에서 번갈아, 가늘고 짧은 꼬리
+ * │ 주된 형태 : 꿈틀대는 작은 불덩이 구 (3D) / 보조 : 가는 궤적 띠 + 단면 고리 + 불씨 몇 개
+ * │ 충격 : 작은 섬광 + 작은 폭발 구 + 작은 링, 흔들림 아주 약하게 / 사라짐 : 연기 한두 줌, 그을음 점
+ * │ 가벼움 표현 : 준비가 짧고(0.2초) 손 고리만, 발사마다 작은 총구 섬광, 빠른 연사, 가벼운 파삭 소리
+ * ├ 3 불기둥 ───────────────────────────────────────────────────────────────────────
+ * │ 실루엣 : 바닥에서 하늘로 꼬이며 솟는 굵은 2겹 원통 (위로 갈수록 가늘어짐)
+ * │ 주된 형태 : 꼬인 원통 메시 2겹 (바깥 빨강 · 안 흰 심지, 반대로 꼬임) — 원통이라 앞·옆·뒤 모두 같은 두께
+ * │ 보조 : 바닥 불꽃 고리, 기둥을 따라 감아 오르는 불꽃, 꼭대기 불씨, 기둥을 감싼 후광
+ * │ 예고 : dangerZone(판정 반지름) 이 0.55초 동안 차오름 + 테두리 불꽃이 굵어짐 + 막바지에 가운데 작은 불길
+ * │ 충격 : 솟는 4틱 동안 흰 섬광 기둥 + 땅이 터짐 + 판정 끝 번쩍
+ * │ 지속 피해 : 남아 태우는 동안 dangerZone(0.85r, 가득 참) — 서버가 0.5초마다 태우는 범위와 같음
+ * │ 사라짐 : 기둥이 가라앉으며 노이즈로 갉아 먹혀 사라지고 연기·불씨만 남음 (테두리 없음)
+ * ├ 4 화염 고리 ─────────────────────────────────────────────────────────────────────
+ * │ 실루엣 : 몸을 자이로처럼 도는 불 고리 3개 → 바닥을 따라 퍼지는 낮은 불의 벽
+ * │ 주된 형태 : 퍼지는 원통 벽 2겹 (원통이라 각도 무관) / 보조 : 바닥 불길 띠, 벽 앞머리 흰 띠, 튀는 불꽃
+ * │ 예고 : 시전자를 따라다니는 dangerZone 이 준비 동안 차오름
+ * │ 충격 : 벽이 퍼지는 5틱 = 서버 판정 시간. 그동안 dangerZone 의 채움이 벽 앞머리를 따라 판정 끝까지 → 끝 번쩍
+ * │ 사라짐 : 벽이 낮아지며 타서 사라지고 바닥 연기 (테두리 없음)
+ * ├ 5 작열의 태양 (궁극기, 가장 무거움) ───────────────────────────────────────────
+ * │ 실루엣 : 머리 위 거대한 구 + 비스듬히 도는 코로나 고리 3개 + 표면에서 솟았다 떨어지는 홍염 고리
+ * │ 주된 형태 : 이글거리는 핵 구 + 겉껍질 구 (3D 구라 어느 각도에서도 둥긂)
+ * │ 보조 : 코로나·홍염 띠, 굵은 궤적 띠 + 단면 고리, 뒤로 흘리는 불꽃·비처럼 떨어지는 불씨·열기 연기,
+ * │        아래 바닥 빛 웅덩이 (높이에 따라 크기·밝기)
+ * │ 예고 : 비행 중 떨어질 자리에 dangerZone (폭발 구가 바닥과 만나는 원 = 실제로 맞는 범위), 다가갈수록 차오름
+ * │ 충격 : 흰 섬광 핵 → 주 불덩이 → 바깥 껍질, 둘레 불기둥 7개(장식), 큰 충격파·땅 조각, 버섯 연기, 판정 끝 번쩍
+ * │ 지속 피해 : 불바다 = dangerZone(불바다 반지름, 가득 참) 이 유지 시간 내내 (0.5초마다 피해)
+ * │ 사라짐 : 버섯 연기가 위로 퍼지고 불바다 불길이 줄며 마지막 20틱에 위험 범위도 함께 사라짐
+ * │ 무거움 표현 : 1.5초 준비(빨려 드는 불꽃·불씨·빛줄기), 느린 비행, 화면 번쩍·흔들림(제한기 거침), 낮은 폭음
+ * └──────────────────────────────────────────────────────────────────────────────
  * </pre>
  */
 final class FireFx {
@@ -61,7 +97,9 @@ final class FireFx {
             BLASTS.add(new SunBlast(e.pos(), e.vec(), Math.max(2f, e.size()), e.size2() > 0.5f));
         } else if (e.kind() == SkillEvents.FIELD) {
             if (FIELDS.size() >= 16) FIELDS.remove(0);
-            FIELDS.add(new FireField(e.pos(), Math.max(1f, e.size()), Math.max(10, e.duration())));
+            FireField f = new FireField(e.pos(), Math.max(1f, e.size()), Math.max(10, e.duration()));
+            f.caster = caster;
+            FIELDS.add(f);
         }
     }
 
@@ -231,6 +269,7 @@ final class FireFx {
 
     static void trackProjectile(FxManager.ProjectileFx p, Vec3 pos) {
         predictLanding(p, pos);
+        if (p.age % 2 == 1 || p.groundAt == null) p.groundAt = groundBelow(pos, 18.0);
         Vec3 back = p.dir.scale(-1);
         // 뒤로 흘러내리는 불꽃
         for (int i = 0; i < count(6); i++) {
@@ -302,10 +341,24 @@ final class FireFx {
     }
 
     static void renderProjectile(FxManager.ProjectileFx p, Vec3 c, float pt, float time) {
-        if (p.landAt != null) SkillFx.telegraph(p.landAt, p.landR, p.landFill, 1f, 0.42f, 0.1f, 1f, time);
+        if (p.landAt != null) SkillFx.dangerZone(p.landAt, p.landR, p.landFill, Element.FIRE, p.proj.getOwner(), 1f, time);
         float grow = clamp01((p.age + pt) / 3f);
         float r = SUN_R * (0.88f + 0.12f * grow) * (1f + 0.035f * (float) Math.sin(time * 2.3f));
         boolean near = c.distanceToSqr(FxRender.cam) < 96 * 96;
+        // 바닥 빛 웅덩이 (가짜 조명): 태양이 낮을수록 작고 진하게
+        if (p.groundAt != null) {
+            double hgt = c.y - p.groundAt.y;
+            if (hgt > -1.0 && hgt < 18.0) {
+                float k = 1f - (float) Math.max(0.0, hgt) / 18f;
+                float ga = 0.5f * k;
+                FxRender.spriteShader(FxRender.GLOW_WHITE);
+                BufferBuilder gb = FxRender.quads();
+                Vec3 gp = new Vec3(c.x, p.groundAt.y + 0.07, c.z);
+                FxRender.planeQuad(gb, gp, UP, 3.5f + 5f * (1f - k), 0f, ga, ga * 0.5f, ga * 0.15f, ga);
+                FxRender.planeQuad(gb, gp.add(0, 0.01, 0), UP, 1.6f + 2f * (1f - k), 0f, ga * 0.6f, ga * 0.5f, ga * 0.3f, ga * 0.6f);
+                FxRender.draw(gb);
+            }
+        }
 
         RenderSystem.disableCull();
         // 핵: 강하게 이글거리는 구
@@ -663,7 +716,8 @@ final class FireFx {
                 frameGlow(cap, size * 1.4f, 1f, 0.5f, 0.15f, 0.3f * fade);
             }
             // 5) 바닥 열기 고리 (판정 끝까지) + 끝이 한순간 또렷하게
-            if (ground != null) SkillFx.edgeFlash(ground.add(0, 0.09, 0), UP, Math.max(1f, footR), t, 12f, 1f, 0.6f, 0.25f);
+            // 폭발 순간 바닥 판정 끝이 짧게 번쩍 (충격 정점 ≤ 4틱, 그 뒤 여운에는 테두리 없음)
+            if (ground != null) SkillFx.edgeFlash(ground.add(0, 0.09, 0), UP, Math.max(1f, footR), t, 6f, 1f, 0.6f, 0.25f);
             if (ground != null && t < 40f) {
                 float fade = 1f - clamp01((t - 12f) / 28f);
                 float rr = footR * (0.4f + 0.6f * easeOutCubic(t / 10f));
@@ -688,6 +742,7 @@ final class FireFx {
         final float radius;
         final int duration;
         int age;
+        @Nullable Entity caster;
 
         FireField(Vec3 pos, float radius, int duration) {
             this.pos = pos;
@@ -761,12 +816,8 @@ final class FireFx {
             FxRender.ring(bb, c.add(0, 0.01, 0), UP, r * 0.78f, r, 0.8f * f, -time * 0.15f, 56);
             FxRender.draw(bb);
 
-            // 불바다 범위 끝 (계속 타는 범위가 또렷하게)
-            FxRender.spriteShader(FxRender.BEAM);
-            bb = FxRender.quads();
-            float ea = 0.45f * f * (0.85f + 0.15f * pulse);
-            FxRender.band(bb, c.add(0, 0.015, 0), UP, r - 0.22f, r + 0.05f, ea, ea * 0.45f, ea * 0.12f, ea, 64, false);
-            FxRender.draw(bb);
+            // 불바다 = 계속 피해를 주는 범위: 서버 판정 반지름 그대로 위험 범위 (가득 참). 끝 무렵 함께 사라짐
+            SkillFx.dangerZone(pos, radius, 1f, Element.FIRE, caster, f, time);
 
             // 바닥 붉은 번짐
             FxRender.spriteShader(FxRender.GLOW_WHITE);

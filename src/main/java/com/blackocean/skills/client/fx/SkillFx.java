@@ -22,7 +22,8 @@ import static com.blackocean.skills.client.fx.FxManager.randomDir;
 import static com.blackocean.skills.client.fx.FxManager.spawn;
 
 /**
- * 3번 불기둥, 4번 화염 고리, 바닥 그을음 자국 연출.
+ * 공용 위험 범위 표시(dangerZone·dangerCone·dangerLane — 아래 "공용 위험 범위" 참고) +
+ * 3번 불기둥, 4번 화염 고리, 바닥 그을음 자국 연출. 불 능력 전체 설계는 FireFx 맨 위 주석.
  * <pre>
  *  불기둥 준비 : 바닥에 빛나는 경고 원 + 갈라지는 불길 + 떠오르는 불씨      (renderPillarWarn)
  *  불기둥 분출 : 꼬이며 솟는 2겹 불기둥 + 바닥 불꽃 고리 + 충격파 + 불꽃 소용돌이 (PillarFx)

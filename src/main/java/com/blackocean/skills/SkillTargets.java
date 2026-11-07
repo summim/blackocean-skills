@@ -117,7 +117,15 @@ public final class SkillTargets {
     public static void hurt(ServerLevel level, LivingEntity e, @Nullable Entity owner, Element element, float dmg, boolean rapid) {
         if (!(dmg > 0) || !Float.isFinite(dmg)) return;
         if (rapid) e.invulnerableTime = 0;
+        float before = e.getHealth() + e.getAbsorptionAmount();
         e.hurt(source(level, null, owner, element), dmg);
+        float dealt = before - Math.max(0f, e.getHealth() + e.getAbsorptionAmount());
+        // 시전자 화면에만 피해 숫자 (온라인 RPG 처럼)
+        if (dealt > 0.05f && owner instanceof net.minecraft.server.level.ServerPlayer sp) {
+            net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp, new com.blackocean.skills.network.SkillEventPayload(-1,
+                    com.blackocean.skills.network.SkillEvents.HIT, sp.getId(), e.getX(), e.getY() + e.getBbHeight(), e.getZ(), 0, 0, 0,
+                    dealt, e.isDeadOrDying() ? 1 : 0, element.ordinal(), e.getId()));
+        }
         if (element == Element.FIRE && SkillsConfig.ALLOW_FIRE.get()) e.igniteForSeconds(3.0f);
     }
 

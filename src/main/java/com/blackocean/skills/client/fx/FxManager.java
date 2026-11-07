@@ -97,6 +97,8 @@ public final class FxManager {
         IceFx.clear();
         ThunderFx.clear();
         DebrisFx.clear();
+        DamageNumbers.clear();
+        CasterPose.clear();
         CameraShake.clear();
     }
 
@@ -257,6 +259,10 @@ public final class FxManager {
         if (e.kind() == SkillEvents.TRANSFORM) {
             Element el = Element.byIndex(e.target());
             if (el != null) transform(e.pos(), el, caster);
+            return;
+        }
+        if (e.kind() == SkillEvents.HIT) {
+            DamageNumbers.add(e);
             return;
         }
         if (e.kind() == SkillEvents.FREEZE) {

@@ -85,6 +85,8 @@ public final class SkillsClient {
         NeoForge.EVENT_BUS.addListener(ClientTickEvent.Pre.class, SkillsClient::onClientTickPre);
         NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, SkillsClient::onClientTickPost);
         NeoForge.EVENT_BUS.addListener(RenderLevelStageEvent.class, FxManager::onRenderLevel);
+        NeoForge.EVENT_BUS.addListener(com.blackocean.skills.client.fx.CasterPose::onRenderLiving);
+        NeoForge.EVENT_BUS.addListener(RenderLevelStageEvent.class, com.blackocean.skills.client.fx.DamageNumbers::onRender);
         NeoForge.EVENT_BUS.addListener(ViewportEvent.ComputeCameraAngles.class, CameraShake::onCameraAngles);
         NeoForge.EVENT_BUS.addListener(ViewportEvent.ComputeFogColor.class, ScreenFx::onFogColor);
         NeoForge.EVENT_BUS.addListener(EntityJoinLevelEvent.class, e -> {
@@ -206,12 +208,12 @@ public final class SkillsClient {
         if (left > 0 || FxManager.isCharging(mc.player)) {
             // 쿨타임이 거의 끝났거나 다른 스킬을 모으는 중 → 서버가 예약해 두었다가 되는 순간 바로 발동
             SkillBarHud.flashQueued(skill);
-            PacketDistributor.sendToServer(new CastRequestPayload(slot));
+            PacketDistributor.sendToServer(new CastRequestPayload(slot, mc.player.getYRot(), mc.player.getXRot()));
             return;
         }
         // 떼는 즉시 내 화면에서 준비 연출 시작 (서버 응답을 기다리지 않음)
         FxManager.startPredictedCharge(mc.player, skill);
         SkillBarHud.flashPressed(skill);
-        PacketDistributor.sendToServer(new CastRequestPayload(slot));
+        PacketDistributor.sendToServer(new CastRequestPayload(slot, mc.player.getYRot(), mc.player.getXRot()));
     }
 }

@@ -55,7 +55,8 @@ public final class SkillServer {
      * @param shot     불꽃 탄환: 몇 번째 발 (0 = 모으는 중)
      * @param target   바닥 조준 스킬의 자리
      */
-    private record Pending(UUID player, int entity, Skill skill, long fireAt, int cooldown, int shot, @Nullable Vec3 target, ResourceKey<Level> dim) {}
+    /** yaw/pitch = 키를 뗀 순간 플레이어가 보던 방향 (조준 표시와 실제 공격 방향이 같게 고정) */
+    private record Pending(UUID player, int entity, Skill skill, long fireAt, int cooldown, int shot, @Nullable Vec3 target, ResourceKey<Level> dim, float yaw, float pitch) {}
 
     private record Buffered(Skill skill, long expireAt) {}
 
@@ -67,7 +68,19 @@ public final class SkillServer {
 
     /** 클라이언트가 1~5 키를 눌러 보낸 요청 (slot 0~4). 메인 스레드에서 호출된다. */
     public static void tryCast(ServerPlayer p, int slot) {
+        tryCast(p, slot, p.getYRot(), p.getXRot());
+    }
+
+    /**
+     * @param yaw,pitch 클라이언트가 키를 뗀 순간의 시선. 서버가 아는 시선과 너무 다르면(조작·순간 렉) 서버 시선을 씀.
+     */
+    public static void tryCast(ServerPlayer p, int slot, float yaw, float pitch) {
         if (slot < 0 || slot >= Skill.SLOTS) return;
+        if (!Float.isFinite(yaw) || !Float.isFinite(pitch) || Math.abs(pitch) > 90.01f
+                || Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot())) > 60f || Math.abs(pitch - p.getXRot()) > 60f) {
+            yaw = p.getYRot();
+            pitch = p.getXRot();
+        }
         // 요청 폭주 방지: 한 사람당 한 틱에 한 번만
         long tick = p.server.getTickCount();
         Long last = LAST_REQUEST.put(p.getUUID(), tick);
@@ -106,7 +119,7 @@ public final class SkillServer {
             deny(p, skill);
             return;
         }
-        if (!cast(p, skill, true)) deny(p, skill);
+        if (!cast(p, skill, true, yaw, pitch)) deny(p, skill);
     }
 
     private static void deny(ServerPlayer p, Skill skill) {
@@ -119,6 +132,32 @@ public final class SkillServer {
      * @return 시작했으면 true
      */
     public static boolean cast(ServerPlayer p, Skill skill, boolean useCooldown) {
+        return cast(p, skill, useCooldown, p.getYRot(), p.getXRot());
+    }
+
+    /** 정해진 방향으로 시전 (방향은 발동할 때까지 고정) */
+    public static boolean cast(ServerPlayer p, Skill skill, boolean useCooldown, float yaw, float pitch) {
+        boolean[] ok = {false};
+        withAim(p, yaw, pitch, () -> ok[0] = castInner(p, skill, useCooldown, yaw, pitch));
+        return ok[0];
+    }
+
+    /** 잠깐 시선을 정해진 방향으로 바꿔서 실행 (스킬 코드는 모두 p.getLookAngle() 을 씀) */
+    static void withAim(ServerPlayer p, float yaw, float pitch, Runnable r) {
+        float oy = p.getYRot(), ox = p.getXRot(), oh = p.getYHeadRot();
+        p.setYRot(yaw);
+        p.setXRot(pitch);
+        p.setYHeadRot(yaw);
+        try {
+            r.run();
+        } finally {
+            p.setYRot(oy);
+            p.setXRot(ox);
+            p.setYHeadRot(oh);
+        }
+    }
+
+    private static boolean castInner(ServerPlayer p, Skill skill, boolean useCooldown, float yaw, float pitch) {
         if (!p.isAlive() || p.isSpectator() || p.isSleeping() || chargingSkill(p.getUUID()) != null) return false;
         if (movingBlocks(p, skill)) return false; // 돌진·도약 중에 또 이동 스킬 → 두 효과가 속도를 서로 덮어씀
         ServerLevel level = p.serverLevel();
@@ -141,11 +180,11 @@ public final class SkillServer {
         int charge = skill.chargeTicks();
         int cooldown = useCooldown ? skill.cooldownTicks() : 0;
         if (useCooldown) readyAt(p.getUUID())[skill.ordinal()] = now + cooldown;
-        PENDING.add(new Pending(p.getUUID(), p.getId(), skill, now + charge, cooldown, 0, target, level.dimension()));
+        PENDING.add(new Pending(p.getUUID(), p.getId(), skill, now + charge, cooldown, 0, target, level.dimension(), yaw, pitch));
 
         Vec3 at = target != null ? target : p.position();
         float size = skill.aim == Skill.Aim.GROUND ? (float) skill.radius() : 0f;
-        PacketDistributor.sendToPlayersTrackingEntityAndSelf(p, new CastStartPayload(p.getId(), skill.ordinal(), charge, at.x, at.y, at.z, size));
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(p, new CastStartPayload(p.getId(), skill.ordinal(), charge, at.x, at.y, at.z, size, yaw, pitch));
         if (useCooldown) PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(skill.ordinal(), cooldown, cooldown, false));
 
         // 모으는 소리: 시전자 본인은 자기 화면에서 바로 틀므로 제외하고 주변에만
@@ -280,14 +319,20 @@ public final class SkillServer {
                     continue;
                 }
                 try {
-                    if (x.skill() == Skill.FIRE_BULLETS) {
-                        projectile(p, x.skill(), x.shot() % 2 == 0 ? 0.38 : -0.38, 0, 2.5);
-                        if (x.shot() + 1 < 5) {
-                            next.add(new Pending(x.player(), x.entity(), x.skill(), now + 2, 0, x.shot() + 1, null, x.dim()));
+                    ServerPlayer caster = p;
+                    // 연사는 쏘는 동안 조준을 따라감, 나머지는 키를 뗀 순간의 방향으로 고정
+                    boolean follow = x.skill() == Skill.FIRE_BULLETS && x.shot() > 0;
+                    float yaw = follow ? p.getYRot() : x.yaw(), pitch = follow ? p.getXRot() : x.pitch();
+                    withAim(p, yaw, pitch, () -> {
+                        if (x.skill() == Skill.FIRE_BULLETS) {
+                            projectile(caster, x.skill(), x.shot() % 2 == 0 ? 0.38 : -0.38, 0, 2.5);
+                            if (x.shot() + 1 < 5) {
+                                next.add(new Pending(x.player(), x.entity(), x.skill(), now + 2, 0, x.shot() + 1, null, x.dim(), x.yaw(), x.pitch()));
+                            }
+                        } else {
+                            execute(caster, x.skill(), x.target());
                         }
-                    } else {
-                        execute(p, x.skill(), x.target());
-                    }
+                    });
                 } catch (Exception ex) {
                     LOG.error("[BlackOcean Skills] {} 발동 중 오류", x.skill().id, ex);
                 }

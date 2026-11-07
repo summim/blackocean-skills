@@ -26,6 +26,7 @@ public final class SkillsClientConfig {
     public static final ModConfigSpec.BooleanValue AFTERIMAGES;
     public static final ModConfigSpec.BooleanValue CAMERA_SHAKE;
     public static final ModConfigSpec.BooleanValue COOLDOWN_HUD;
+    public static final ModConfigSpec.BooleanValue DAMAGE_NUMBERS;
     public static final ModConfigSpec.BooleanValue BLOCK_HOTBAR_KEYS;
     public static final ModConfigSpec.BooleanValue HOLD_TO_AIM;
     /** 지형 파편 연출 (튀는 블록 조각·금 간 땅). 화면에만 보이고 실제 블록은 그대로. */
@@ -44,6 +45,7 @@ public final class SkillsClientConfig {
         AFTERIMAGES = b.comment("화염 주먹 잔상 그리기").define("afterimages", true);
         CAMERA_SHAKE = b.comment("가까운 폭발에서 화면 흔들림").define("cameraShake", true);
         COOLDOWN_HUD = b.comment("핫바 오른쪽에 스킬 칸 5개(아이콘·키 번호·쿨타임, 5번 = 궁극기) 표시").define("cooldownHud", true);
+        DAMAGE_NUMBERS = b.comment("내 스킬이 준 피해를 숫자로 표시 (온라인 RPG 처럼, 나만 보임)").define("damageNumbers", true);
         BLOCK_HOTBAR_KEYS = b.comment("스킬 키가 핫바 키(1~5)와 같을 때 스킬만 쓰고 핫바 칸은 안 바꿈. false 면 둘 다 동작")
                 .define("skillKeysOverHotbar", true);
         HOLD_TO_AIM = b.comment("true: 스킬 키를 꾹 누르면 방향·사거리·범위가 보이고, 떼는 순간 발동 (톡 치면 바로 발동, 누른 채 우클릭하면 취소).",

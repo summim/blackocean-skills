@@ -23,6 +23,7 @@ public final class ClientPacketHandler {
         Entity caster = mc.level.getEntity(p.casterId());
         if (caster != null && skill != null) {
             if (caster == mc.player) SkillBarHud.castStarted(skill);
+            com.blackocean.skills.client.fx.CasterPose.start(caster, skill, p.chargeTicks(), p.yaw(), p.pitch());
             // 신호 처리 중 오류가 나면 NeoForge 가 서버 접속을 끊으므로, 연출 오류는 여기서 막는다
             try {
                 FxManager.onCastStart(caster, skill, p.chargeTicks(), new Vec3(p.x(), p.y(), p.z()), p.size());

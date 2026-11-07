@@ -37,19 +37,65 @@ import static com.blackocean.skills.client.fx.FxManager.smooth;
 import static com.blackocean.skills.client.fx.FxManager.spawn;
 
 /**
- * 얼음 능력 연출.
+ * 얼음 능력 연출 (2.3 설계).
+ *
+ * <h3>얼음의 공통 언어</h3>
+ * <ul>
+ *   <li>모양: 각진 다면체 결정 (코드로 만든 6/5각 기둥 + 뾰족한 끝 메시) — 어느 방향에서 봐도 입체. 납작한 판은 바닥 서리 자국뿐.</li>
+ *   <li>움직임: 매끈하게 커지지 않고 <b>계단식으로 "탁·탁·탁" 자람</b> ({@link #STEPS}: 0 → 42% → 72% → 100%, 단계마다 0.35틱 만에 튀어
+ *       살짝 넘쳤다 자리 잡음 + 단계마다 윤곽이 하얗게 번쩍). 사라질 때는 <b>금 감(떨림 + 깜빡이는 균열 반짝임) → 산산조각</b>
+ *       (떨어지는 결정 메시 조각 + 얼음 조각 입자 + 서리 안개). 녹아 흐려지지 않음.</li>
+ *   <li>층: 반투명 짙은 청록 몸통(알파, 윤곽일수록 진함) → 청록·흰빛 윤곽과 반사 번쩍임(더하기) → 끝의 별빛 → 안개·가루(40~60% 밝기)
+ *       → 여운(서리 자국·떠도는 가루: 옅고 테두리 없음).</li>
+ *   <li>판정: 피해가 들어가는 범위는 전부 SkillFx.dangerZone/dangerLane (정확한 판정 크기, 적·아군 모양 구분).
+ *       피해가 끝난 장식(서 있는 가시, 얼어붙은 들판의 서리, 자국)은 테두리를 그리지 않음 = 이제 안전.</li>
+ *   <li>가벼움 vs 무거움: 가벼운 것(파편)은 예비 동작이 거의 없고 반짝 하고 끝, 흔들림·화면 효과 없음.
+ *       무거운 것(빙하기)은 긴 예비(떨어지는 빙산·차오르는 범위) → 한순간의 거대한 충돌 → 오래 남는 지대 → 큰 붕괴.</li>
+ * </ul>
+ *
+ * <h3>스킬별 설계</h3>
  * <pre>
- *  1 얼음 창     : 손에서 서리가 모여 긴 결정 창이 자람 → 깎인 면이 빛나는 결정 창 + 서리 고리 + 안개·반짝이 꼬리
- *                  적중: 흰 섬광 구 → 결정 파편이 튀고, 맞은 면에 결정 무리가 돋았다가 부서짐 + 서리 자국
- *  2 얼음 파편   : 앞쪽 부채꼴로 파편 7개가 맺힘 → 회전하는 작은 결정 / 적중: 작은 반짝 부서짐
- *  3 빙창 행진   : 앞머리가 나아가는 대로 땅에서 들쭉날쭉한 가시가 바깥으로 기울어 솟음 → 1.5초 뒤 금 가며 부서짐
- *  4 절대 냉기   : 얼음 돔 섬광 + 바닥을 따라 퍼지는 결정 고리 + 바깥으로 돋는 가시 + 눈보라 + 서리 자국
- *  5 빙하기 강림 : 준비 중 땅에 마법진이 커지고 하늘에서 거대한 빙산이 떨어짐 → 충돌(섬광·흔들림·충격파·파편·지형 파편)
- *                  → 빙산이 박힌 채 얼음 지대 유지 → 산산조각 (반짝이는 결정 폭풍)
- *  상태 얼림     : 생물을 감싸는 반투명 결정 덩어리 + 서리, 끝나면 금 가며 부서짐
+ *  1 얼음 창 (중간)
+ *    정지 화면 : 손끝에서 조준 방향으로 뻗은 길쭉한 6면 결정 창 + 허리를 감는 서리 고리 2개
+ *    주 형태   : 창 메시 (겉 몸통 + 안쪽 밝은 심 + 꼬리 깃 결정 3개), 준비 중 손에서 4단계로 "탁탁" 자라 나감
+ *    보조 층   : 뒤로 흐르는 서리 고리(창 축에 수직인 고리라 옆·뒤에서도 타원으로 보임), 안개 꼬리, 반짝이, 떨어지는 조각
+ *    적중 모양 : 흰 섬광 → 반지름 R 의 얼음 돔이 서리로 갈라짐 + 결정 파편 방사 + 맞은 면에 결정 무리가 계단식으로 돋음
+ *                (위험 범위 R 을 적중 틱에 4틱 동안 표시 = 실제 파편 판정)
+ *    사라짐    : 결정 무리가 떨며 금 가다 산산조각 → 바닥 서리 자국만 옅게 (테두리 없음)
+ *  2 얼음 파편 (가벼움)
+ *    정지 화면 : 손 앞 부채꼴로 펼쳐진 작은 쌍뿔 결정 7개
+ *    주 형태   : 회전하는 쌍뿔 결정 메시 (가운데 → 바깥 순서로 계단식 맺힘)
+ *    보조 층   : 짧은 반짝이 꼬리 · 옅은 안개 몇 점
+ *    적중 모양 : 작은 흰 반짝 + 작은 고리 + 조각 몇 개 (흔들림 없음)
+ *    사라짐    : 반짝이가 깜빡이며 꺼짐
+ *  3 빙창 행진 (중간)
+ *    정지 화면 : 시전자 앞으로 곧게 뻗는 길 위에 바깥으로 기울어 솟은 들쭉날쭉한 가시 줄
+ *    주 형태   : 줄마다 3~4개의 결정 가시가 계단식으로 솟음 (앞머리는 하얗게 빛남)
+ *    보조 층   : 솟는 순간 튀는 조각·서리 꽃, 땅을 미는 안개, 흙 파편
+ *    판정      : 준비 중 dangerLane(채움 0) → 진행 중 앞머리까지 채워지는 dangerLane (폭 = 판정 폭, 길이 = 사거리)
+ *    사라짐    : 앞머리가 끝나면 길 테두리는 바로 사라지고(안전), 가시는 얼림 시간 동안 서 있다가 떨며 금 가 부서짐
+ *  4 절대 냉기 (무거움)
+ *    정지 화면 : 시전자를 중심으로 바깥으로 기울어 돋은 가시 고리 + 반투명 얼음 돔
+ *    주 형태   : 안쪽 → 바깥 순서로 계단식으로 돋는 가시 고리 (경계 R 을 넘지 않음)
+ *    보조 층   : 바닥을 퍼지는 결정 고리, 쏟아지는 안개 벽, 눈보라, 마법진
+ *    판정      : 준비 중 dangerZone 이 차오름 → 터지는 틱에 가득 찬 채 4틱 → 테두리 없음 (얼림은 이미 들어감)
+ *    사라짐    : 얼림이 풀리는 순간 가시들이 금 가며 차례로 부서짐, 서리 자국 옅게
+ *  5 빙하기 강림 (궁극기, 가장 무거움)
+ *    정지 화면 : 하늘에서 떨어지는 거대한 다면체 빙산 / 박힌 빙산 + 바깥으로 기운 결정 들판
+ *    주 형태   : 빙산 메시 (본체 + 둘레 큰 결정 5 + 작은 결정 7, 떨어지던 것과 박힌 것이 같은 모양)
+ *    보조 층   : 꼬리 서리·안개, 마법진, 충돌 돔·충격파 고리·지형 파편, 들판의 안개·눈·반짝이
+ *    판정      : 준비 = dangerZone 이 빙산 낙하와 함께 차오름 → 충돌 틱 가득 / 얼음 지대 = 산산조각까지 차오르는 dangerZone
+ *                (0.5초마다 피해) → 산산조각 틱에 가득 4틱 → 끝
+ *    사라짐    : 부서지기 0.6초 전 삐걱이며 떨고 깜빡임 → 빙산·들판 전체가 결정 폭풍으로 산산조각 → 떠도는 가루만 (테두리 없음)
+ *  상태 얼림 (FREEZE)
+ *    정지 화면 : 생물을 감싼 반투명 결정 기둥 + 발밑에 바깥으로 돋은 결정
+ *    주 형태   : 감싸는 결정 — 몸통은 아주 옅게(속의 대상이 또렷이 보임), 윤곽만 밝게. 3단계로 감싸 오름
+ *    보조 층   : 발밑 서리, 몸 둘레 반짝이 (얼어붙은 본인 1인칭은 눈앞을 가리는 결정·반짝이·안개를 그리지 않음)
+ *    사라짐    : 끝나기 8틱 전부터 떨며 균열이 반짝임 → 산산조각 + 작은 조각
  * </pre>
  * 결정은 코드로 만든 깎인 메시. 두 겹으로 그림: 반투명 푸른 몸통(알파 섞기, 윤곽일수록 진함) + 빛나는 윤곽·반사광(더하기 섞기).
- * 색: 짙은 파랑 → 청록 → 흰빛. 모든 연출은 시간·개수가 정해져 있고 clear() 로 모두 지워진다.
+ * 색: 짙은 청록 속 → 청록 → 흰빛 윤곽. 소리는 모두 FxManager.playAt (FxLimits 로 겹침 제한).
+ * 모든 연출은 시간·개수가 정해져 있고 clear() 로 모두 지워진다.
  */
 final class IceFx {
     private static final Element I = Element.ICE;
@@ -98,7 +144,7 @@ final class IceFx {
         switch (e.kind()) {
             case SkillEvents.IMPACT -> {
                 if (skill == Skill.ICE_SHARDS) shardImpact(e);
-                else spearImpact(e);
+                else spearImpact(e, caster);
             }
             case SkillEvents.SPIKES -> add(new SpikesFx(e.pos(), e.vec(), e.size(), e.size2(), e.duration(), caster));
             case SkillEvents.NOVA -> add(new NovaFx(e.pos(), e.size(), e.duration(), caster));
@@ -496,17 +542,57 @@ final class IceFx {
             this.shape = shape;
         }
 
-        /** 솟아오름 (살짝 넘쳤다가 자리 잡음) */
+        /** 계단식으로 솟아오름 (단계마다 툭 튀었다 자리 잡음) */
         float scale(float t) {
             if (t < born) return 0f;
-            float q = (t - born) / Math.max(1, grow);
-            return q >= 1f ? 1f : easeOutBack(q);
+            return stepped((t - born) / Math.max(1, grow));
+        }
+
+        /** 방금 한 단계 자랐으면 1 → 0 (윤곽 번쩍임용) */
+        float burst(float t) {
+            if (t < born) return 0f;
+            return stepFlash((t - born) / Math.max(1, grow));
+        }
+
+        /** 부서지기 직전 균열 정도 0 → 1 (마지막 6틱) */
+        float crack(float t) {
+            if (end == Integer.MAX_VALUE) return 0f;
+            return clamp01((t - (end - 6)) / 6f);
         }
 
         void draw(BufferBuilder bb, double ox, double oy, double oz, float s, float k, boolean add, float time) {
             if (s <= 0.002f || broken) return;
             crystal(bb, shape, ox + x, oy + y, oz + z, ax, ay, az, ux, uy, uz, vx, vy, vz,
                     rad * (0.3f + 0.7f * Math.min(1f, s)), len * s, k, add, time);
+        }
+
+        /**
+         * 시간 t 로 그림: 계단식 성장 + 금 가는 동안 떨림(옆으로 잘게 흔들림, 마지막엔 살짝 주저앉음).
+         * 더하기 단계면 단계 번쩍임·균열 깜빡임을 k 에 더하고, 균열 반짝임(별빛)을 결정 몸 위에 뿌린다.
+         */
+        void drawT(BufferBuilder bb, double ox, double oy, double oz, float t, float k, boolean add, float time) {
+            if (broken) return;
+            float s = scale(t);
+            if (s <= 0.002f) return;
+            float cr = crack(t);
+            double jx = 0, jz = 0;
+            if (cr > 0f) {
+                float j = 0.035f * rad * (0.4f + cr) * (float) Math.sin(t * 9.1f + shape * 1.7f);
+                jx = ux * j;
+                jz = uz * j;
+                s *= 1f - 0.05f * cr * cr;
+            }
+            if (add) {
+                k += 1.1f * burst(t);
+                if (cr > 0f) k += 0.9f * cr * (float) Math.abs(Math.sin(t * 3.1f + shape));
+            }
+            draw(bb, ox + jx, oy, oz + jz, s, k, add, time);
+            if (add && cr > 0.15f && ((int) (t * 2f) + shape) % 3 == 0) {
+                // 균열을 따라 반짝이는 점 (결정 몸 위 무작위 높이 — 프레임마다 자리 바뀜 = 지직거리는 금)
+                float along = (float) ((Math.sin(t * 5.3 + shape * 2.1) * 0.5 + 0.5) * 0.8 + 0.1) * len * s;
+                Glints.add(ox + x + ax * along + jx, oy + y + ay * along, oz + z + az * along + jz,
+                        Math.max(0.25f, rad * 1.4f) * cr, t * 0.3f, 0.85f, 0.97f, 1f, 0.6f + 0.4f * cr);
+            }
         }
 
         /** 부서짐: 결정 조각 몇 개 + 얼음 조각 입자 */
@@ -546,6 +632,29 @@ final class IceFx {
         float c1 = 1.4f, c3 = c1 + 1f;
         float u = x - 1f;
         return 1f + c3 * u * u * u + c1 * u * u;
+    }
+
+    /** 얼음이 자라는 단계 (0 → 42% → 72% → 100%). 단계 사이는 멈춰 있고, 단계마다 SNAP 만에 튀어 오름 */
+    static final float[] STEPS = {0f, 0.42f, 0.72f, 1f};
+    private static final float SNAP = 0.35f;
+
+    /** q = 0 → 1 (자라는 시간 비율) 을 계단식 크기로 */
+    static float stepped(float q) {
+        if (q <= 0f) return 0f;
+        if (q >= 1f) return 1f;
+        int n = STEPS.length - 1;
+        float s = q * n;
+        int i = Math.min(n - 1, (int) s);
+        float f = clamp01((s - i) / SNAP);
+        return STEPS[i] + (STEPS[i + 1] - STEPS[i]) * easeOutBack(f);
+    }
+
+    /** 단계가 바뀐 직후 1 → 0 (단계마다 윤곽이 하얗게 번쩍) */
+    static float stepFlash(float q) {
+        if (q <= 0f || q >= 1f) return 0f;
+        float s = q * (STEPS.length - 1);
+        float f = s - (float) Math.floor(s);
+        return f < 0.5f ? 1f - f / 0.5f : 0f;
     }
 
     // =====================================================================
@@ -905,6 +1014,14 @@ final class IceFx {
         }
     }
 
+    /** 화면 번쩍 (여러 스킬이 겹쳐도 한 틱 밝기 합이 제한되도록 FxLimits 를 거침) */
+    private static void flash(int rgb, float strength, int ticks) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        float ok = FxLimits.allowFlash(mc.level.getGameTime(), strength);
+        if (ok > 0.01f) ScreenFx.flash(rgb, ok, ticks);
+    }
+
     private static void shake(Vec3 at, float amp, float range) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
@@ -934,8 +1051,12 @@ final class IceFx {
         return a.lengthSqr() < 1.0E-6 ? UP : a.normalize();
     }
 
-    /** 바닥 마법진 (ice_rune 두 겹 반대로 회전 + 흐르는 고리 + 번짐) */
     private static void runeCircle(Vec3 c, float radius, float k, float time, float alpha) {
+        runeCircle(c, radius, k, time, alpha, true);
+    }
+
+    /** 바닥 마법진 (ice_rune 두 겹 반대로 회전 + 흐르는 고리 + 번짐). edge = false 면 바깥 고리 없이 (여운·판정 경계와 겹칠 때) */
+    private static void runeCircle(Vec3 c, float radius, float k, float time, float alpha, boolean edge) {
         if (alpha <= 0.01f || radius <= 0.05f) return;
         Vec3 g = c.add(0, 0.06, 0);
         RenderSystem.disableCull();
@@ -952,6 +1073,7 @@ final class IceFx {
         float a2 = a * 0.75f;
         FxRender.planeQuad(bb, g.add(0, 0.02, 0), UP, radius * 0.62f, -time * 0.05f, a2 * C_PALE[0], a2 * C_PALE[1], a2 * C_PALE[2], a2);
         FxRender.draw(bb);
+        if (!edge) return;
         FxRender.elemShader(I, 0.8f, 0.25f - 0.2f * k, (0.7f + 0.5f * k) * alpha);
         bb = FxRender.quads();
         FxRender.ring(bb, g.add(0, 0.03, 0), UP, radius * 0.92f, radius, 0.6f + 0.4f * k, time * 0.2f, 64);
@@ -1058,14 +1180,14 @@ final class IceFx {
     }
 
     /** 얼음 창 적중 (IMPACT, size = 파편 반지름) */
-    private static void spearImpact(SkillEventPayload e) {
+    private static void spearImpact(SkillEventPayload e, @Nullable Entity caster) {
         Vec3 pos = e.pos();
         Vec3 n = e.vec();
         n = n.lengthSqr() < 0.25 ? UP : n.normalize();
         boolean fizzle = e.size2() > 0.5f;
         float R = e.size() > 0.1f ? Math.min(e.size(), 8f) : 2.5f;
         boolean blockHit = e.target() < 0 && !fizzle;
-        add(new ImpactFx(pos, n, R, fizzle, blockHit));
+        add(new ImpactFx(pos, n, R, fizzle, blockHit, caster));
     }
 
     /** 얼음 파편 적중: 가볍게 (7발이 한꺼번에 맞음) */
@@ -1092,12 +1214,19 @@ final class IceFx {
         final float R;
         final boolean fizzle;
         final List<Cr> crs = new ArrayList<>();
+        @Nullable
+        final Entity who;
+        /** 파편 판정 범위를 그릴 바닥 (맞은 자리 바로 아래 땅, 없으면 맞은 자리) */
+        final Vec3 floor;
 
-        ImpactFx(Vec3 pos, Vec3 n, float R, boolean fizzle, boolean blockHit) {
+        ImpactFx(Vec3 pos, Vec3 n, float R, boolean fizzle, boolean blockHit, @Nullable Entity who) {
             this.pos = pos;
             this.n = n;
             this.R = R;
             this.fizzle = fizzle;
+            this.who = who;
+            Vec3 g = groundAt(who, pos);
+            this.floor = pos.y - g.y < 3.0 ? g : pos;
             this.ringN = blockHit && Math.abs(n.y) < 0.5 ? n : UP;
             float big = fizzle ? 0.5f : 1f;
             // 흰 섬광 → 청록 번짐
@@ -1142,9 +1271,9 @@ final class IceFx {
                     Vec3 at = pos.subtract(n.scale(0.15)).add(randomDir().scale(j == 0 ? 0.05 : 0.35 * sc));
                     float len = (j == 0 ? rand(1.1f, 1.5f) : rand(0.5f, 1.0f)) * sc;
                     Cr c = new Cr(at.x, at.y, at.z, d, RNG.nextFloat() * TAU, len * rand(0.17f, 0.24f), len, RNG.nextInt(10));
-                    c.born = j == 0 ? 0 : RNG.nextInt(3);
-                    c.grow = 2;
-                    c.end = 18 + RNG.nextInt(6);
+                    c.born = j == 0 ? 0 : 1 + RNG.nextInt(3);
+                    c.grow = 3;
+                    c.end = 20 + RNG.nextInt(6);
                     crs.add(c);
                 }
                 frostDecal(pos, n, R * 0.95f, 160, 0.85f, 4f);
@@ -1172,22 +1301,24 @@ final class IceFx {
         @Override
         void body(BufferBuilder bb, float pt, float time) {
             float t = age + pt;
-            for (Cr c : crs) c.draw(bb, 0, 0, 0, c.scale(t), 1f, false, time);
+            for (Cr c : crs) c.drawT(bb, 0, 0, 0, t, 1f, false, time);
         }
 
         @Override
         void glow(BufferBuilder bb, float pt, float time) {
             float t = age + pt;
-            for (Cr c : crs) {
-                float k = 1f;
-                if (t > c.end - 6) k += 0.8f * (float) Math.abs(Math.sin(t * 2.7f)); // 금 가며 번쩍
-                c.draw(bb, 0, 0, 0, c.scale(t), k, true, time);
-            }
+            for (Cr c : crs) c.drawT(bb, 0, 0, 0, t, 1f, true, time);
         }
 
         @Override
         void extra(float pt, float time) {
             float t = age + pt;
+            // 파편 판정 범위 R: 적중 틱에 가득 찬 채 4틱 (이후 테두리 없음)
+            if (!fizzle && t < 4f) {
+                SkillFx.dangerZone(floor, R, 1f, I, who, 1f - smooth((t - 1f) / 3f), time);
+                FxRender.additive();
+                RenderSystem.disableCull();
+            }
             if (t > 10f) return;
             float big = fizzle ? 0.5f : 1f;
             float radius = R * big * (0.2f + 0.55f * easeOutCubic(t / 4f));
@@ -1306,8 +1437,9 @@ final class IceFx {
                 float h = (j == 0 ? rand(1.7f, 2.6f) : rand(1.0f, 1.8f)) * wk * (small ? 0.5f : 1f);
                 float rad = h * rand(0.16f, 0.22f);
                 Cr c = new Cr(g.x, g.y - 0.2, g.z, axis, RNG.nextFloat() * TAU, rad, h, RNG.nextInt(10));
-                c.born = age;
-                c.grow = 2;
+                // 가운데 가시가 먼저, 옆 가시는 한 틱 늦게 → 줄마다 "탁-탁" 두 박자로 솟음
+                c.born = age + (j == 0 ? 0 : 1);
+                c.grow = 3;
                 c.end = age + hold - 2 + RNG.nextInt(5);
                 crs.add(c);
             }
@@ -1333,7 +1465,7 @@ final class IceFx {
         @Override
         void body(BufferBuilder bb, float pt, float time) {
             float t = age + pt;
-            for (Cr c : crs) c.draw(bb, 0, 0, 0, c.scale(t), 1f, false, time);
+            for (Cr c : crs) c.drawT(bb, 0, 0, 0, t, 1f, false, time);
         }
 
         @Override
@@ -1341,14 +1473,14 @@ final class IceFx {
             float t = age + pt;
             for (Cr c : crs) {
                 if (c.broken) continue;
-                float k = 1f;
                 float since = t - c.born;
-                if (since < 3f) k += 1.2f * (1f - since / 3f);         // 솟는 순간 하얗게
-                if (t > c.end - 5) k += 0.9f * (float) Math.abs(Math.sin(t * 2.9f + c.shape)); // 금 가며 번쩍
-                c.draw(bb, 0, 0, 0, c.scale(t), k, true, time);
+                // 앞머리 가시는 막 솟은 동안 더 하얗게 (주 형태 = 가장 밝은 곳)
+                float k = since >= 0f && since < 4f ? 1f + 0.5f * (1f - since / 4f) : 1f;
+                c.drawT(bb, 0, 0, 0, t, k, true, time);
                 if (since < 6f && since >= 0f) {
                     float a = 1f - since / 6f;
-                    Glints.add(c.x + c.ax * c.len, c.y + c.ay * c.len, c.z + c.az * c.len, 0.9f * a + 0.2f, 0f, 1f, 1f, 1f, a);
+                    float s = c.scale(t);
+                    Glints.add(c.x + c.ax * c.len * s, c.y + c.ay * c.len * s, c.z + c.az * c.len * s, 0.9f * a + 0.2f, 0f, 1f, 1f, 1f, a);
                 }
             }
         }
@@ -1356,9 +1488,14 @@ final class IceFx {
         @Override
         void extra(float pt, float time) {
             float t = age + pt;
-            // 판정 폭을 알려 주는 길 경계 (앞머리를 따라 그어지고, 다 가면 빨리 사라짐)
-            float la = 0.55f * (1f - smooth((t - duration) / 8f));
-            if (la > 0.01f) lane(start.add(0, 0.06, 0), dir, W, Math.max(0f, range * Math.min(1f, t / duration) - 0.6f), la);
+            // 실제 판정 길 (폭 W, 길이 range): 앞머리까지 차오르고, 앞머리가 끝나면 2틱 만에 사라짐 (서 있는 가시는 안전)
+            float la = 1f - smooth((t - duration) / 2f);
+            if (la > 0.01f) {
+                SkillFx.dangerLane(start, dir, range, W, Math.min(1f, t / duration), I, who, la, time);
+                FxRender.additive();
+                RenderSystem.disableCull();
+                laneCore(start.add(0, 0.06, 0), dir, W, Math.max(0f, range * Math.min(1f, t / duration) - 0.6f), 0.5f * la);
+            }
             if (t >= duration) return;
             Vec3 fr = frontAt(t).add(0, 0.6, 0);
             frameGlow(fr, 3.2f, C_CYAN, 0.45f);
@@ -1375,9 +1512,12 @@ final class IceFx {
         final float R;
         final int freeze;
         final List<Cr> crs = new ArrayList<>();
+        @Nullable
+        final Entity who;
 
         NovaFx(Vec3 c, float radius, int freeze, @Nullable Entity who) {
             this.c = c;
+            this.who = who;
             this.R = radius > 0.5f ? Math.min(radius, 24f) : 6.5f;
             this.freeze = freeze;
             Vec3 core = c.add(0, 1.0, 0);
@@ -1413,8 +1553,9 @@ final class IceFx {
                 Vec3 axis = tilted(out, tilt, Vec3.ZERO);
                 float len = rand(0.8f, 1.6f) * (1.25f - 0.5f * f) * (float) Math.sqrt(R / 6.5f);
                 Cr cr = new Cr(g.x, g.y - 0.15, g.z, axis, RNG.nextFloat() * TAU, len * rand(0.17f, 0.24f), len, RNG.nextInt(10));
-                cr.born = Math.round(5f * f);
-                cr.grow = 2;
+                // 안쪽 → 바깥 순서로 고리 단위 박자 (같은 고리는 같은 틱에 "탁")
+                cr.born = Math.round(4f * f);
+                cr.grow = 3;
                 // 얼림이 풀리는 순간에 맞춰 부서짐
                 cr.end = Math.max(16, freeze) - 4 + RNG.nextInt(8) + cr.born;
                 crs.add(cr);
@@ -1424,7 +1565,7 @@ final class IceFx {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
                 double d = mc.player.position().distanceTo(c);
-                if (d < R + 4) ScreenFx.flash(I.color, 0.3f * (float) (1 - d / (R + 4)) + 0.1f, 10);
+                if (d < R + 4) flash(I.color, 0.3f * (float) (1 - d / (R + 4)) + 0.1f, 10);
             }
             shake(c, 2.2f, R + 12f);
         }
@@ -1474,20 +1615,13 @@ final class IceFx {
         @Override
         void body(BufferBuilder bb, float pt, float time) {
             float t = age + pt;
-            for (Cr cr : crs) cr.draw(bb, 0, 0, 0, cr.scale(t), 1f, false, time);
+            for (Cr cr : crs) cr.drawT(bb, 0, 0, 0, t, 1f, false, time);
         }
 
         @Override
         void glow(BufferBuilder bb, float pt, float time) {
             float t = age + pt;
-            for (Cr cr : crs) {
-                if (cr.broken) continue;
-                float k = 1f;
-                float since = t - cr.born;
-                if (since >= 0 && since < 3f) k += 1.3f * (1f - since / 3f);
-                if (t > cr.end - 5) k += 0.8f * (float) Math.abs(Math.sin(t * 3.1f + cr.shape));
-                cr.draw(bb, 0, 0, 0, cr.scale(t), k, true, time);
-            }
+            for (Cr cr : crs) cr.drawT(bb, 0, 0, 0, t, 1f, true, time);
         }
 
         @Override
@@ -1512,10 +1646,14 @@ final class IceFx {
                 FxRender.ring(bb, c.add(0, 0.08, 0), UP, rf * 0.4f, rf * 0.82f, 0.35f * fade, -t * 0.3f, 48);
                 FxRender.draw(bb);
             }
-            // 얼림 범위 경계: 터지는 순간 가장 밝고 얼림이 이어지는 동안 서서히 옅어짐
-            float hold = Math.max(16, freeze);
-            if (t < hold) edgeRing(c, R, (t < 3f ? 1f : 0.85f) * (1f - smooth(t / hold)), time);
-            if (t < 20f) runeCircle(c, R * (0.7f + 0.3f * easeOutCubic(t / 4f)), 1f, time, 1f - smooth(t / 20f));
+            // 얼림 범위 (= 판정): 터지는 틱에 가득 찬 채 4틱 → 그 뒤는 테두리 없는 여운만 (얼림은 이미 들어감)
+            if (t < 4f) {
+                SkillFx.dangerZone(c, R, 1f, I, who, 1f - smooth((t - 1f) / 3f), time);
+                FxRender.additive();
+                RenderSystem.disableCull();
+            }
+            // 마법진은 경계 안쪽(≤ 0.65R)에서 빨리 꺼짐 — 판정 경계처럼 읽히지 않게
+            if (t < 12f) runeCircle(c, R * (0.45f + 0.2f * easeOutCubic(t / 4f)), 1f, time, 1f - smooth(t / 12f), false);
         }
     }
 
@@ -1578,17 +1716,25 @@ final class IceFx {
         final List<Cr> field = new ArrayList<>();
         boolean shattered;
         int shatterAge = -1;
+        @Nullable
+        final Entity who;
 
         GlacierFx(Vec3 center, float R, int duration, @Nullable Entity who) {
             this.center = center;
             this.R = Math.min(R, 24f);
             this.duration = duration;
+            this.who = who;
             this.berg = buildBerg(center, this.R);
+            // 박힌 빙산은 이미 다 자란 상태 (떨어지던 것과 같은 모양) — 산산조각 직전 6틱만 떨며 금 감
+            for (Cr c : berg) {
+                c.born = -10;
+                c.end = duration;
+            }
             Vec3 core = center.add(0, 1.5, 0);
             Minecraft mc = Minecraft.getInstance();
             double d = mc.player != null ? mc.player.position().distanceTo(center) : 999;
             // 화면: 흰 섬광 + 강한 흔들림
-            if (d < R * 7) ScreenFx.flash(0xE6FAFF, (float) (0.85 * (1 - d / (R * 7))) + 0.1f, 18);
+            if (d < R * 7) flash(0xE6FAFF, (float) (0.85 * (1 - d / (R * 7))) + 0.1f, 18);
             shake(center, 6f, R + 44f);
             // 섬광 · 충격파
             flashGlow(core, R * 2.2f, R * 3.2f, 6, C_WHITE, 1f);
@@ -1638,8 +1784,10 @@ final class IceFx {
                 Vec3 axis = tilted(out, 0.3 + 0.4 * f, Vec3.ZERO);
                 float len = rand(1.0f, 2.4f) * (1.4f - 0.6f * f) * (float) Math.sqrt(R / 8f);
                 Cr cr = new Cr(g.x - center.x, g.y - center.y - 0.2, g.z - center.z, axis, RNG.nextFloat() * TAU, len * rand(0.16f, 0.23f), len, RNG.nextInt(10));
-                cr.born = 1 + Math.round(7f * f);
+                // 충격파를 따라 안 → 밖으로 2틱 간격 고리 박자 (계단식으로 3번 "탁탁탁")
+                cr.born = 1 + 2 * Math.round(3f * f);
                 cr.grow = 3;
+                cr.end = duration;
                 field.add(cr);
             }
             frostDecal(center, UP, R * 1.4f, duration + 100, 0.9f, 6f);
@@ -1719,8 +1867,8 @@ final class IceFx {
             if (shattered) return;
             float t = age + pt;
             double oy = center.y + landBounce(t);
-            for (Cr c : berg) c.draw(bb, center.x, oy, center.z, 1f, 1.15f, false, time);
-            for (Cr c : field) c.draw(bb, center.x, center.y, center.z, c.scale(t), 1f, false, time);
+            for (Cr c : berg) c.drawT(bb, center.x, oy, center.z, t, 1.15f, false, time);
+            for (Cr c : field) c.drawT(bb, center.x, center.y, center.z, t, 1f, false, time);
         }
 
         @Override
@@ -1732,12 +1880,8 @@ final class IceFx {
             float pre = clamp01((t - (duration - 12)) / 12f); // 부서지기 직전 금 가며 번쩍임
             float crack = pre > 0 ? pre * 0.9f * (float) Math.abs(Math.sin(t * (2f + 3f * pre))) : 0f;
             float breathe = 0.08f * (float) Math.sin(time * 0.15f);
-            for (Cr c : berg) c.draw(bb, center.x, oy, center.z, 1f, 1f + hit + crack + breathe, true, time);
-            for (Cr c : field) {
-                float since = t - c.born;
-                float k = 1f + crack + (since >= 0 && since < 3f ? 1.2f * (1f - since / 3f) : 0f);
-                c.draw(bb, center.x, center.y, center.z, c.scale(t), k, true, time);
-            }
+            for (Cr c : berg) c.drawT(bb, center.x, oy, center.z, t, 1f + hit + crack + breathe, true, time);
+            for (Cr c : field) c.drawT(bb, center.x, center.y, center.z, t, 1f + crack, true, time);
             // 결정 끝 별빛
             for (int i = 0; i < berg.size(); i++) {
                 Cr c = berg.get(i);
@@ -1755,6 +1899,12 @@ final class IceFx {
             if (shattered) {
                 // 산산조각 순간의 흰 돔
                 float s = age - shatterAge + pt;
+                // 마지막 폭발 판정 (같은 반지름 R): 산산조각 틱에 가득 찬 채 4틱
+                if (s < 4f) {
+                    SkillFx.dangerZone(center, R, 1f, I, who, 1f - smooth((s - 1f) / 3f), time);
+                    FxRender.additive();
+                    RenderSystem.disableCull();
+                }
                 if (s < 12f) {
                     float erosion = s < 2f ? 0.03f : Math.min(1f, (s - 2f) / 9f);
                     FxRender.elemShader(I, 1.1f, erosion, 1.2f * (1f - s / 12f));
@@ -1782,12 +1932,19 @@ final class IceFx {
                 FxRender.ring(bb, center.add(0, 0.09, 0), UP, rf * 0.5f, rf * 0.84f, 0.4f * fade, -t * 0.25f, 56);
                 FxRender.draw(bb);
             }
-            // 얼음 지대 경계 (피해 범위): 은은하게 맥동하는 마법진 + 또렷한 경계 고리
+            // 판정: 충돌 틱에 가득 찬 범위 4틱 → 얼음 지대(0.5초마다 피해) = 산산조각 순간까지 차오르는 같은 범위
+            if (t < 4f) {
+                SkillFx.dangerZone(center, R, 1f, I, who, 1f, time);
+            } else {
+                float pre = clamp01((t - (duration - 13)) / 12f); // 산산조각 예고: 점점 밝게 깜빡임
+                float blink = pre > 0 ? pre * (0.5f + 0.5f * (float) Math.sin(t * (1.2f + 2.4f * pre))) : 0f;
+                SkillFx.dangerZone(center, R, clamp01(t / duration), I, who, 0.7f + 0.3f * blink, time);
+            }
+            FxRender.additive();
+            RenderSystem.disableCull();
+            // 장식: 은은하게 맥동하는 마법진 (바깥 고리는 판정 경계와 겹치므로 생략)
             float zone = smooth(t / 8f);
-            runeCircle(center, R, 0.35f + 0.15f * (float) Math.sin(time * 0.2f), time, 0.5f * zone);
-            float pre = clamp01((t - (duration - 13)) / 12f); // 산산조각 예고: 경계가 점점 밝게 깜빡임
-            float blink = pre > 0 ? pre * (0.5f + 0.5f * (float) Math.sin(t * (1.2f + 2.4f * pre))) : 0f;
-            edgeRing(center, R, (0.55f + 0.6f * blink) * zone, time);
+            runeCircle(center, R * 0.9f, 0.35f + 0.15f * (float) Math.sin(time * 0.2f), time, 0.5f * zone, false);
             frameGlow(center.add(0, R * 0.7, 0), R * 3.2f, C_AZURE, 0.18f + 0.04f * (float) Math.sin(time * 0.3f));
         }
     }
@@ -1798,7 +1955,7 @@ final class IceFx {
         Vec3 core = center.add(0, R * 0.5, 0);
         Minecraft mc = Minecraft.getInstance();
         double d = mc.player != null ? mc.player.position().distanceTo(center) : 999;
-        if (d < R * 5) ScreenFx.flash(0xCFF4FF, (float) (0.55 * (1 - d / (R * 5))) + 0.05f, 14);
+        if (d < R * 5) flash(0xCFF4FF, (float) (0.55 * (1 - d / (R * 5))) + 0.05f, 14);
         shake(center, 4.2f, R + 34f);
         flashGlow(core, R * 2.4f, R * 3.6f, 6, C_WHITE, 1f);
         flashGlow(core, R * 3.6f, R * 5f, 14, C_CYAN, 0.65f);
@@ -1872,7 +2029,7 @@ final class IceFx {
                 float l = rand(0.4f, 0.75f) * sz;
                 Cr c = new Cr(o.x * rad * 0.75, rand(-0.05f, 0.15f) * h, o.z * rad * 0.75, a, RNG.nextFloat() * TAU, l * rand(0.2f, 0.28f), l, RNG.nextInt(10));
                 c.born = RNG.nextInt(2);
-                c.grow = 2;
+                c.grow = 3;
                 crs.add(c);
             }
             // 어깨쯤 몇 개
@@ -1882,8 +2039,8 @@ final class IceFx {
                 Vec3 a = tilted(o, rand(0.8f, 1.2f), Vec3.ZERO);
                 float l = rand(0.3f, 0.5f) * sz;
                 Cr c = new Cr(o.x * rad * 0.7, h * rand(0.5f, 0.75f), o.z * rad * 0.7, a, RNG.nextFloat() * TAU, l * 0.25f, l, RNG.nextInt(10));
-                c.born = 1 + RNG.nextInt(2);
-                c.grow = 2;
+                c.born = 2 + RNG.nextInt(2);
+                c.grow = 3;
                 crs.add(c);
             }
             Vec3 p = entity.position();
@@ -1926,6 +2083,7 @@ final class IceFx {
                 shatter();
                 return true;
             }
+            for (Cr c : crs) c.end = end; // 다시 얼면 늘어난 끝에 맞춰 금 감
             // 발밑 서리 안개 · 몸 둘레 반짝이 · 금 가기 시작하면 떨어지는 조각
             if (age % 5 == 0 && RNG.nextFloat() < FxManager.amount() * FxManager.lod && !IceThunderAim.firstPersonSelf(entity)) {
                 mist(last.add(rand(-w, w), 0.2, rand(-w, w)), new Vec3(0, 0.005, 0), 0.8f + w, 1.8f + w * 1.5f, 30, 0.25f);
@@ -1977,7 +2135,8 @@ final class IceFx {
             for (int i = 0; i < crs.size(); i++) {
                 if (self && blocksView(i)) continue; // 본인 1인칭: 눈앞을 덮는 결정은 그리지 않음
                 Cr c = crs.get(i);
-                c.draw(bb, p.x, p.y, p.z, c.scale(t), i == 0 ? 1.1f : (self ? 0.6f : 1f), false, time);
+                // 감싸는 결정은 아주 옅게 (속의 대상이 또렷이 보이게) — 윤곽은 더하기 단계에서 밝게
+                c.drawT(bb, p.x, p.y, p.z, t, i == 0 ? 0.5f : (self ? 0.6f : 1f), false, time);
             }
         }
 
@@ -1987,13 +2146,11 @@ final class IceFx {
             float t = age + pt;
             Vec3 p = pos(pt);
             boolean self = IceThunderAim.firstPersonSelf(entity);
-            float form = t < 3f ? 1.2f * (1f - t / 3f) : 0f;
-            float left = end - t;
-            float crack = left < 8f ? (1f - left / 8f) * 0.9f * (float) Math.abs(Math.sin(t * 3.3f)) : 0f;
             for (int i = 0; i < crs.size(); i++) {
                 if (self && blocksView(i)) continue;
                 Cr c = crs.get(i);
-                c.draw(bb, p.x, p.y, p.z, c.scale(t), (1f + form + crack) * (self ? 0.6f : 1f), true, time);
+                // 감싸는 결정: 윤곽·반사광을 조금 더 밝게 (몸통이 옅어도 "얼음에 갇힘"이 읽히게)
+                c.drawT(bb, p.x, p.y, p.z, t, (i == 0 ? 1.25f : 1f) * (self ? 0.6f : 1f), true, time);
             }
             if (self) return;
             Cr m = crs.get(0);
@@ -2163,7 +2320,9 @@ final class IceFx {
             case ICE_SPEAR -> {
                 // 창끝 = 서버가 창을 만드는 자리 + 0.7 (날아가는 창과 같은 자리·같은 길이에서 이어짐)
                 Vec3 S = IceThunderAim.hand(c, pt, 0.3), d = IceThunderAim.shotDir(c);
-                float s = easeOutCubic(Math.min(1f, k * 1.25f));
+                // 창이 손에서 3단계로 "탁·탁·탁" 자라 나감 (단계마다 윤곽이 번쩍)
+                float q = Math.min(1f, k * 1.25f);
+                float s = stepped(q), sf = stepFlash(q);
                 float len = 0.35f + 0.8f * s, rad = 0.3f * (fp < 1f ? 0.8f : 1f) * (0.45f + 0.55f * s);
                 Vec3 tip = S.add(d.scale(0.7));
                 Vec3 base = tip.subtract(d.scale(len));
@@ -2173,7 +2332,7 @@ final class IceFx {
                 FxRender.draw(bb);
                 FxRender.additive();
                 bb = beginGlow(1.1f);
-                crystalAlong(bb, LANCE, base, d, time * 0.22f, rad, len, 0.6f + 0.8f * s, true, time);
+                crystalAlong(bb, LANCE, base, d, time * 0.22f, rad, len, 0.6f + 0.8f * s + 1.0f * sf, true, time);
                 FxRender.draw(bb);
                 // 손 주위 서리 고리: 모으는 동안 비스듬히 돌다가 마지막 40% 에 창 허리로 조여 듦 (곧 나감)
                 Vec3 grip = S.subtract(d.scale(0.3));
@@ -2216,10 +2375,14 @@ final class IceFx {
                 bb = beginGlow(1.1f);
                 for (int i = 0; i < 3; i++) spikeHint(bb, feet, f, sd, i, k, true, time);
                 FxRender.draw(bb);
-                // 바닥에 그어지는 길 (폭 = 실제 판정 폭) — 다른 사람도 어디로 올지 읽힘
+                // 실제 판정 길 (폭·길이 = 서버 판정) — 다른 사람도 어디로 올지 읽힘. 채움 0 = 아직 출발 전
                 float W = Math.max(0.5f, ClientSkillStats.radius(Skill.ICE_SPIKES));
-                float L = Math.min(ClientSkillStats.range(Skill.ICE_SPIKES), 7f) * easeOutCubic(Math.min(1f, k * 1.3f));
-                lane(feet.add(0, 0.06, 0), f, W, L, 0.3f + 0.5f * k);
+                float Lmax = Math.max(1f, ClientSkillStats.range(Skill.ICE_SPIKES));
+                SkillFx.dangerLane(feet, f, Lmax, W, 0f, I, e, 0.35f + 0.65f * smooth(k / 0.4f), time);
+                FxRender.additive();
+                RenderSystem.disableCull();
+                float L = Math.min(Lmax, 7f) * easeOutCubic(Math.min(1f, k * 1.3f));
+                laneCore(feet.add(0, 0.06, 0), f, W, L, 0.3f + 0.4f * k);
                 FxRender.elemShader(I, 1.0f, 0.2f, 0.9f);
                 bb = FxRender.quads();
                 FxRender.ring(bb, feet.add(0, 0.06, 0), UP, 0.5f + 0.5f * k, 0.75f + 0.7f * k, 0.5f + 0.5f * k, time * 0.4f, 40);
@@ -2230,9 +2393,10 @@ final class IceFx {
                 Vec3 feet = e.getPosition(pt);
                 float R = Math.max(0.5f, ClientSkillStats.radius(Skill.FROST_NOVA));
                 runeCircle(feet, 1.2f + 1.6f * easeOutCubic(k), k, time, 0.85f);
-                // 실제 얼림 범위 경계 + 안에서 채워지는 앞머리 (다 차면 터짐)
-                edgeRing(feet, R, 0.35f + 0.55f * k, time);
-                fillFront(feet, R, k, 0.6f, time);
+                // 실제 얼림 범위 (다 차는 순간 터짐)
+                SkillFx.dangerZone(feet, R, k, I, e, 0.5f + 0.5f * smooth(k / 0.3f), time);
+                FxRender.additive();
+                RenderSystem.disableCull();
                 float orbit = (1.7f - 0.6f * k);
                 float spin = time * (0.18f + 0.3f * k);
                 FxRender.alphaBlend();
@@ -2249,10 +2413,11 @@ final class IceFx {
                 Vec3 t = c.target;
                 float R = Math.min(24f, c.size);
                 // 떨어질 자리: 경계(=실제 범위)는 처음부터 또렷하게, 안쪽 마법진은 빙산이 닿는 순간 경계에 닿도록 커짐
-                float urgent = smooth((k - 0.7f) / 0.3f);
-                edgeRing(t, R, (0.6f + 0.4f * k) * (1f - 0.35f * urgent * (0.5f + 0.5f * (float) Math.sin(time * 1.6f))), time);
-                runeCircle(t, R * (0.3f + 0.7f * easeOutCubic(k)), k, time, 1f);
-                fillFront(t, R, k, 0.7f, time);
+                // 판정 범위는 처음부터 정확한 크기로, 빙산이 닿는 순간 가득 참. 안쪽 마법진이 같이 커짐 (장식)
+                SkillFx.dangerZone(t, R, k, I, e, 0.6f + 0.4f * smooth(k / 0.3f), time);
+                FxRender.additive();
+                RenderSystem.disableCull();
+                runeCircle(t, R * (0.3f + 0.6f * easeOutCubic(k)), k, time, 1f);
                 Berg b = BERGS.get(c);
                 if (b != null) {
                     float hgt = fallHeight(k, R);
@@ -2284,11 +2449,11 @@ final class IceFx {
         Vec3 d = D.yRot(a);
         float si = clamp01(k * 1.7f - Math.abs(i - 3) * 0.13f);
         if (si <= 0.01f) return;
-        float s = easeOutBack(si);
+        float s = stepped(si);
         Vec3 at = S.add(d.scale(0.05f + 0.2f * si));
         float sc = fp < 1f ? 0.85f : 1f;
         float len = 0.48f * s * sc;
-        crystalAlong(bb, BIPYR, at.subtract(d.scale(len * 0.4)), d, time * 0.5f + i, 0.12f * sc, len, add ? 0.7f + 0.6f * si : si, add, time);
+        crystalAlong(bb, BIPYR, at.subtract(d.scale(len * 0.4)), d, time * 0.5f + i, 0.12f * sc, len, add ? 0.7f + 0.6f * si + 0.8f * stepFlash(si) : si, add, time);
         if (add) {
             Vec3 tip = at.add(d.scale(len * 0.6));
             Glints.add(tip.x, tip.y, tip.z, 0.35f * fp * s, 0f, 1f, 1f, 1f, 0.5f * si);
@@ -2301,8 +2466,8 @@ final class IceFx {
         double lat = (i - 1) * 0.45;
         Vec3 at = feet.add(f.scale(0.9 + 0.55 * i)).add(sd.scale(lat)).subtract(0, 0.1, 0);
         Vec3 axis = tilted(sd.scale(lat >= 0 ? 1 : -1), 0.15 + Math.abs(lat) * 0.6, f.scale(0.25));
-        float len = (0.25f + 0.45f * si) * (1f + 0.25f * i);
-        crystalAlong(bb, i, at, axis, i * 1.3f, len * 0.22f, len, add ? 0.8f + 0.5f * si : si, add, time);
+        float len = (0.25f + 0.45f * stepped(si)) * (1f + 0.25f * i);
+        crystalAlong(bb, i, at, axis, i * 1.3f, len * 0.22f, len, add ? 0.8f + 0.5f * si + 0.8f * stepFlash(si) : si, add, time);
     }
 
     private static void orbitShard(BufferBuilder bb, Vec3 feet, float orbit, float spin, int i, float k, boolean add, float time) {
@@ -2310,7 +2475,7 @@ final class IceFx {
         Vec3 out = new Vec3(Math.cos(a), 0, Math.sin(a));
         Vec3 tan = new Vec3(-Math.sin(a), 0.25 * Math.sin(time * 0.2 + i), Math.cos(a));
         Vec3 at = feet.add(out.scale(orbit)).add(0, 0.7 + 0.35 * Math.sin(time * 0.15 + i * 1.1), 0);
-        float s = easeOutBack(clamp01(k * 2f - i * 0.08f));
+        float s = stepped(clamp01(k * 2f - i * 0.08f));
         float len = 0.55f * s;
         crystalAlong(bb, BIPYR, at.subtract(tan.normalize().scale(len * 0.3)), tan, time * 0.3f + i, 0.1f, len, add ? 0.8f + 0.6f * k : 0.6f + 0.4f * k, add, time);
     }
@@ -2319,53 +2484,15 @@ final class IceFx {
     // 범위 표시 (판정 범위와 정확히 같은 크기)
     // =====================================================================
 
-    private static int edgeSegs(float r) {
-        return Math.max(32, Math.min(128, (int) (r * 10f)));
-    }
-
     /**
-     * 피해 범위의 경계: 정확히 반지름 R 의 가는 밝은 고리 + 안쪽 옅은 띠.
-     * 같은 고리를 반 바퀴 어긋나게 두 번 그려 둘레 밝기가 고르게 (끊겨 보이지 않게) 한다.
+     * 길 가운데를 달리는 서리 줄 (장식, 테두리 없음 — 판정 경계는 SkillFx.dangerLane 이 그림). 끝으로 갈수록 흐려짐
      */
-    private static void edgeRing(Vec3 c, float R, float a, float time) {
-        if (a <= 0.01f || R <= 0.2f) return;
-        Vec3 g = c.add(0, 0.07, 0);
-        int seg = edgeSegs(R);
-        FxRender.elemShader(I, 1.0f, 0.04f, 1.25f * a);
-        BufferBuilder bb = FxRender.quads();
-        FxRender.ring(bb, g, UP, R - 0.24f, R + 0.02f, 0.55f, time * 0.25f, seg);
-        FxRender.ring(bb, g, UP, R - 0.24f, R + 0.02f, 0.55f, time * 0.25f + (float) Math.PI, seg);
-        FxRender.ring(bb, g.add(0, 0.004, 0), UP, R * 0.88f, R - 0.2f, 0.22f, -time * 0.15f, seg);
-        FxRender.draw(bb);
-    }
-
-    /** 범위 안에서 바깥으로 채워지는 앞머리 (k = 1 에 경계 R 에 닿음 = 그 순간 발동) */
-    private static void fillFront(Vec3 c, float R, float k, float a, float time) {
-        float r = R * clamp01(k);
-        if (r < 0.3f || a <= 0.01f) return;
-        Vec3 g = c.add(0, 0.075, 0);
-        FxRender.elemShader(I, 1.4f, 0.1f, a);
-        BufferBuilder bb = FxRender.quads();
-        FxRender.ring(bb, g, UP, Math.max(0f, r - 0.7f), r, 0.45f, time * 0.4f, edgeSegs(r));
-        FxRender.ring(bb, g, UP, Math.max(0f, r - 0.7f), r, 0.45f, time * 0.4f + (float) Math.PI, edgeSegs(r));
-        FxRender.draw(bb);
-        FxRender.spriteShader(FxRender.GLOW_WHITE);
-        bb = FxRender.quads();
-        float ga = 0.16f * a;
-        FxRender.planeQuad(bb, g.add(0, 0.01, 0), UP, r * 1.2f, 0f, ga * C_CYAN[0], ga * C_CYAN[1], ga * C_CYAN[2], ga);
-        FxRender.draw(bb);
-    }
-
-    /** 바닥에 그어지는 직선 길 (양쪽 경계선 + 가운데 서리 줄), 끝으로 갈수록 흐려짐 */
-    private static void lane(Vec3 o, Vec3 f, float W, float L, float a) {
+    private static void laneCore(Vec3 o, Vec3 f, float W, float L, float a) {
         if (L < 0.3f || a <= 0.01f) return;
-        Vec3 sd = IceThunderAim.flatRight(f);
         FxRender.spriteShader(FxRender.BEAM);
         BufferBuilder bb = FxRender.quads();
         Vec3 a0 = o.add(f.scale(0.6)), a1 = o.add(f.scale(0.6 + L));
-        flatStrip(bb, a0.add(sd.scale(W)), a1.add(sd.scale(W)), 0.22f, a, 0f, C_CYAN);
-        flatStrip(bb, a0.subtract(sd.scale(W)), a1.subtract(sd.scale(W)), 0.22f, a, 0f, C_CYAN);
-        flatStrip(bb, a0, a1, W * 1.6f, a * 0.25f, 0f, C_AZURE);
+        flatStrip(bb, a0, a1, W * 1.2f, a * 0.22f, 0f, C_AZURE);
         flatStrip(bb, a0, a1, 0.3f, a * 0.8f, 0f, C_WHITE);
         FxRender.draw(bb);
     }

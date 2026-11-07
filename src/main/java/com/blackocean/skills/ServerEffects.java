@@ -155,7 +155,9 @@ final class ServerEffects {
         Set<LivingEntity> hit = new HashSet<>();
         for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(a, b).inflate(r + 1), x -> SkillTargets.canHit(p, x))) {
             AABB box = e.getBoundingBox();
-            boolean nearA = box.getCenter().distanceTo(a) <= r + 0.5, nearB = box.getCenter().distanceTo(b) <= r + 0.5;
+            // 화면의 출발·도착 원(반지름 r)에 몸이 닿으면 (다른 바닥 범위와 같은 규칙: r + 몸 반폭)
+            double reach = r + e.getBbWidth() * 0.5;
+            boolean nearA = box.getCenter().distanceTo(a) <= reach, nearB = box.getCenter().distanceTo(b) <= reach;
             boolean path = box.inflate(1.2).clip(a, b).isPresent();
             // 벽 너머는 맞지 않음: 지나간 길(막힘 없음) 위거나, 출발·도착 지점에서 보이는 대상만
             boolean seen = path || (nearA && SkillTargets.canSee(level, p, a, e)) || (nearB && SkillTargets.canSee(level, p, b, e));

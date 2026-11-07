@@ -198,7 +198,11 @@ public final class FxManager {
             target = t;
             size = ClientSkillStats.radius(skill);
         }
-        CHARGES.add(new ChargeFx(self, skill, Math.max(1, ClientSkillStats.chargeTicks(skill)), true, target, size));
+        ChargeFx pc = new ChargeFx(self, skill, Math.max(1, ClientSkillStats.chargeTicks(skill)), true, target, size);
+        pc.yaw = self.getYRot();
+        pc.pitch = self.getXRot();
+        CHARGES.add(pc);
+        CasterPose.start(self, skill, pc.duration, pc.yaw, pc.pitch);
         chargeSound(self, skill);
     }
 
@@ -228,12 +232,19 @@ public final class FxManager {
     }
 
     public static void onCastStart(Entity caster, Skill skill, int chargeTicks, Vec3 target, float size) {
+        onCastStart(caster, skill, chargeTicks, target, size, caster.getYRot(), caster.getXRot());
+    }
+
+    /** yaw/pitch = 서버가 고정한 시전 방향 (키를 뗀 순간의 시선) */
+    public static void onCastStart(Entity caster, Skill skill, int chargeTicks, Vec3 target, float size, float yaw, float pitch) {
         Minecraft mc = Minecraft.getInstance();
         if (caster == mc.player) {
             for (ChargeFx c : CHARGES) {
                 if (c.caster == caster && c.predicted && !c.confirmed && !c.done && c.skill == skill) {
                     c.confirmed = true;
                     c.duration = Math.max(1, chargeTicks);
+                    c.yaw = yaw;
+                    c.pitch = pitch;
                     if (skill.aim == Skill.Aim.GROUND) {
                         c.target = target; // 서버가 정한 자리
                         c.size = size;
@@ -245,6 +256,8 @@ public final class FxManager {
         CHARGES.removeIf(c -> c.caster == caster); // 같은 사람의 오래된 준비 연출 정리
         ChargeFx c = new ChargeFx(caster, skill, Math.max(1, chargeTicks), false, target, size);
         c.confirmed = true;
+        c.yaw = yaw;
+        c.pitch = pitch;
         CHARGES.add(c);
         if (caster == mc.player) chargeSound(caster, skill); // 예약 발동 등 미리 시작 못 한 경우 (남의 시전 소리는 서버가 틀어 줌)
     }
@@ -630,6 +643,18 @@ public final class FxManager {
         boolean done;
         int duration;
         int age;
+        /** 고정된 시전 방향 (서버가 실제로 쏠 방향). 모으는 연출은 이 방향으로 정렬할 것 */
+        float yaw, pitch;
+
+        /** 고정된 시전 방향 (단위 벡터) */
+        Vec3 aimDir() {
+            return Vec3.directionFromRotation(pitch, yaw);
+        }
+
+        /** 고정된 수평 방향 (단위 벡터) */
+        Vec3 flatDir() {
+            return Vec3.directionFromRotation(0, yaw);
+        }
 
         ChargeFx(Entity caster, Skill skill, int duration, boolean predicted, Vec3 target, float size) {
             this.caster = caster;

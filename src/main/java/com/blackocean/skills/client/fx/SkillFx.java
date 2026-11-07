@@ -261,7 +261,7 @@ final class SkillFx {
             FxManager.addRing(rc, UP, r * 0.5f, r * (minor ? 2.4f : 3.6f), 10, 0, 1f, el);
             if (!minor) {
                 FxManager.addRing(rc, UP, r * 0.3f, r * 2.2f, 8, 2, 0.8f, el);
-                addDecal(base, UP, r * 1.7f, 180);
+                if (el == com.blackocean.skills.Element.FIRE) addDecal(base, UP, r * 1.7f, 180); // 다른 능력은 각자 자국을 남김
             }
             // 위로 터져 오르는 불꽃 줄기
             for (int i = 0; i < count(minor ? 14 : 40); i++) {

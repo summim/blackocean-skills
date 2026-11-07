@@ -4,7 +4,7 @@
 // - 노이즈 텍스처를 크기·속도가 다른 두 겹으로 흘려 일렁임을 만든다.
 // - 정점 색 알파 = 열기 (1 = 흰빛 중심, 0 = 붉은 가장자리).
 // - 열기를 색 단계표로 바꾸고, 애니풍으로 띠를 살짝 나눠 외곽선이 읽히게 한다.
-// - FireParams: x = 흐르는 속도, y = 갉아 먹기(0 꽉 참 → 1 다 탐), z = 밝기 배율
+// - FireParams: x = 흐르는 속도, y = 갉아 먹기(0 꽉 참 → 1 다 탐), z = 밝기 배율, w = 흰빛 타오름(0~1, 폭발 핵·섬광)
 // 더하기 섞기(ONE, ONE)로 그리므로 색에 알파를 미리 곱해서 내보낸다.
 
 uniform sampler2D Sampler0;
@@ -53,6 +53,9 @@ void main() {
 
     float c = cel(clamp(v, 0.0, 1.0));
     vec3 col = ramp(c) * vertexColor.rgb;
+    // 흰빛 타오름: 뜨거운 곳일수록 하얗게 (HDR 이 없으니 색을 흰색 쪽으로 밀어 눈부심을 흉내)
+    float hot = clamp(FireParams.w * (v - 0.35) * 1.6, 0.0, 1.0);
+    col = mix(col, vec3(1.0, 0.98, 0.94), hot);
     float a = mask * clamp(v * 1.35, 0.0, 1.0);
     if (a < 0.003) {
         discard;

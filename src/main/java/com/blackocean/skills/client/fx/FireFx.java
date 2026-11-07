@@ -167,7 +167,9 @@ final class FireFx {
                 double d = mc.player.position().distanceTo(caster.position());
                 if (caster == mc.player) {
                     ScreenFx.flash(0xFFB060, 0.35f, 10);
-                    CameraShake.add(1.2f);
+                    ScreenFx.whiteFlash(0.25f, 3);
+                    CameraShake.add(1.6f);
+                    CameraShake.kick(-1.2f, 0f);
                 } else if (d < 24) {
                     ScreenFx.flash(0xFFB060, (float) (0.25 * (1 - d / 24)), 10);
                     CameraShake.add((float) (1.0 * (1 - d / 24)));
@@ -389,9 +391,7 @@ final class FireFx {
 
     private static void frameGlow(Vec3 at, float size, float r, float g, float b, float a) {
         if (a <= 0.005f) return;
-        Sprite s = new Sprite(Sprite.Kind.GLOW, at, Vec3.ZERO, size, 0, 1).color(r, g, b, a);
-        s.size1 = s.size0;
-        FxManager.addFrameGlow(s);
+        FxManager.frameGlow(at, size, r, g, b, a);
     }
 
     /** 아래쪽 바닥 찾기 (없으면 null). 배 위 좌표도 맞도록 SubLevels.clip 사용 */
@@ -432,12 +432,15 @@ final class FireFx {
             FxManager.lod = FxManager.lodAt(pos);
 
             // 흰빛 섬광 + 넓은 주황 번짐
+            spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 0.8f, size * 3.2f, 4).color(1f, 1f, 1f, 1f));
             spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 1.6f, size * 2.4f, 6).color(1f, 0.97f, 0.88f, 1f));
             spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 2.6f, size * 3.8f, 16).color(1f, 0.55f, 0.18f, 0.8f));
             spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, size * 4.5f, size * 6f, 24).color(1f, 0.35f, 0.08f, 0.35f));
 
             // 충격파 링 여러 개
             Vec3 rc = (g != null ? g : pos).add(0, 0.1, 0);
+            FxManager.addRing(rc, UP, 0.6f, size * 3.0f, 8, 0, 0.95f, 1f, 0.95f, 0.82f);
+            FxManager.addRing(rc.add(0, 0.03, 0), UP, size * 0.8f, size * 4.4f, 30, 6, 0.35f, Element.FIRE);
             FxManager.addRing(rc, UP, 1.0f, size * 2.4f, 16, 0, 1f, Element.FIRE);
             FxManager.addRing(rc, UP, 0.8f, size * 1.6f, 13, 2, 0.9f, Element.FIRE);
             FxManager.addRing(rc.add(0, 0.05, 0), UP, 0.6f, size * 3.2f, 22, 4, 0.55f, Element.FIRE);
@@ -473,7 +476,11 @@ final class FireFx {
                 spawn(em);
             }
 
-            if (g != null) SkillFx.addDecal(g, UP, size * 0.8f, 260, 1f, 1f, 1f);
+            if (g != null) {
+                // 땅이 크게 터져 조각이 사방으로 + 넓게 금 간 자국 (능력 색으로 오래 빛남)
+                DebrisFx.burst(g, UP, size * 0.7f, 110, 1.5f, Element.FIRE);
+                DebrisFx.crater(g, size * 1.15f, 420, Element.FIRE);
+            }
 
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
@@ -482,7 +489,9 @@ final class FireFx {
                 if (d < 40) flash = (float) (0.6 + 0.35 * (1 - d / 40));
                 else flash = (float) Math.max(0.0, 0.6 * (1 - (d - 40) / 100));
                 if (flash > 0.02f) ScreenFx.flash(0xFFB060, flash, 26);
-                if (d < 64) CameraShake.add((float) (4.0 * (1 - d / 64)));
+                if (d < 48) ScreenFx.whiteFlash((float) (0.75 * (1 - d / 48)), 4);
+                CameraShake.addAt(pos, 6.0f, 72f);
+                CameraShake.kickFrom(pos, 4.0f, 40f);
             }
         }
 
@@ -491,6 +500,10 @@ final class FireFx {
             age++;
             if (age > LIFE) return true;
             FxManager.lod = FxManager.lodAt(pos);
+
+            // 두 번째 땅 울림: 바깥쪽 땅이 한 번 더 들썩이며 조각이 튐
+            if (ground != null && age == 5) DebrisFx.burst(ground, UP, size * 1.05f, 45, 1.0f, null);
+            if (ground != null && age == 4) CameraShake.addAt(ground, 2.5f, 40f);
 
             // 둘레에서 차례로 솟는 불기둥
             if (ground != null) {
@@ -501,7 +514,7 @@ final class FireFx {
                     Vec3 base = groundBelow(top, 7.0);
                     if (base == null) base = top.subtract(0, 3.0, 0);
                     boolean big = i % 3 == 0;
-                    SkillFx.addPillar(base, big ? 1.3f : 1.0f, big ? rand(9f, 11f) : rand(6.5f, 8.5f), 14 + RNG.nextInt(6), !big, Element.FIRE);
+                    SkillFx.addPillar(base, big ? 1.3f : 1.0f, big ? rand(9f, 11f) : rand(6.5f, 8.5f), 14 + RNG.nextInt(6), !big, Element.FIRE, false);
                 }
             }
 
@@ -577,7 +590,7 @@ final class FireFx {
             if (t < 12f) {
                 float rc = size * (0.15f + 0.4f * easeOutCubic(t / 3.5f)) * (1f - 0.35f * clamp01((t - 4f) / 8f));
                 float er = clamp01((t - 5f) / 7f);
-                FxRender.elemShader(Element.FIRE, 2.6f, er, 2.1f * (1f - 0.5f * clamp01(t / 12f)));
+                FxRender.elemShader(Element.FIRE, 2.6f, er, 2.1f * (1f - 0.5f * clamp01(t / 12f)), 1f - clamp01(t / 8f));
                 FxManager.BlastSphere.draw(pos, rc, time * 3f);
             }
             // 2) 주 불덩이

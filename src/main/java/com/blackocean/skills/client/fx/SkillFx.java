@@ -33,6 +33,7 @@ final class SkillFx {
     private static final Vec3 UP = new Vec3(0, 1, 0);
     private static final float TAU = (float) (Math.PI * 2);
 
+    private static final int MAX_PILLARS = 40, MAX_BURSTS = 12;
     private static final List<PillarFx> PILLARS = new ArrayList<>();
     private static final List<RingBurstFx> BURSTS = new ArrayList<>();
     private static final List<Decal> DECALS = new ArrayList<>();
@@ -215,12 +216,21 @@ final class SkillFx {
      * 불기둥 분출. minor = true 면 화염 주먹 적중 때 함께 솟는 작은 불기둥 (흔들림·자국 없음, 입자 적게).
      */
     static void addPillar(Vec3 base, float radius, float height, int duration, boolean minor) {
-        PILLARS.add(new PillarFx(base, radius, height, duration, minor, com.blackocean.skills.Element.FIRE));
+        addPillar(base, radius, height, duration, minor, com.blackocean.skills.Element.FIRE, !minor);
     }
 
     /** 능력 색 기둥 (열매 먹었을 때 등) */
     static void addPillar(Vec3 base, float radius, float height, int duration, boolean minor, com.blackocean.skills.Element el) {
-        PILLARS.add(new PillarFx(base, radius, height, duration, minor, el));
+        addPillar(base, radius, height, duration, minor, el, !minor && el == com.blackocean.skills.Element.FIRE);
+    }
+
+    /**
+     * @param quake true 면 솟을 때 땅이 터져 블록 조각이 튀고 금 간 자국이 남음 (불기둥 스킬). 태양 둘레 기둥처럼
+     *              여럿이 한꺼번에 솟는 곳에서는 false (파편은 폭발 쪽에서 한 번에)
+     */
+    static void addPillar(Vec3 base, float radius, float height, int duration, boolean minor, com.blackocean.skills.Element el, boolean quake) {
+        if (PILLARS.size() >= MAX_PILLARS) PILLARS.remove(0);
+        PILLARS.add(new PillarFx(base, radius, height, duration, minor, el, quake));
     }
 
     static final class PillarFx {
@@ -229,6 +239,8 @@ final class SkillFx {
         final int duration;
         final boolean minor;
         final com.blackocean.skills.Element el;
+        /** 남는 시간 (기둥이 사라진 뒤 연기·불씨가 피어오르는 잔류) */
+        final int after;
         int age;
 
         /** 불이 아니면 불꽃·불씨를 그 능력 그림·색으로 */
@@ -236,7 +248,7 @@ final class SkillFx {
             if (el != com.blackocean.skills.Element.FIRE) {
                 sp.elem(el);
                 if (sp.kind != Sprite.Kind.SMOKE) {
-                    float[] c = FxRender.tint(el);
+                    float[] c = FxRender.tintRef(el);
                     sp.r = c[0];
                     sp.g = c[1];
                     sp.b = c[2];
@@ -245,23 +257,35 @@ final class SkillFx {
             FxManager.spawn(sp);
         }
 
-        PillarFx(Vec3 base, float r, float h, int duration, boolean minor, com.blackocean.skills.Element el) {
+        PillarFx(Vec3 base, float r, float h, int duration, boolean minor, com.blackocean.skills.Element el, boolean quake) {
             this.el = el;
             this.base = base;
             this.r = r;
             this.h = h;
             this.duration = Math.max(4, duration);
             this.minor = minor;
+            this.after = minor ? 0 : 40;
             FxManager.lod = FxManager.lodAt(base);
             float s = minor ? 0.5f : 1f;
+            float[] tc = FxRender.tintRef(el);
 
             spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, 1.0, 0), Vec3.ZERO, 8f * s, 11f * s, 6).color(1f, 0.9f, 0.7f, 1f));
-            spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, h * 0.5, 0), Vec3.ZERO, h * 0.9f, h * 1.1f, 10).color(FxRender.tint(el)[0], FxRender.tint(el)[1], FxRender.tint(el)[2], 0.7f));
+            spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, h * 0.5, 0), Vec3.ZERO, h * 0.9f, h * 1.1f, 10).color(tc[0], tc[1], tc[2], 0.7f));
             Vec3 rc = base.add(0, 0.06, 0);
             FxManager.addRing(rc, UP, r * 0.5f, r * (minor ? 2.4f : 3.6f), 10, 0, 1f, el);
             if (!minor) {
+                // 흰빛 핵 섬광 + 흰 충격파 + 꼭대기에서 퍼지는 고리
+                spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, 0.6, 0), Vec3.ZERO, 3f, 12f, 3).color(1f, 1f, 1f, 1f));
+                FxManager.addRing(rc, UP, r * 0.3f, r * 4.6f, 6, 0, 0.85f, 1f, 0.94f, 0.8f);
                 FxManager.addRing(rc, UP, r * 0.3f, r * 2.2f, 8, 2, 0.8f, el);
-                if (el == com.blackocean.skills.Element.FIRE) addDecal(base, UP, r * 1.7f, 180); // 다른 능력은 각자 자국을 남김
+                FxManager.addRing(base.add(0, h * 0.95, 0), UP, r * 0.6f, r * 3.2f, 12, 3, 0.6f, el);
+                FxManager.addRing(rc.add(0, 0.02, 0), UP, r * 1.5f, r * 6f, 20, 5, 0.3f, el);
+                if (quake) {
+                    DebrisFx.burst(base, UP, r * 1.2f, 30, 1.15f, el);
+                    DebrisFx.crater(base, r * 1.8f, 260, el);
+                } else if (el == com.blackocean.skills.Element.FIRE) {
+                    addDecal(base, UP, r * 1.7f, 180); // 다른 능력은 각자 자국을 남김
+                }
             }
             // 위로 터져 오르는 불꽃 줄기
             for (int i = 0; i < count(minor ? 14 : 40); i++) {
@@ -279,11 +303,9 @@ final class SkillFx {
                 spawn(f);
             }
             if (!minor) {
-                Minecraft mc = Minecraft.getInstance();
-                if (mc.player != null) {
-                    double d = mc.player.position().distanceTo(base);
-                    if (d < 18) CameraShake.add((float) (2.8 * (1 - d / 18)));
-                }
+                CameraShake.addAt(base, 3.2f, 20f);
+                CameraShake.kickFrom(base, 1.8f, 14f);
+                if (quake) ScreenFx.impact(base.add(0, 1, 0), 0xFFB060, 0.25f, 9f);
             }
         }
 
@@ -298,8 +320,29 @@ final class SkillFx {
         boolean tick() {
             age++;
             float t = age;
-            if (t > duration + 12) return true;
+            if (t > duration + 12 + after) return true;
             FxManager.lod = FxManager.lodAt(base);
+            if (t > duration + 12) {
+                // 잔류: 타고 남은 자리에서 연기·불씨가 점점 약하게 피어오름
+                float k = 1f - (t - duration - 12) / Math.max(1f, after);
+                if (age % 3 == 0 && RNG.nextFloat() < k) {
+                    Sprite sm = new Sprite(Sprite.Kind.SMOKE, base.add(rand(-r, r) * 0.6, rand(0.3f, 1.2f), rand(-r, r) * 0.6),
+                            new Vec3(0, rand(0.03f, 0.07f), 0), rand(1.4f, 2.0f), rand(3.6f, 4.8f), 30 + RNG.nextInt(14))
+                            .color(0.17f, 0.15f, 0.14f, 0.42f * k).physics(0f, 0.97f);
+                    sm.rot = RNG.nextFloat() * TAU;
+                    spawn(sm);
+                }
+                for (int i = 0; i < count(1); i++) {
+                    if (RNG.nextFloat() > k) break;
+                    Sprite em = new Sprite(Sprite.Kind.EMBER, base.add(rand(-r, r) * 1.2, 0.2, rand(-r, r) * 1.2),
+                            new Vec3(rand(-0.02f, 0.02f), rand(0.04f, 0.1f), rand(-0.02f, 0.02f)), rand(0.1f, 0.18f), 0.03f, 18 + RNG.nextInt(14))
+                            .color(1f, rand(0.45f, 0.7f), 0.2f, 1f).physics(-0.002f, 0.96f);
+                    em.sway = 0.003f;
+                    em.frameOffset = RNG.nextInt(100);
+                    spawn(em);
+                }
+                return false;
+            }
             float hh = height(t);
             boolean alive = t <= duration;
             float s = minor ? 0.55f : 1f;
@@ -338,9 +381,23 @@ final class SkillFx {
 
         void render(float pt, float time) {
             float t = age + pt;
+            if (t > duration + 12) return;
             float hh = height(t);
             float fade = t > duration ? 1f - clamp01((t - duration) / 12f) : 1f;
             float erosion = t > duration - 6 ? clamp01((t - duration + 6) / 16f) : 0.04f;
+            if (!minor) {
+                // 솟는 순간 하얗게 타오르는 섬광 기둥 (짧게)
+                if (t < 5f) {
+                    float k = 1f - t / 5f;
+                    FxRender.elemShader(el, 3.2f, 0.1f * (1f - k), 1.4f + 1.2f * k, 1f);
+                    RenderSystem.disableCull();
+                    column(base, r * 0.55f * (0.6f + 0.4f * k), r * 0.25f, hh * 1.15f, 1f, 0.5f, 0.6f, 0.05f, time);
+                }
+                // 바깥 열기 껍질 (옅고 크게 일렁임)
+                FxRender.elemShader(el, 1.3f, Math.min(1f, 0.45f + erosion), 0.7f * fade);
+                RenderSystem.disableCull();
+                column(base, r * 1.55f, r * 0.95f, hh * 0.72f, 0.6f, 0.16f, 0.21f, 0.14f, time);
+            }
             // 바깥 불기둥: 굵고 붉은 외곽, 위로 갈수록 가늘어지며 꼬임
             FxRender.elemShader(el, 1.8f, erosion, 1.0f * fade + 0.1f);
             RenderSystem.disableCull();
@@ -354,11 +411,9 @@ final class SkillFx {
             FxRender.ring(bb, base.add(0, 0.05, 0), UP, r * 0.7f, r * (1.9f + 0.3f * clamp01(t / 6f)), 0.85f * fade, time * 0.25f, 56);
             FxRender.draw(bb);
             // 기둥 전체를 감싸는 빛
-            float[] tc = FxRender.tint(el);
-            Sprite glow = new Sprite(Sprite.Kind.GLOW, base.add(0, hh * 0.45, 0), Vec3.ZERO, hh * 1.1f + r * 2f, 0, 1)
-                    .color(tc[0], tc[1], tc[2], 0.32f * fade);
-            glow.size1 = glow.size0;
-            FxManager.addFrameGlow(glow);
+            float[] tc = FxRender.tintRef(el);
+            FxManager.frameGlow(base.x, base.y + hh * 0.45, base.z, hh * 1.1f + r * 2f, tc[0], tc[1], tc[2], 0.32f * fade);
+            if (!minor && t < 8f) FxManager.frameGlow(base.x, base.y + 0.8, base.z, r * 5f, 1f, 0.95f, 0.85f, 0.5f * (1f - t / 8f));
         }
     }
 
@@ -387,9 +442,9 @@ final class SkillFx {
         FxRender.ring(bb, feet, UP, (0.3f + 1.8f * k), (0.8f + 2.0f * k), 0.55f + 0.35f * k, -time * 0.4f, 56);
         FxRender.draw(bb);
 
-        Sprite glow = new Sprite(Sprite.Kind.GLOW, c, Vec3.ZERO, 3.2f + 3.5f * k, 0, 1).color(1f, 0.55f, 0.18f, 0.35f + 0.4f * k);
-        glow.size1 = glow.size0;
-        FxManager.addFrameGlow(glow);
+        FxManager.frameGlow(c, 3.2f + 3.5f * k, 1f, 0.55f, 0.18f, 0.35f + 0.4f * k);
+        // 막바지: 발밑 흰빛이 점점 강해짐 (곧 터진다는 신호)
+        if (k > 0.7f) FxManager.frameGlow(c, 1.5f + 3f * k, 1f, 0.92f, 0.8f, (k - 0.7f) / 0.3f * 0.5f);
     }
 
     /** 준비 중: 몸 주위를 감도는 불꽃·빨려 드는 불씨 (ChargeFx 의 매 틱) */
@@ -414,6 +469,7 @@ final class SkillFx {
     }
 
     static void addRingBurst(Vec3 center, float radius, int duration) {
+        if (BURSTS.size() >= MAX_BURSTS) BURSTS.remove(0);
         BURSTS.add(new RingBurstFx(center, radius, duration));
     }
 
@@ -432,21 +488,23 @@ final class SkillFx {
             spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, 9f, 13f, 6).color(1f, 0.92f, 0.72f, 1f));
             spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, R * 1.6f, R * 2.4f, 12).color(1f, 0.45f, 0.12f, 0.6f));
             Vec3 rc = c.add(0, 0.08, 0);
+            spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, 3f, 14f, 3).color(1f, 1f, 1f, 1f));
+            FxManager.addRing(rc, UP, 0.4f, R * 1.7f, 7, 0, 0.9f, 1f, 0.94f, 0.8f);
             FxManager.addRing(rc, UP, 0.6f, R * 1.35f, 11, 0, 1f);
             FxManager.addRing(rc, UP, 0.4f, R * 0.95f, 9, 2, 0.85f);
             FxManager.addRing(mid, UP, 0.5f, R * 1.1f, 8, 1, 0.6f);
-            addDecal(c, UP, R * 0.6f, 200);
+            FxManager.addRing(rc.add(0, 0.02, 0), UP, R * 0.6f, R * 2.1f, 22, 5, 0.3f);
+            DebrisFx.burst(c, UP, R * 0.3f, 18, 1.0f, com.blackocean.skills.Element.FIRE);
+            DebrisFx.crater(c, R * 0.55f, 220, com.blackocean.skills.Element.FIRE);
             for (int i = 0; i < count(48); i++) {
                 float ang = RNG.nextFloat() * TAU;
                 Vec3 d = new Vec3(Math.cos(ang), rand(0.05f, 0.5f), Math.sin(ang)).normalize();
                 spawn(new Sprite(Sprite.Kind.SPARK, mid, d.scale(rand(0.8f, 1.6f)), 0.13f, 0.13f, 9 + RNG.nextInt(8))
                         .color(1f, 0.82f, 0.45f, 1f).physics(0.04f, 0.9f));
             }
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.player != null) {
-                double d = mc.player.position().distanceTo(c);
-                if (d < R + 10) CameraShake.add((float) (3.0 * (1 - d / (R + 10))));
-            }
+            CameraShake.addAt(c, 3.4f, R + 12f);
+            CameraShake.kickFrom(c, 1.6f, R + 6f);
+            ScreenFx.impact(mid, 0xFFB060, 0.22f, R + 2f);
         }
 
         float radius(float t, float delay) {
@@ -461,6 +519,12 @@ final class SkillFx {
             float t = age;
             if (t <= duration) {
                 float rr = radius(t, 0f);
+                // 불의 벽이 지나가며 땅이 갈라져 조각이 튐 (앞머리가 빠를 때만)
+                if (t <= duration * 0.6f && age % 2 == 0) {
+                    float ang = RNG.nextFloat() * TAU;
+                    Vec3 at = c.add(Math.cos(ang) * rr, 0, Math.sin(ang) * rr);
+                    DebrisFx.burst(at, UP, 0.7f, 3, 0.55f, null);
+                }
                 // 불의 벽 앞머리에서 바깥으로 튀는 불꽃
                 for (int i = 0; i < count(12); i++) {
                     float ang = RNG.nextFloat() * TAU;
@@ -507,6 +571,12 @@ final class SkillFx {
             float f1 = (r1 - 0.8f) / Math.max(0.1f, R - 0.8f);
             FxRender.fireShader(2.0f, erosion, 1.15f * fade);
             column(c, r1, r1 * 1.06f, 2.8f * (1f - 0.65f * f1) + 0.4f, 0.95f, 0.15f, 0f, 0.07f, time);
+            // 앞머리의 하얗게 달아오른 낮은 띠
+            if (t < duration * 0.7f) {
+                float k = 1f - t / (duration * 0.7f);
+                FxRender.elemShader(com.blackocean.skills.Element.FIRE, 3f, 0.2f, 1.3f * k, 1f);
+                column(c, r1 * 1.01f, r1 * 1.03f, 0.9f * k + 0.2f, 1f, 0.3f, 0.4f, 0.04f, time);
+            }
             // 뒤따르는 낮은 두 번째 벽
             float r2 = radius(t, 3f);
             if (t > 3f) {

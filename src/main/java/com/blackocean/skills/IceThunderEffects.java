@@ -87,15 +87,37 @@ final class IceThunderEffects {
     static void thunderclap(ServerLevel level, ServerPlayer p, Skill s) {
         Vec3 origin = SkillAim.groundBelow(level, p, p.position());
         Vec3 dir = SkillAim.flatLook(p.getLookAngle(), p.getYRot());
-        for (LivingEntity e : SkillTargets.inCone(level, p, origin, dir, s.range(), s.radius())) {
-            double f = Math.min(1.0, e.position().distanceTo(origin) / Math.max(1.0, s.range()));
-            SkillTargets.hurt(level, e, p, Element.THUNDER, (float) (s.damage() * (1.0 - 0.3 * f)));
-            stun(level, e, s.durationTicks());
-            SkillTargets.knock(e, out(origin, e), s.speed() * (1.0 - 0.4 * f), 0.45);
-        }
-        sound(level, origin, "thunder.clap", SkillSounds.R_IMPACT, 0.9f);
-        sound(level, origin, "thunder.slam", SkillSounds.R_CAST, 1.1f);
+        // 연출(망치를 내려침)이 먼저 시작되고, 망치가 땅에 닿는 2틱 뒤에 피해·소리
         SkillEvents.send(level, s, SkillEvents.CLAP, p, origin, dir, (float) s.range(), (float) s.radius(), 14, -1);
+        SkillServer.addEffect(new Later(level, p, s, 2, o -> {
+            for (LivingEntity e : SkillTargets.inCone(level, o, origin, dir, s.range(), s.radius())) {
+                double f = Math.min(1.0, e.position().distanceTo(origin) / Math.max(1.0, s.range()));
+                SkillTargets.hurt(level, e, o, Element.THUNDER, (float) (s.damage() * (1.0 - 0.3 * f)));
+                stun(level, e, s.durationTicks());
+                SkillTargets.knock(e, out(origin, e), s.speed() * (1.0 - 0.4 * f), 0.45);
+            }
+            sound(level, origin, "thunder.clap", SkillSounds.R_IMPACT, 0.9f);
+            sound(level, origin, "thunder.slam", SkillSounds.R_CAST, 1.1f);
+        }));
+    }
+
+    /** 몇 틱 뒤에 한 번 실행 (시전자가 사라지면 취소) */
+    static final class Later extends ServerEffects.Effect {
+        final int at;
+        final java.util.function.Consumer<ServerPlayer> run;
+
+        Later(ServerLevel level, ServerPlayer p, Skill s, int at, java.util.function.Consumer<ServerPlayer> run) {
+            super(level, p, s);
+            this.at = at;
+            this.run = run;
+        }
+
+        @Override
+        boolean step(ServerPlayer o) {
+            if (age < at) return false;
+            run.accept(o);
+            return true;
+        }
     }
 
     // =====================================================================

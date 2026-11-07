@@ -72,6 +72,9 @@ public final class FxManager {
         LightningFx.clear();
         WindFx.clear();
         WaterFx.clear();
+        IceFx.clear();
+        ThunderFx.clear();
+        DebrisFx.clear();
         CameraShake.clear();
     }
 
@@ -205,6 +208,14 @@ public final class FxManager {
             if (el != null) transform(e.pos(), el, caster);
             return;
         }
+        if (e.kind() == SkillEvents.FREEZE) {
+            IceFx.onStatus(e);
+            return;
+        }
+        if (e.kind() == SkillEvents.STUN) {
+            ThunderFx.onStatus(e);
+            return;
+        }
         if (skill == null) return;
         if (e.kind() == SkillEvents.ULT_CAST) {
             ScreenFx.ultimate(skill, caster, e.pos());
@@ -233,6 +244,8 @@ public final class FxManager {
             case LIGHTNING -> LightningFx.onEvent(e, skill, caster);
             case WIND -> WindFx.onEvent(e, skill, caster);
             case WATER -> WaterFx.onEvent(e, skill, caster);
+            case ICE -> IceFx.onEvent(e, skill, caster);
+            case THUNDER -> ThunderFx.onEvent(e, skill, caster);
         }
     }
 
@@ -310,6 +323,9 @@ public final class FxManager {
         LightningFx.tick();
         WindFx.tick();
         WaterFx.tick();
+        IceFx.tick();
+        ThunderFx.tick();
+        DebrisFx.tick();
         AimPreview.tick();
         RINGS.removeIf(r -> ++r.age >= r.delay + r.life);
         SPRITES.removeIf(Sprite::tick);
@@ -323,7 +339,7 @@ public final class FxManager {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES) return;
         if (Minecraft.getInstance().level == null) return;
         if (CHARGES.isEmpty() && PROJECTILES.isEmpty() && IMPACTS.isEmpty() && RINGS.isEmpty() && SPRITES.isEmpty() && SkillFx.isEmpty()
-                && FireFx.isEmpty() && LightningFx.isEmpty() && WindFx.isEmpty() && WaterFx.isEmpty() && !AimPreview.active()) return;
+                && FireFx.isEmpty() && LightningFx.isEmpty() && WindFx.isEmpty() && WaterFx.isEmpty() && IceFx.isEmpty() && ThunderFx.isEmpty() && DebrisFx.isEmpty() && !AimPreview.active()) return;
 
         FxRender.begin(event);
         try {
@@ -337,6 +353,9 @@ public final class FxManager {
             LightningFx.renderAlpha(pt, time);
             WindFx.renderAlpha(pt, time);
             WaterFx.renderAlpha(pt, time);
+            IceFx.renderAlpha(pt, time);
+            ThunderFx.renderAlpha(pt, time);
+            DebrisFx.render(pt, time);
             FxRender.alphaBlend();
             AimPreview.render(pt, time);
             FxRender.alphaBlend();
@@ -357,6 +376,8 @@ public final class FxManager {
             WindFx.renderAdditive(pt, time);
             FxRender.additive();
             WaterFx.renderAdditive(pt, time);
+            IceFx.renderAdditive(pt, time);
+            ThunderFx.renderAdditive(pt, time);
             FxRender.additive();
             drawRings(pt);
             drawSprites(Sprite.Kind.FLAME, pt);
@@ -557,6 +578,8 @@ public final class FxManager {
                     case LIGHTNING -> LightningFx.tickCharge(this, k);
                     case WIND -> WindFx.tickCharge(this, k);
                     case WATER -> WaterFx.tickCharge(this, k);
+                    case ICE -> IceFx.tickCharge(this, k);
+                    case THUNDER -> ThunderFx.tickCharge(this, k);
                 }
                 // 투사체는 나가는 순간 끝, 나머지는 서버 발동 신호가 올 때까지 조금 더 기다림 (신호가 오면 바로 지움)
                 int wait = skill.aim == Skill.Aim.PROJECTILE ? 0 : 10;
@@ -679,6 +702,8 @@ public final class FxManager {
                     case LIGHTNING -> LightningFx.renderCharge(this, pt, k, time);
                     case WIND -> WindFx.renderCharge(this, pt, k, time);
                     case WATER -> WaterFx.renderCharge(this, pt, k, time);
+                    case ICE -> IceFx.renderCharge(this, pt, k, time);
+                    case THUNDER -> ThunderFx.renderCharge(this, pt, k, time);
                 }
                 FxRender.additive();
                 return;
@@ -791,6 +816,8 @@ public final class FxManager {
                     case LIGHTNING -> LightningFx.trackProjectile(this, p);
                     case WIND -> WindFx.trackProjectile(this, p);
                     case WATER -> WaterFx.trackProjectile(this, p);
+                    case ICE -> IceFx.trackProjectile(this, p);
+                    case THUNDER -> ThunderFx.trackProjectile(this, p);
                 }
                 return;
             }
@@ -972,6 +999,8 @@ public final class FxManager {
                     case LIGHTNING -> LightningFx.renderProjectile(this, c, pt, time);
                     case WIND -> WindFx.renderProjectile(this, c, pt, time);
                     case WATER -> WaterFx.renderProjectile(this, c, pt, time);
+                    case ICE -> IceFx.renderProjectile(this, c, pt, time);
+                    case THUNDER -> ThunderFx.renderProjectile(this, c, pt, time);
                 }
                 FxRender.additive();
                 return;

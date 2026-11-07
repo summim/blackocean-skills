@@ -151,6 +151,8 @@ public final class AimPreview {
             case LIGHTNING -> new float[]{0.45f, 0.8f, 1f};
             case WIND -> new float[]{0.45f, 1f, 0.7f};
             case WATER -> new float[]{0.3f, 0.65f, 1f};
+            case ICE -> new float[]{0.7f, 0.92f, 1f};
+            case THUNDER -> new float[]{1f, 0.8f, 0.25f};
         };
     }
 

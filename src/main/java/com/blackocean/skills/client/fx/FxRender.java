@@ -48,7 +48,10 @@ public final class FxRender {
     public static final ResourceLocation PLASMA_SHEET = tex("plasma_sheet");
     public static final ResourceLocation WISP_SHEET = tex("wisp_sheet");
     public static final ResourceLocation SPLASH_SHEET = tex("splash_sheet");
-    private static final ResourceLocation[] RAMPS = {tex("fire_ramp"), tex("lightning_ramp"), tex("wind_ramp"), tex("water_ramp")};
+    /** 얼음: 서리 안개 (plasma_sheet 와 같은 칸 배치) · 얼음 조각 */
+    public static final ResourceLocation FROST_SHEET = tex("frost_sheet");
+    public static final ResourceLocation SHARD = tex("ice_shard");
+    private static final ResourceLocation[] RAMPS = {tex("fire_ramp"), tex("lightning_ramp"), tex("wind_ramp"), tex("water_ramp"), tex("ice_ramp"), tex("thunder_ramp")};
 
     static Vec3 cam = Vec3.ZERO;
     static float partial;
@@ -146,12 +149,15 @@ public final class FxRender {
                 case LIGHTNING -> PLASMA_SHEET;
                 case WIND -> WISP_SHEET;
                 case WATER -> SPLASH_SHEET;
+                case ICE -> FROST_SHEET;
+                case THUNDER -> PLASMA_SHEET;
             };
             case GLOW -> GLOW_WHITE;
             case SPARK -> SPARK_WHITE;
             case EMBER -> switch (el) {
                 case WIND -> LEAF;
                 case WATER -> DROPLET;
+                case ICE -> SHARD;
                 default -> EMBER_WHITE;
             };
             case SMOKE -> el == com.blackocean.skills.Element.FIRE ? SMOKE : MIST;
@@ -165,6 +171,8 @@ public final class FxRender {
             case LIGHTNING -> new float[]{0.55f, 0.82f, 1f};
             case WIND -> new float[]{0.6f, 1f, 0.8f};
             case WATER -> new float[]{0.35f, 0.7f, 1f};
+            case ICE -> new float[]{0.72f, 0.92f, 1f};
+            case THUNDER -> new float[]{1f, 0.82f, 0.3f};
         };
     }
 
@@ -175,6 +183,8 @@ public final class FxRender {
             case LIGHTNING -> new float[]{0.45f, 0.75f, 1f};
             case WIND -> new float[]{0.55f, 1f, 0.78f};
             case WATER -> new float[]{0.3f, 0.65f, 1f};
+            case ICE -> new float[]{0.65f, 0.9f, 1f};
+            case THUNDER -> new float[]{1f, 0.78f, 0.25f};
         };
     }
 

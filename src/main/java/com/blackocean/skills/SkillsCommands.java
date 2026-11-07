@@ -17,7 +17,7 @@ import java.util.List;
 /**
  * 모두 OP(권한 2) 전용.
  * <pre>
- * /skills element <대상> <fire|lightning|wind|water|none|default>   능력 정하기 (default = 서버 기본값으로)
+ * /skills element <대상> <fire|lightning|wind|water|ice|thunder|none|default>   능력 정하기 (default = 서버 기본값으로)
  * /skills element <대상>                                             능력 확인
  * /skills reset [대상]                                               모든 쿨타임 초기화
  * /skills cast <스킬이름> [대상]                                       쿨타임 무시하고 발동 (능력과 상관없이)
@@ -42,7 +42,7 @@ public final class SkillsCommands {
         LiteralArgumentBuilder<CommandSourceStack> element = Commands.literal("element");
         var targets = Commands.argument("targets", EntityArgument.players())
                 .executes(c -> show(c.getSource(), EntityArgument.getPlayers(c, "targets")));
-        for (String name : new String[]{"fire", "lightning", "wind", "water", "none", "default"}) {
+        for (String name : new String[]{"fire", "lightning", "wind", "water", "ice", "thunder", "none", "default"}) {
             targets.then(Commands.literal(name).executes(c -> setElement(c.getSource(), EntityArgument.getPlayers(c, "targets"), name)));
         }
         element.then(targets);

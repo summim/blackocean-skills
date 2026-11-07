@@ -66,6 +66,8 @@ public final class SkillsRegistry {
                 "fire.sun_charge", "fire.sun_impact",
                 "lightning.charge", "lightning.zap", "lightning.thunder", "lightning.blink", "lightning.discharge", "lightning.storm_charge",
                 "wind.charge", "wind.blade", "wind.dash", "wind.tornado", "wind.burst",
+                "ice.charge", "ice.shot", "ice.shatter", "ice.spikes", "ice.nova", "ice.glacier",
+                "thunder.charge", "thunder.hammer", "thunder.clap", "thunder.slam", "thunder.roar", "thunder.judgment",
                 "water.charge", "water.shot", "water.splash", "water.jet", "water.wave", "water.dragon",
                 "common.ultimate", "common.transform"}) {
             sound(n);

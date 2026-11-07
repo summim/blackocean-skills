@@ -47,7 +47,7 @@ public final class SkillsConfig {
         PVP = b.comment("false 면 플레이어끼리는 피해 없음").define("pvp", true);
         ALLOW_FIRE = b.comment("true 면 화염 스킬이 지형·대상에 불을 붙임").define("allowFire", false);
         ALLOW_BLOCK_DAMAGE = b.comment("true 면 폭발 스킬이 지형을 부숨").define("allowBlockDamage", false);
-        DEFAULT_ELEMENT = b.comment("능력을 정하지 않은 플레이어의 능력: fire, lightning, wind, water, none(스킬 없음)")
+        DEFAULT_ELEMENT = b.comment("능력을 정하지 않은 플레이어의 능력: fire, lightning, wind, water, ice, thunder, none(스킬 없음)")
                 .define("defaultElement", "fire", o -> o instanceof String s && (s.equals("none") || Element.byId(s) != null));
         DAMAGE_MULT = b.comment("모든 스킬 피해 배율").defineInRange("damageMultiplier", 1.0, 0.0, 10.0);
         COOLDOWN_MULT = b.comment("모든 스킬 쿨타임 배율").defineInRange("cooldownMultiplier", 1.0, 0.0, 10.0);

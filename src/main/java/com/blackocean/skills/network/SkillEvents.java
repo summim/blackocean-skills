@@ -28,11 +28,22 @@ import org.jetbrains.annotations.Nullable;
  * FIELD      중심 바닥         -             반지름        -             유지 틱      -
  * ULT_CAST   시전자 위치        -             -            -             -           -
  * TRANSFORM  먹은 사람 위치     -             -            -             -           능력 번호
+ * ---- 얼음·천둥 (skill 이 -1 인 것은 스킬 상관없는 상태 연출) ----
+ * FREEZE     얼린 생물 발밑    -             몸 너비       몸 높이        얼림 틱      얼린 생물     (skill -1)
+ * STUN       기절 생물 발밑    -             몸 너비       몸 높이        기절 틱      기절 생물     (skill -1)
+ * SPIKES     출발 바닥         방향          폭 절반       거리           진행 틱      -
+ * NOVA       발밑 바닥         -             반지름        -             얼림 틱      -
+ * GLACIER    중심 바닥         -             반지름        0=충돌 1=산산조각  지대 유지 틱  -
+ * LEAP       0:출발 1:착지     도착 바닥      착지 범위     0=뜀 1=착지    비행 틱      -
+ * CLAP       시전자 바닥       방향          거리          반각(도)       -           -
+ * ROAR       시전자 바닥       -             반지름        0=당김 1=폭발   당김 틱      -
+ * JUDGMENT   0:출발 1·2:목표   목표 바닥      반지름        0=솟구침 1=내려찍기 2=여진  0:떠 있는 틱 2:여진 번호  -
  * </pre>
  */
 public final class SkillEvents {
     public static final int IMPACT = 0, PIERCE = 1, ERUPT = 2, BURST = 3, BOLT = 4, BLINK = 5, STRIKE = 6, STORM = 7,
-            DASH = 8, TORNADO = 9, JET = 10, PRISON = 11, WAVE = 12, DRAGON = 13, FIELD = 14, ULT_CAST = 15, TRANSFORM = 16;
+            DASH = 8, TORNADO = 9, JET = 10, PRISON = 11, WAVE = 12, DRAGON = 13, FIELD = 14, ULT_CAST = 15, TRANSFORM = 16,
+            FREEZE = 17, STUN = 18, SPIKES = 19, NOVA = 20, GLACIER = 21, LEAP = 22, CLAP = 23, ROAR = 24, JUDGMENT = 25;
 
     private SkillEvents() {}
 

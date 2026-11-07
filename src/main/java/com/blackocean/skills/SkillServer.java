@@ -161,6 +161,8 @@ public final class SkillServer {
             case LIGHTNING_STORM -> new ChargeSound("lightning.storm_charge", 3.0f, 1.0f);
             case WIND_TEMPEST -> new ChargeSound("wind.charge", 2.5f, 0.7f);
             case WATER_DRAGON -> new ChargeSound("water.charge", 2.5f, 0.7f);
+            case ICE_AGE -> new ChargeSound("ice.charge", 3.0f, 0.6f);
+            case THUNDER_JUDGMENT -> new ChargeSound("thunder.charge", 3.0f, 0.7f);
             default -> new ChargeSound(s.element.id + ".charge", 1.4f, s.slot == 1 ? 1.4f : 1.0f);
         };
     }
@@ -292,6 +294,12 @@ public final class SkillServer {
             case WIND_DASH -> EFFECTS.add(new ServerEffects.Dash(level, p, skill));
             case WATER_JET -> EFFECTS.add(new ServerEffects.Jet(level, p, skill));
             case WATER_WAVE -> EFFECTS.add(new ServerEffects.Wave(level, p, skill));
+            case ICE_SPEAR, THUNDER_HAMMER -> projectile(p, skill, 0.3, 0, 0);
+            case ICE_SHARDS -> fan(p, skill, 7);
+            case ICE_SPIKES -> EFFECTS.add(new IceThunderEffects.Spikes(level, p, skill));
+            case FROST_NOVA -> IceThunderEffects.frostNova(level, p, skill);
+            case THUNDERCLAP -> IceThunderEffects.thunderclap(level, p, skill);
+            case THUNDER_ROAR -> EFFECTS.add(new IceThunderEffects.Roar(level, p, skill));
             default -> {
                 if (target == null) return;
                 switch (skill) {
@@ -301,10 +309,27 @@ public final class SkillServer {
                     case WIND_WHIRLWIND, WIND_TEMPEST -> EFFECTS.add(new ServerEffects.Tornado(level, p, skill, target));
                     case WATER_PRISON -> EFFECTS.add(new ServerEffects.Prison(level, p, skill, target));
                     case WATER_DRAGON -> EFFECTS.add(new ServerEffects.Dragon(level, p, skill, target));
+                    case ICE_AGE -> EFFECTS.add(new IceThunderEffects.Glacier(level, p, skill, target));
+                    case THUNDER_LEAP -> EFFECTS.add(new IceThunderEffects.Leap(level, p, skill, target));
+                    case THUNDER_JUDGMENT -> EFFECTS.add(new IceThunderEffects.Judgment(level, p, skill, target));
                     default -> { }
                 }
             }
         }
+    }
+
+    /** 부채꼴로 여러 발 (얼음 파편). radius = 반각(도) */
+    private static void fan(ServerPlayer p, Skill skill, int count) {
+        ServerLevel level = p.serverLevel();
+        Vec3 eye = p.getEyePosition(), look = p.getLookAngle();
+        Vec3 start = SkillAim.handPos(level, p, eye, look, 0, 0);
+        Vec3 dir = SkillAim.aimDirection(level, p, eye, look, start, skill.range());
+        double half = Math.toRadians(Math.min(80.0, Math.max(1.0, skill.radius())));
+        for (int i = 0; i < count; i++) {
+            double a = count == 1 ? 0 : -half + 2 * half * i / (count - 1);
+            level.addFreshEntity(SkillProjectile.create(level, p, skill, start, dir.yRot((float) a).normalize()));
+        }
+        level.playSound(null, start.x, start.y, start.z, SkillsRegistry.snd("ice.shot"), SoundSource.PLAYERS, 2.4f, 1.3f);
     }
 
     /** 투사체 발사. side: 손 좌우, lift: 머리 위 높이(태양), spreadDeg: 탄 퍼짐 */
@@ -323,6 +348,8 @@ public final class SkillServer {
             case FIRE_BULLETS -> "fire_bullets.shot";
             case WIND_BLADE -> "wind.blade";
             case WATER_BULLET -> "water.shot";
+            case ICE_SPEAR -> "ice.shot";
+            case THUNDER_HAMMER -> "thunder.hammer";
             default -> "fire_fist.launch";
         };
         float pitch = skill == Skill.FIRE_SUN ? 0.55f : skill == Skill.FIRE_BULLETS ? 0.92f + p.getRandom().nextFloat() * 0.16f : 1.0f;

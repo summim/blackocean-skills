@@ -5,6 +5,7 @@ import com.blackocean.skills.Skill;
 import com.blackocean.skills.SkillServer;
 import com.blackocean.skills.SkillTargets;
 import com.blackocean.skills.SkillsConfig;
+import com.blackocean.skills.SkillsHooks;
 import com.blackocean.skills.SkillsRegistry;
 import com.blackocean.skills.SubLevels;
 import com.blackocean.skills.network.SkillEvents;
@@ -206,9 +207,13 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
                 case WIND_BLADE -> level.playSound(null, pos.x, pos.y, pos.z, SkillsRegistry.snd("wind.blade"), SoundSource.PLAYERS, 1.2f, 0.8f);
                 default -> {
                     if (direct != null) {
-                        SkillTargets.hurt(level, direct, owner, skill.element, skill.damage(), skill == Skill.FIRE_BULLETS);
-                        SkillTargets.knock(direct, flight, skill == Skill.FIRE_FIST ? 0.9 : 0.4, 0.25);
+                        SkillTargets.hurt(level, direct, owner, skill.element, skill.damage(), rapid());
+                        SkillTargets.knock(direct, flight, skill == Skill.FIRE_FIST ? 0.9 : skill == Skill.THUNDER_HAMMER ? 1.2 : 0.4,
+                                skill == Skill.THUNDER_HAMMER ? 0.5 : 0.25);
                         if (skill.element == Element.WATER) SkillTargets.slow(direct, skill.durationTicks(), 1);
+                        if (skill == Skill.ICE_SPEAR) SkillsHooks.freeze(level, direct, skill.durationTicks());
+                        if (skill == Skill.ICE_SHARDS) SkillTargets.slow(direct, skill.durationTicks(), 2);
+                        if (skill == Skill.THUNDER_HAMMER) SkillsHooks.stun(level, direct, skill.durationTicks());
                         if (skill.element == Element.FIRE && SkillsConfig.ALLOW_FIRE.get()) direct.igniteForSeconds(4.0f);
                     }
                     float splash = skill.damage2();
@@ -216,25 +221,36 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
                         for (LivingEntity e : SkillTargets.inSphere(level, owner, center, radius, true)) {
                             if (e == direct) continue;
                             double f = 1.0 - SkillTargets.edgeFraction(e, center, radius);
-                            SkillTargets.hurt(level, e, owner, skill.element, (float) (splash * f), skill == Skill.FIRE_BULLETS);
+                            SkillTargets.hurt(level, e, owner, skill.element, (float) (splash * f), rapid());
                             Vec3 push = e.getBoundingBox().getCenter().subtract(center);
-                            SkillTargets.knock(e, push.lengthSqr() < 1.0E-4 ? new Vec3(0, 1, 0) : push.normalize(), 0.6 * f, 0.2 * f);
+                            boolean heavy = skill == Skill.THUNDER_HAMMER;
+                            SkillTargets.knock(e, push.lengthSqr() < 1.0E-4 ? new Vec3(0, 1, 0) : push.normalize(), (heavy ? 1.1 : 0.6) * f, (heavy ? 0.5 : 0.2) * f);
                             if (skill.element == Element.WATER) SkillTargets.slow(e, skill.durationTicks() / 2, 0);
+                            if (skill.element == Element.ICE) SkillTargets.slow(e, 30, 2);
+                            if (heavy) SkillsHooks.stun(level, e, skill.durationTicks() / 2);
                         }
                     }
                     if (skill == Skill.FIRE_FIST) terrain(level, center, 2.0f);
+                    if (skill == Skill.THUNDER_HAMMER) SkillsHooks.terrain(level, center, 2.5f);
                     String snd = switch (skill) {
                         case FIRE_BULLETS -> "fire_bullets.impact";
                         case WATER_BULLET -> "water.splash";
+                        case ICE_SPEAR, ICE_SHARDS -> "ice.shatter";
+                        case THUNDER_HAMMER -> "thunder.clap";
                         default -> "fire_fist.impact";
                     };
                     level.playSound(null, pos.x, pos.y, pos.z, SkillsRegistry.snd(snd), SoundSource.PLAYERS,
-                            skill == Skill.FIRE_FIST ? 4.0f : 2.2f, 0.95f + random.nextFloat() * 0.1f);
+                            skill == Skill.FIRE_FIST || skill == Skill.THUNDER_HAMMER ? 4.0f : skill == Skill.ICE_SHARDS ? 1.2f : 2.2f, 0.95f + random.nextFloat() * 0.1f);
                 }
             }
         }
         SkillEvents.send(level, skill, SkillEvents.IMPACT, owner, pos, normal, radius, fizzle ? 1f : 0f, getId(), direct == null ? -1 : direct.getId());
         discard();
+    }
+
+    /** 짧은 간격으로 여러 번 맞는 투사체 (연사·파편): 맞은 뒤 무적 시간 무시 */
+    private boolean rapid() {
+        return skill == Skill.FIRE_BULLETS || skill == Skill.ICE_SHARDS;
     }
 
     /** 설정으로 켰을 때만 지형 파괴·불 붙이기 (화염 계열) */

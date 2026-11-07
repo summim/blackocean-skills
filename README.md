@@ -66,11 +66,12 @@ NeoForge 1.21.1 전용. **추가로 설치할 모드가 없습니다** (이 jar 
 
 **서버** `config/blackocean_skills-common.toml` (게임을 켠 채 고쳐도 자동 반영, 접속자 조준 표시까지 갱신)
 - `[general]`: `pvp`, `allowFire`, `allowBlockDamage`, `defaultElement`(fire), `damageMultiplier`, `cooldownMultiplier`, `fruitSwap`, `ultimateBanner`
-- 스킬마다 같은 모양의 칸 20개 (`[fire_fist]`, `[lightning_storm]` …): `enabled`, `cooldown`(초), `charge`(초), `damage`, `damage2`, `range`, `radius`, `duration`(초), `speed`
+- 스킬마다 같은 모양의 칸 30개 (`[fire_fist]`, `[lightning_storm]` …): `enabled`, `cooldown`(초), `charge`(초), `damage`, `damage2`, `range`, `radius`, `duration`(초), `speed`
   - 각 칸 위의 설명에 그 스킬에서 숫자가 뜻하는 것(예: damage2 = 0.5초마다 피해)이 적혀 있습니다.
   - ⚠ 1.x 의 설정 이름과 달라서, 업데이트하면 스킬 숫자는 기본값으로 다시 시작합니다.
 
 **각자 PC** `config/blackocean_skills-client.toml`: `particleAmount`(느리면 0.5), `afterimages`, `cameraShake`, `cooldownHud`, `skillKeysOverHotbar`, `holdToAim`
+  - `[fx]`: `debris`(지형 파괴 조각 켜기/끄기), `fxQuality`(LOW/MEDIUM/HIGH — 컴퓨터가 느리면 LOW), `shakeStrength`(화면 흔들림 0~2), `ultimateCinematic`(궁극기 화면 연출)
 
 ### 명령어 (OP)
 | 명령어 | 뜻 |

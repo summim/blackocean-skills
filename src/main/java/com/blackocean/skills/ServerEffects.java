@@ -9,7 +9,9 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.projectile.FishingHook;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.entity.projectile.ThrownTrident;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -41,7 +43,7 @@ final class ServerEffects {
 
     /** 화염 고리: 사방으로 불의 파도 */
     static void flameRing(ServerLevel level, ServerPlayer p, Skill s) {
-        double radius = s.radius();
+        double radius = Math.max(0.5, s.radius());
         Vec3 c = p.position().add(0, 0.9, 0);
         for (LivingEntity e : SkillTargets.inCylinder(level, p, p.position(), radius, 2.0, 4.0, c)) {
             Vec3 flat = e.position().subtract(p.position()).multiply(1, 0, 1);
@@ -157,7 +159,8 @@ final class ServerEffects {
             Vec3 flat = e.position().subtract(p.position()).multiply(1, 0, 1);
             SkillTargets.knock(e, flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize(), s.speed() * f, 0.55);
         }
-        for (Projectile pr : level.getEntitiesOfClass(Projectile.class, new AABB(c, c).inflate(r), x -> x.getOwner() != p)) {
+        for (Projectile pr : level.getEntitiesOfClass(Projectile.class, new AABB(c, c).inflate(r), x -> x.getOwner() != p && !(x instanceof ThrownTrident) && !(x instanceof FishingHook)
+                && (x.getOwner() == null || SkillTargets.canHit(p, x.getOwner())))) {
             pr.discard();
         }
         level.playSound(null, c.x, c.y, c.z, SkillsRegistry.snd("wind.burst"), SoundSource.PLAYERS, 4.0f, 1.0f);
@@ -171,24 +174,33 @@ final class ServerEffects {
     abstract static class Effect {
         final ServerLevel level;
         final UUID ownerId;
+        final int ownerEntity;
         final Skill skill;
         int age;
 
         Effect(ServerLevel level, ServerPlayer owner, Skill skill) {
             this.level = level;
             this.ownerId = owner.getUUID();
+            this.ownerEntity = owner.getId();
             this.skill = skill;
         }
 
         /** @return true 면 끝 */
         boolean tick(MinecraftServer server) {
             ServerPlayer o = server.getPlayerList().getPlayer(ownerId);
-            if (o == null || o.level() != level) return true; // 나갔거나 다른 차원으로 감
+            // 나갔거나, 다른 차원으로 갔거나, 죽고 다시 태어남(새 몸) → 끝
+            if (o == null || o.level() != level || o.getId() != ownerEntity) {
+                abort();
+                return true;
+            }
             age++;
             return step(o);
         }
 
         abstract boolean step(ServerPlayer owner);
+
+        /** 시전자가 사라져 중간에 끝날 때 */
+        void abort() {}
 
         void sound(Vec3 at, String name, float vol, float pitch) {
             level.playSound(null, at.x, at.y, at.z, SkillsRegistry.snd(name), SoundSource.PLAYERS, vol, pitch);
@@ -206,8 +218,8 @@ final class ServerEffects {
             this.base = base;
             this.duration = s.durationTicks();
             double r = s.radius();
-            for (LivingEntity e : SkillTargets.inCylinder(level, p, base, r, 0.5, HEIGHT, null)) {
-                SkillTargets.hurt(level, e, p, Element.FIRE, s.damage());
+            for (LivingEntity e : SkillTargets.inCylinder(level, p, base, r, 0.5, HEIGHT, base.add(0, 1, 0))) {
+                SkillTargets.hurt(level, e, p, Element.FIRE, s.damage(), true);
                 Vec3 out = e.position().subtract(base).multiply(1, 0, 1);
                 SkillTargets.knock(e, out.lengthSqr() < 1.0E-4 ? Vec3.ZERO : out.normalize(), 0.25, 1.0);
             }
@@ -219,8 +231,8 @@ final class ServerEffects {
         boolean step(ServerPlayer o) {
             if (age >= duration) return true;
             if (age % 10 == 0) {
-                for (LivingEntity e : SkillTargets.inCylinder(level, o, base, skill.radius() * 0.85, 0.5, HEIGHT, null)) {
-                    SkillTargets.hurt(level, e, o, Element.FIRE, skill.damage2());
+                for (LivingEntity e : SkillTargets.inCylinder(level, o, base, skill.radius() * 0.85, 0.5, HEIGHT, base.add(0, 1, 0))) {
+                    SkillTargets.hurt(level, e, o, Element.FIRE, skill.damage2(), true);
                     SkillTargets.knock(e, Vec3.ZERO, 0, 0.18);
                 }
             }
@@ -246,8 +258,8 @@ final class ServerEffects {
         boolean step(ServerPlayer o) {
             if (age >= duration) return true;
             if (age % 10 == 0) {
-                for (LivingEntity e : SkillTargets.inCylinder(level, o, base, radius, 1.0, 3.0, null)) {
-                    SkillTargets.hurt(level, e, o, Element.FIRE, skill.damage2());
+                for (LivingEntity e : SkillTargets.inCylinder(level, o, base, radius, 1.0, 3.0, base.add(0, 1, 0))) {
+                    SkillTargets.hurt(level, e, o, Element.FIRE, skill.damage2(), true);
                 }
             }
             return false;
@@ -276,8 +288,8 @@ final class ServerEffects {
                 at = SkillAim.groundBelow(level, o, center.add(Math.cos(a) * d, 2.0, Math.sin(a) * d));
             }
             double hr = Math.max(1.5, r * 0.8);
-            for (LivingEntity e : SkillTargets.inCylinder(level, o, at, hr, 1.0, 5.0, null)) {
-                SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage());
+            for (LivingEntity e : SkillTargets.inCylinder(level, o, at, hr, 1.0, 5.0, at.add(0, 1, 0))) {
+                SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage(), true);
                 SkillTargets.stun(e, 15);
             }
             sound(at, "lightning.thunder", 3.0f, 1.25f);
@@ -319,8 +331,8 @@ final class ServerEffects {
                     at = center.add(Math.cos(a) * d, 3.0, Math.sin(a) * d);
                 }
                 at = SkillAim.groundBelow(level, o, at.add(0, 0.5, 0));
-                for (LivingEntity e : SkillTargets.inCylinder(level, o, at, 2.2, 1.0, 5.0, null)) {
-                    SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage2());
+                for (LivingEntity e : SkillTargets.inCylinder(level, o, at, 2.2, 1.0, 5.0, at.add(0, 1, 0))) {
+                    SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage2(), true);
                     SkillTargets.stun(e, 10);
                 }
                 if (age % 8 == 0) sound(at, "lightning.thunder", 3.5f, 1.1f + o.getRandom().nextFloat() * 0.3f);
@@ -330,7 +342,7 @@ final class ServerEffects {
             if (age == duration) {
                 double big = Math.max(3.0, r * 0.45);
                 for (LivingEntity e : SkillTargets.inCylinder(level, o, center, big, 2.0, 12.0, null)) {
-                    SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage());
+                    SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage(), true);
                     SkillTargets.stun(e, 30);
                     SkillTargets.knock(e, Vec3.ZERO, 0, 0.9);
                 }
@@ -373,7 +385,7 @@ final class ServerEffects {
                 push(o);
                 for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, o.getBoundingBox().inflate(skill.radius()), x -> SkillTargets.canHit(o, x))) {
                     if (!hit.add(e.getId())) continue;
-                    SkillTargets.hurt(level, e, o, Element.WIND, skill.damage());
+                    SkillTargets.hurt(level, e, o, Element.WIND, skill.damage(), true);
                     SkillTargets.knock(e, dir, 0.5, 0.8);
                 }
             } else if (age == ticks) {
@@ -402,14 +414,22 @@ final class ServerEffects {
         }
 
         @Override
+        void abort() {
+            double pr = r * (big ? 2.3 : 1.6);
+            for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(center, center).inflate(pr, 0, pr).expandTowards(0, h + 2, 0))) {
+                e.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 70, 0, false, false, true));
+            }
+        }
+
+        @Override
         boolean step(ServerPlayer o) {
             if (age % 60 == 0 && age < duration - 20) sound(center, "wind.tornado", big ? 6.0f : 3.0f, big ? 0.7f : 1.0f);
             double pullR = r * (big ? 2.3 : 1.6);
-            List<LivingEntity> in = SkillTargets.inCylinder(level, o, center, pullR, 1.0, h, null);
+            List<LivingEntity> in = SkillTargets.inCylinder(level, o, center, pullR, 1.0, h, center.add(0, 1, 0));
             if (age >= duration) {
                 for (LivingEntity e : in) {
                     Vec3 flat = e.position().subtract(center).multiply(1, 0, 1);
-                    SkillTargets.hurt(level, e, o, Element.WIND, skill.damage());
+                    SkillTargets.hurt(level, e, o, Element.WIND, skill.damage(), true);
                     SkillTargets.setVelocity(e, (flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize()).scale(big ? 2.0 : 1.4).add(0, 0.45, 0));
                     e.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 70, 0, false, false, true));
                 }
@@ -427,7 +447,7 @@ final class ServerEffects {
                 if (d <= r + 0.5) {
                     vy = e.getY() < center.y + h * 0.7 ? Math.max(vy, big ? 0.32 : 0.22) : Math.min(vy, 0.04);
                     e.fallDistance = 0;
-                    if (hurtTick) SkillTargets.hurt(level, e, o, Element.WIND, skill.damage2());
+                    if (hurtTick) SkillTargets.hurt(level, e, o, Element.WIND, skill.damage2(), true);
                 }
                 SkillTargets.setVelocity(e, n.scale(pull).add(tangent.scale(big ? 0.35 : 0.25)).add(0, vy, 0));
             }
@@ -462,11 +482,11 @@ final class ServerEffects {
                 int id = e.getId();
                 if (nextHit.getOrDefault(id, 0) <= age) {
                     nextHit.put(id, age + 5);
-                    SkillTargets.hurt(level, e, o, Element.WATER, skill.damage());
+                    SkillTargets.hurt(level, e, o, Element.WATER, skill.damage(), true);
                     SkillTargets.slow(e, 20, 1);
                 }
                 Vec3 v = e.getDeltaMovement();
-                SkillTargets.setVelocity(e, new Vec3(dir.x * skill.speed(), Math.max(v.y, dir.y * skill.speed() + 0.05), dir.z * skill.speed()));
+                SkillTargets.setVelocity(e, new Vec3(dir.x * skill.speed(), Math.max(v.y, Math.min(0.12, dir.y * skill.speed() + 0.05)), dir.z * skill.speed()));
             }
             return false;
         }
@@ -489,11 +509,11 @@ final class ServerEffects {
         boolean step(ServerPlayer o) {
             double r = skill.radius();
             Vec3 core = center.add(0, 1.2, 0);
-            List<LivingEntity> in = SkillTargets.inCylinder(level, o, center, r * 1.4, 1.0, 4.5, null);
+            List<LivingEntity> in = SkillTargets.inCylinder(level, o, center, r * 1.4, 1.0, 4.5, center.add(0, 1, 0));
             if (age >= duration) {
                 for (LivingEntity e : in) {
                     Vec3 out = e.position().subtract(center).multiply(1, 0, 1);
-                    SkillTargets.hurt(level, e, o, Element.WATER, skill.damage());
+                    SkillTargets.hurt(level, e, o, Element.WATER, skill.damage(), true);
                     SkillTargets.knock(e, out.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : out.normalize(), 0.6, 0.7);
                 }
                 sound(center, "water.splash", 4.0f, 0.7f);
@@ -506,7 +526,7 @@ final class ServerEffects {
                 SkillTargets.setVelocity(e, v);
                 e.fallDistance = 0;
                 SkillTargets.slow(e, 10, 3);
-                if (age % 10 == 0) SkillTargets.hurt(level, e, o, Element.WATER, skill.damage2());
+                if (age % 10 == 0) SkillTargets.hurt(level, e, o, Element.WATER, skill.damage2(), true);
             }
             return false;
         }
@@ -525,7 +545,9 @@ final class ServerEffects {
             this.dir = SkillAim.flatLook(p.getLookAngle(), p.getYRot());
             this.side = new Vec3(-dir.z, 0, dir.x);
             this.width = s.radius();
-            this.range = s.range();
+            Vec3 from = start.add(0, 1.0, 0), to = from.add(dir.scale(s.range()));
+            BlockHitResult wall = SubLevels.clip(level, new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+            this.range = wall.getType() == HitResult.Type.MISS ? s.range() : Math.max(1.0, wall.getLocation().distanceTo(from));
             this.speed = Math.max(0.2, s.speed());
             this.ticks = (int) Math.ceil(range / speed);
             sound(start, "water.wave", 4.0f, 1.0f);
@@ -543,7 +565,7 @@ final class ServerEffects {
                 double along = rel.dot(dir), lat = Math.abs(rel.dot(side));
                 if (along < d - 2.0 || along > d + 0.8 || lat > width + e.getBbWidth() * 0.5) continue;
                 if (hit.add(e.getId())) {
-                    SkillTargets.hurt(level, e, o, Element.WATER, skill.damage());
+                    SkillTargets.hurt(level, e, o, Element.WATER, skill.damage(), true);
                     SkillTargets.slow(e, 30, 1);
                 }
                 SkillTargets.setVelocity(e, dir.scale(speed * 1.15).add(0, e.onGround() ? 0.3 : Math.max(0.05, e.getDeltaMovement().y), 0));
@@ -571,9 +593,9 @@ final class ServerEffects {
             double r = skill.radius();
             if (age == FLIGHT) {
                 Vec3 c = target.add(0, 1.0, 0);
-                for (LivingEntity e : SkillTargets.inCylinder(level, o, target, r, 2.0, 6.0, null)) {
+                for (LivingEntity e : SkillTargets.inCylinder(level, o, target, r, 2.0, 6.0, target.add(0, 1, 0))) {
                     double f = SkillTargets.edgeFraction(e, c, r);
-                    SkillTargets.hurt(level, e, o, Element.WATER, (float) (skill.damage() * (1.0 - 0.5 * f)));
+                    SkillTargets.hurt(level, e, o, Element.WATER, (float) (skill.damage() * (1.0 - 0.5 * f)), true);
                     Vec3 out = e.position().subtract(target).multiply(1, 0, 1);
                     SkillTargets.knock(e, out.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : out.normalize(), 0.8, 1.1);
                     SkillTargets.slow(e, 80, 2);
@@ -581,10 +603,10 @@ final class ServerEffects {
                 sound(target, "water.splash", 8.0f, 0.6f);
                 sound(target, "water.wave", 6.0f, 0.8f);
             } else if (age > FLIGHT && age % 10 == 0) {
-                for (LivingEntity e : SkillTargets.inCylinder(level, o, target, r, 1.0, 4.0, null)) {
+                for (LivingEntity e : SkillTargets.inCylinder(level, o, target, r, 1.0, 4.0, target.add(0, 1, 0))) {
                     Vec3 to = target.subtract(e.position()).multiply(1, 0, 1);
                     if (to.lengthSqr() > 1.0E-3) SkillTargets.knock(e, to.normalize(), 0.25, 0);
-                    SkillTargets.hurt(level, e, o, Element.WATER, skill.damage2());
+                    SkillTargets.hurt(level, e, o, Element.WATER, skill.damage2(), true);
                 }
             }
             return age >= FLIGHT + linger;

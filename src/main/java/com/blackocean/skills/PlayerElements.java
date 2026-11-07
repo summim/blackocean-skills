@@ -46,21 +46,22 @@ public final class PlayerElements {
         PacketDistributor.sendToPlayer(p, new ElementSyncPayload(e == null ? -1 : e.ordinal()));
     }
 
-    /** 열매를 먹음 */
-    public static void eatFruit(ServerPlayer p, Element e) {
+    /** 열매를 먹음. @return 능력을 받았으면 true (false 면 열매를 돌려줌) */
+    public static boolean eatFruit(ServerPlayer p, Element e) {
         Element now = get(p);
         if (now == e && hasChosen(p)) {
             p.displayClientMessage(Component.translatable("msg.blackocean_skills.fruit_same", Component.translatable(e.translationKey())), true);
-            return;
+            return false;
         }
         if (hasChosen(p) && now != null && !SkillsConfig.FRUIT_SWAP.get()) {
             p.displayClientMessage(Component.translatable("msg.blackocean_skills.fruit_locked", Component.translatable(now.translationKey())), true);
-            return;
+            return false;
         }
         set(p, e);
         p.displayClientMessage(Component.translatable("msg.blackocean_skills.fruit_gain", Component.translatable(e.translationKey())), false);
         p.serverLevel().playSound(null, p.getX(), p.getY(), p.getZ(), SkillsRegistry.snd("common.transform"), SoundSource.PLAYERS, 2.0f, 1.0f);
         SkillEvents.send(p.serverLevel(), null, SkillEvents.TRANSFORM, p, p.position(), Vec3.ZERO, 0, 0, 0, e.ordinal(), 64.0);
+        return true;
     }
 
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {

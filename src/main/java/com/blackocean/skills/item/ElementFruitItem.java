@@ -24,8 +24,10 @@ public class ElementFruitItem extends Item {
 
     @Override
     public ItemStack finishUsingItem(ItemStack stack, Level level, LivingEntity entity) {
-        if (!level.isClientSide && entity instanceof ServerPlayer p) {
-            PlayerElements.eatFruit(p, element);
+        if (!level.isClientSide && entity instanceof ServerPlayer p && !PlayerElements.eatFruit(p, element)) {
+            // 받지 못함 → 열매를 먹지 않은 것으로 (클라이언트가 먼저 줄인 개수를 되돌림)
+            p.containerMenu.sendAllDataToRemote();
+            return stack;
         }
         return super.finishUsingItem(stack, level, entity);
     }

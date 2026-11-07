@@ -54,7 +54,7 @@ public final class SkillServer {
      * @param shot     불꽃 탄환: 몇 번째 발 (0 = 모으는 중)
      * @param target   바닥 조준 스킬의 자리
      */
-    private record Pending(UUID player, Skill skill, long fireAt, int cooldown, int shot, @Nullable Vec3 target, ResourceKey<Level> dim) {}
+    private record Pending(UUID player, int entity, Skill skill, long fireAt, int cooldown, int shot, @Nullable Vec3 target, ResourceKey<Level> dim) {}
 
     private record Buffered(Skill skill, long expireAt) {}
 
@@ -113,6 +113,7 @@ public final class SkillServer {
         Vec3 target = null;
         if (skill.aim == Skill.Aim.GROUND) {
             target = SkillAim.groundTarget(level, p, eye, look, skill.range());
+            if (target == null && !useCooldown) target = SkillAim.groundBelow(level, p, p.position());
             if (target == null) {
                 p.displayClientMessage(Component.translatable("msg.blackocean_skills.no_target"), true);
                 return false;
@@ -126,7 +127,7 @@ public final class SkillServer {
         int charge = skill.chargeTicks();
         int cooldown = useCooldown ? skill.cooldownTicks() : 0;
         if (useCooldown) readyAt(p.getUUID())[skill.ordinal()] = now + cooldown;
-        PENDING.add(new Pending(p.getUUID(), skill, now + charge, cooldown, 0, target, level.dimension()));
+        PENDING.add(new Pending(p.getUUID(), p.getId(), skill, now + charge, cooldown, 0, target, level.dimension()));
 
         Vec3 at = target != null ? target : p.position();
         float size = skill.aim == Skill.Aim.GROUND ? (float) skill.radius() : 0f;
@@ -183,8 +184,17 @@ public final class SkillServer {
     /** 능력이 바뀌거나 나갈 때: 모으는 중·예약된 시전 취소 */
     public static void cancelAll(ServerPlayer p) {
         UUID id = p.getUUID();
-        PENDING.removeIf(x -> x.player().equals(id));
-        BUFFERED.remove(id);
+        PENDING.removeIf(x -> {
+            if (!x.player().equals(id)) return false;
+            if (x.shot() == 0 && x.cooldown() > 0) {
+                long[] r = READY_AT.get(id);
+                if (r != null) r[x.skill().ordinal()] = 0L;
+                PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(x.skill().ordinal(), 0, 0, true));
+            }
+            return true;
+        });
+        Buffered b = BUFFERED.remove(id);
+        if (b != null) deny(p, b.skill());
     }
 
     private static long[] readyAt(UUID id) {
@@ -208,6 +218,7 @@ public final class SkillServer {
     public static void addFireField(ServerLevel level, @Nullable Entity owner, Vec3 pos, float radius, Skill skill) {
         if (!(owner instanceof ServerPlayer p)) return;
         Vec3 ground = SkillAim.groundBelow(level, p, pos);
+        if (ground == pos) return; // 공중에서 터짐 → 불바다 없음
         EFFECTS.add(new ServerEffects.Field(level, p, skill, ground, radius));
     }
 
@@ -227,7 +238,8 @@ public final class SkillServer {
                 if (now < x.fireAt()) continue;
                 it.remove();
                 ServerPlayer p = server.getPlayerList().getPlayer(x.player());
-                boolean ok = p != null && p.isAlive() && !p.isSpectator() && p.level().dimension() == x.dim();
+                // 죽고 다시 태어난 경우(새 몸)도 취소
+                boolean ok = p != null && p.isAlive() && !p.isSpectator() && p.getId() == x.entity() && p.level().dimension() == x.dim();
                 if (!ok) {
                     if (x.shot() == 0 && x.cooldown() > 0) {
                         long[] r = READY_AT.get(x.player());
@@ -240,7 +252,7 @@ public final class SkillServer {
                     if (x.skill() == Skill.FIRE_BULLETS) {
                         projectile(p, x.skill(), x.shot() % 2 == 0 ? 0.38 : -0.38, 0, 2.5);
                         if (x.shot() + 1 < 5) {
-                            next.add(new Pending(x.player(), x.skill(), now + 2, 0, x.shot() + 1, null, x.dim()));
+                            next.add(new Pending(x.player(), x.entity(), x.skill(), now + 2, 0, x.shot() + 1, null, x.dim()));
                         }
                     } else {
                         execute(p, x.skill(), x.target());
@@ -345,7 +357,13 @@ public final class SkillServer {
     // =====================================================================
 
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
-        if (event.getEntity() instanceof ServerPlayer p) sendStats(p);
+        if (event.getEntity() instanceof ServerPlayer p) {
+            sendStats(p);
+            for (Skill s : Skill.VALUES) {
+                int left = remainingTicks(p, s);
+                if (left > 0) PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(s.ordinal(), left, Math.max(left, s.cooldownTicks()), false));
+            }
+        }
     }
 
     /** 조준 표시용 서버 설정값 (사거리·반경·지속·속도) */

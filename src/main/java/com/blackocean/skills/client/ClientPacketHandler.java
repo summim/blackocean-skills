@@ -49,6 +49,9 @@ public final class ClientPacketHandler {
     }
 
     public static void onElement(ElementSyncPayload p) {
-        ClientElement.set(Element.byIndex(p.element()));
+        Element before = ClientElement.get();
+        Element now = Element.byIndex(p.element());
+        ClientElement.set(now);
+        if (before != now) com.blackocean.skills.client.fx.AimPreview.stop(); // 조준 중이던 스킬은 이제 내 것이 아님
     }
 }

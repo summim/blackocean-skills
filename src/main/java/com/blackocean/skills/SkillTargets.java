@@ -1,6 +1,11 @@
 package com.blackocean.skills;
 
+import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.damagesource.DamageType;
+import net.minecraft.world.entity.OwnableEntity;
+import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
@@ -27,6 +32,10 @@ public final class SkillTargets {
     public static boolean canHit(@Nullable Entity owner, Entity e) {
         if (!(e instanceof LivingEntity) || !e.isAlive() || e.isSpectator()) return false;
         if (e == owner) return false;
+        // 무적(크리에이티브·관리자·무적 NPC), 갑옷 거치대(배 장식), 시전자의 길들인 동물은 제외
+        if (e.isInvulnerable() || e instanceof ArmorStand) return false;
+        if (e instanceof Player tp0 && tp0.getAbilities().invulnerable) return false;
+        if (owner != null && e instanceof OwnableEntity oe && owner.getUUID().equals(oe.getOwnerUUID())) return false;
         if (isSameRide(owner, e)) return false;
         if (owner instanceof Player op && e instanceof Player tp) {
             if (!SkillsConfig.PVP.get() || !op.canHarmPlayer(tp)) return false;
@@ -85,19 +94,29 @@ public final class SkillTargets {
         return r <= 0 ? 0 : Math.min(1.0, d / r);
     }
 
-    /** 능력별 피해 종류 (사망 메시지에 시전자 이름이 나오게) */
+    /**
+     * 능력별 피해 종류 (data/blackocean_skills/damage_type/*.json).
+     * 난이도에 따라 피해가 바뀌지 않고(scaling never), 바닐라 밀쳐내기 없음(no_knockback 태그 → 밀쳐내기는 스킬이 직접),
+     * 사망 메시지에 능력·시전자 이름이 나온다.
+     */
     public static DamageSource source(ServerLevel level, @Nullable Entity direct, @Nullable Entity owner, Element element) {
-        return switch (element) {
-            case FIRE -> level.damageSources().explosion(direct != null ? direct : owner, owner);
-            case LIGHTNING -> new DamageSource(level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE)
-                    .getHolderOrThrow(DamageTypes.LIGHTNING_BOLT), direct != null ? direct : owner, owner);
-            default -> owner instanceof Player pl ? level.damageSources().playerAttack(pl)
-                    : owner instanceof LivingEntity le ? level.damageSources().mobAttack(le) : level.damageSources().generic();
-        };
+        ResourceKey<DamageType> key = ResourceKey.create(Registries.DAMAGE_TYPE, SkillsMod.id(element.id));
+        Holder<DamageType> type = level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE).getHolder(key)
+                .map(h -> (Holder<DamageType>) h)
+                .orElseGet(() -> level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE).getHolderOrThrow(DamageTypes.MAGIC));
+        return new DamageSource(type, direct != null ? direct : owner, owner);
     }
 
     public static void hurt(ServerLevel level, LivingEntity e, @Nullable Entity owner, Element element, float dmg) {
-        if (dmg <= 0) return;
+        hurt(level, e, owner, element, dmg, false);
+    }
+
+    /**
+     * @param rapid true 면 맞은 뒤 무적 시간(0.5초)을 무시 → 연사·연속 낙뢰·물줄기처럼 짧은 간격의 피해가 모두 들어감
+     */
+    public static void hurt(ServerLevel level, LivingEntity e, @Nullable Entity owner, Element element, float dmg, boolean rapid) {
+        if (!(dmg > 0) || !Float.isFinite(dmg)) return;
+        if (rapid) e.invulnerableTime = 0;
         e.hurt(source(level, null, owner, element), dmg);
         if (element == Element.FIRE && SkillsConfig.ALLOW_FIRE.get()) e.igniteForSeconds(3.0f);
     }
@@ -105,12 +124,14 @@ public final class SkillTargets {
     /** 밀쳐내기 (서버). 플레이어에게도 바로 전달되도록 hurtMarked 를 켠다. */
     public static void knock(Entity e, Vec3 dir, double strength, double up) {
         if (strength <= 0 && up <= 0) return;
+        if (!Double.isFinite(dir.x) || !Double.isFinite(dir.z) || !Double.isFinite(strength) || !Double.isFinite(up)) return;
         e.push(dir.x * strength, up, dir.z * strength);
         e.hurtMarked = true;
     }
 
     /** 속도를 직접 정함 (끌어당기기·회오리) */
     public static void setVelocity(Entity e, Vec3 v) {
+        if (!Double.isFinite(v.x) || !Double.isFinite(v.y) || !Double.isFinite(v.z)) return;
         e.setDeltaMovement(v);
         e.hurtMarked = true;
     }

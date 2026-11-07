@@ -46,6 +46,8 @@ public final class FxManager {
 
     private static final List<ChargeFx> CHARGES = new ArrayList<>();
     private static final Map<Integer, ProjectileFx> PROJECTILES = new HashMap<>();
+    /** 막 생긴 투사체: 어떤 스킬인지(생성 정보)가 한 틱 늦게 올 수 있어서 다음 틱에 연출을 붙인다 */
+    private static final java.util.List<SkillProjectile> JOINED = new java.util.ArrayList<>();
     private static final List<ImpactFx> IMPACTS = new ArrayList<>();
     private static final List<RingWave> RINGS = new ArrayList<>();
     private static final List<Sprite> SPRITES = new ArrayList<>();
@@ -60,6 +62,7 @@ public final class FxManager {
         CHARGES.clear();
         PROJECTILES.values().forEach(p -> p.stopSound());
         PROJECTILES.clear();
+        JOINED.clear();
         IMPACTS.clear();
         RINGS.clear();
         SPRITES.clear();
@@ -165,7 +168,7 @@ public final class FxManager {
 
     /** 투사체가 내 화면에 나타남 (매 틱 모든 엔티티를 훑지 않도록 등장할 때만 등록). */
     public static void onProjectileJoin(SkillProjectile proj) {
-        PROJECTILES.computeIfAbsent(proj.getId(), id -> new ProjectileFx(proj));
+        JOINED.add(proj);
     }
 
     public static void onCastStart(Entity caster, Skill skill, int chargeTicks, Vec3 target, float size) {
@@ -279,6 +282,13 @@ public final class FxManager {
         CameraShake.tick();
 
         CHARGES.removeIf(c -> c.tick());
+
+        if (!JOINED.isEmpty()) {
+            for (SkillProjectile proj : JOINED) {
+                if (!proj.isRemoved()) PROJECTILES.computeIfAbsent(proj.getId(), id -> new ProjectileFx(proj));
+            }
+            JOINED.clear();
+        }
 
         // 날아가는 주먹 따라가기
         Iterator<ProjectileFx> it = PROJECTILES.values().iterator();

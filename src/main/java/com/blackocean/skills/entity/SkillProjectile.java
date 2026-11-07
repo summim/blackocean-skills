@@ -175,7 +175,7 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
     private void pierceHit(ServerLevel level, Hit h) {
         pierced.add(h.entity.getId());
         Entity owner = getOwner();
-        h.entity.hurt(damageSources().mobProjectile(this, owner instanceof LivingEntity le ? le : null), skill.damage());
+        SkillTargets.hurt(level, h.entity, owner, skill.element, skill.damage(), true);
         Vec3 flight = getDeltaMovement().normalize();
         SkillTargets.knock(h.entity, flight, 0.7, 0.25);
         level.playSound(null, h.pos.x, h.pos.y, h.pos.z, SkillsRegistry.snd("wind.blade"), SoundSource.PLAYERS, 1.2f, 1.3f);
@@ -206,7 +206,7 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
                 case WIND_BLADE -> level.playSound(null, pos.x, pos.y, pos.z, SkillsRegistry.snd("wind.blade"), SoundSource.PLAYERS, 1.2f, 0.8f);
                 default -> {
                     if (direct != null) {
-                        direct.hurt(damageSources().mobProjectile(this, ownerLiving), skill.damage());
+                        SkillTargets.hurt(level, direct, owner, skill.element, skill.damage(), skill == Skill.FIRE_BULLETS);
                         SkillTargets.knock(direct, flight, skill == Skill.FIRE_FIST ? 0.9 : 0.4, 0.25);
                         if (skill.element == Element.WATER) SkillTargets.slow(direct, skill.durationTicks(), 1);
                         if (skill.element == Element.FIRE && SkillsConfig.ALLOW_FIRE.get()) direct.igniteForSeconds(4.0f);
@@ -216,7 +216,7 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
                         for (LivingEntity e : SkillTargets.inSphere(level, owner, center, radius, true)) {
                             if (e == direct) continue;
                             double f = 1.0 - SkillTargets.edgeFraction(e, center, radius);
-                            SkillTargets.hurt(level, e, owner, skill.element, (float) (splash * f));
+                            SkillTargets.hurt(level, e, owner, skill.element, (float) (splash * f), skill == Skill.FIRE_BULLETS);
                             Vec3 push = e.getBoundingBox().getCenter().subtract(center);
                             SkillTargets.knock(e, push.lengthSqr() < 1.0E-4 ? new Vec3(0, 1, 0) : push.normalize(), 0.6 * f, 0.2 * f);
                             if (skill.element == Element.WATER) SkillTargets.slow(e, skill.durationTicks() / 2, 0);

@@ -191,10 +191,10 @@ public final class SkillServer {
         ChargeSound cs = chargeSound(skill);
         level.playSound(p, p.getX(), p.getY(), p.getZ(), SkillsRegistry.snd(cs.name()), SoundSource.PLAYERS, cs.volume(), cs.pitch());
         if (skill == Skill.FIRE_PILLAR && target != null) {
-            level.playSound(null, target.x, target.y, target.z, SkillsRegistry.snd("fire_pillar.warn"), SoundSource.PLAYERS, 2.0f, 1.0f);
+            SkillSounds.play(level, target, "fire_pillar.warn", SkillSounds.R_HIT, 1.0f);
         }
         if (skill.ultimate()) {
-            level.playSound(null, p.getX(), p.getY(), p.getZ(), SkillsRegistry.snd("common.ultimate"), SoundSource.PLAYERS, 5.0f, 1.0f);
+            SkillSounds.play(level, p.position(), "common.ultimate", SkillSounds.R_ULT_CHARGE, 1.0f);
             if (SkillsConfig.ULT_BANNER.get()) {
                 SkillEvents.send(level, skill, SkillEvents.ULT_CAST, p, p.position(), Vec3.ZERO, 0, 0, charge, -1, 96.0);
             }
@@ -202,21 +202,33 @@ public final class SkillServer {
         return true;
     }
 
-    /** 모으는 소리 (서버·클라이언트 공통 표) */
+    /**
+     * 모으는 소리 (서버·클라이언트 공통 표). volume = 들리는 반경/16 (소리 크기는 파일이 정함, SkillSounds 참고).
+     * 궁극기는 전용 모으기 소리, 작은 스킬은 능력 공용 소리를 키마다 다른 음정으로.
+     */
     public record ChargeSound(String name, float volume, float pitch) {}
+
+    private static final float CHARGE_VOL = SkillSounds.vol(SkillSounds.R_CHARGE);
+    private static final float ULT_CHARGE_VOL = SkillSounds.vol(SkillSounds.R_ULT_CHARGE);
 
     public static ChargeSound chargeSound(Skill s) {
         return switch (s) {
-            case FIRE_FIST, FIRE_PILLAR -> new ChargeSound("fire_fist.charge", 1.4f, 1.0f);
-            case FIRE_BULLETS -> new ChargeSound("fire_fist.charge", 0.8f, 1.7f);
-            case FLAME_RING -> new ChargeSound("flame_ring.charge", 2.0f, 1.0f);
-            case FIRE_SUN -> new ChargeSound("fire.sun_charge", 3.0f, 1.0f);
-            case LIGHTNING_STORM -> new ChargeSound("lightning.storm_charge", 3.0f, 1.0f);
-            case WIND_TEMPEST -> new ChargeSound("wind.charge", 2.5f, 0.7f);
-            case WATER_DRAGON -> new ChargeSound("water.charge", 2.5f, 0.7f);
-            case ICE_AGE -> new ChargeSound("ice.charge", 3.0f, 0.6f);
-            case THUNDER_JUDGMENT -> new ChargeSound("thunder.charge", 3.0f, 0.7f);
-            default -> new ChargeSound(s.element.id + ".charge", 1.4f, s.slot == 1 ? 1.4f : 1.0f);
+            case FIRE_FIST -> new ChargeSound("fire_fist.charge", CHARGE_VOL, 1.0f);
+            case FIRE_BULLETS -> new ChargeSound("fire_bullets.charge", CHARGE_VOL, 1.0f);
+            case FIRE_PILLAR -> new ChargeSound("fire_pillar.charge", CHARGE_VOL, 1.0f);
+            case FLAME_RING -> new ChargeSound("flame_ring.charge", CHARGE_VOL, 1.0f);
+            case FIRE_SUN -> new ChargeSound("fire.sun_charge", ULT_CHARGE_VOL, 1.0f);
+            case LIGHTNING_STORM -> new ChargeSound("lightning.storm_charge", ULT_CHARGE_VOL, 1.0f);
+            case WIND_TEMPEST -> new ChargeSound("wind.tempest_charge", ULT_CHARGE_VOL, 1.0f);
+            case WATER_DRAGON -> new ChargeSound("water.dragon_charge", ULT_CHARGE_VOL, 1.0f);
+            case ICE_AGE -> new ChargeSound("ice.age_charge", ULT_CHARGE_VOL, 1.0f);
+            case THUNDER_JUDGMENT -> new ChargeSound("thunder.charge", ULT_CHARGE_VOL, 0.7f);
+            default -> new ChargeSound(s.element.id + ".charge", CHARGE_VOL, switch (s.slot) {
+                case 1 -> 1.3f;
+                case 2 -> 0.92f;
+                case 3 -> 0.85f;
+                default -> 1.0f;
+            });
         };
     }
 
@@ -403,7 +415,7 @@ public final class SkillServer {
             double a = count == 1 ? 0 : -half + 2 * half * i / (count - 1);
             level.addFreshEntity(SkillProjectile.create(level, p, skill, start, dir.yRot((float) a).normalize()));
         }
-        level.playSound(null, start.x, start.y, start.z, SkillsRegistry.snd("ice.shot"), SoundSource.PLAYERS, 2.4f, 1.3f);
+        SkillSounds.play(level, start, "ice.shards", SkillSounds.R_CAST, 0.96f + p.getRandom().nextFloat() * 0.08f);
     }
 
     /** 투사체 발사. side: 손 좌우, lift: 머리 위 높이(태양), spreadDeg: 탄 퍼짐 */
@@ -420,15 +432,16 @@ public final class SkillServer {
         level.addFreshEntity(SkillProjectile.create(level, p, skill, start, dir));
         String snd = switch (skill) {
             case FIRE_BULLETS -> "fire_bullets.shot";
+            case FIRE_SUN -> "fire.sun_launch";
             case WIND_BLADE -> "wind.blade";
             case WATER_BULLET -> "water.shot";
             case ICE_SPEAR -> "ice.shot";
             case THUNDER_HAMMER -> "thunder.hammer";
             default -> "fire_fist.launch";
         };
-        float pitch = skill == Skill.FIRE_SUN ? 0.55f : skill == Skill.FIRE_BULLETS ? 0.92f + p.getRandom().nextFloat() * 0.16f : 1.0f;
-        level.playSound(null, start.x, start.y, start.z, SkillsRegistry.snd(snd), SoundSource.PLAYERS,
-                skill == Skill.FIRE_SUN ? 5.0f : 2.2f, pitch);
+        float radius = skill == Skill.FIRE_SUN ? SkillSounds.R_ULT_CHARGE : skill == Skill.FIRE_BULLETS ? SkillSounds.R_RAPID : SkillSounds.R_CAST;
+        float pitch = skill == Skill.FIRE_BULLETS ? 0.94f + p.getRandom().nextFloat() * 0.12f : 0.97f + p.getRandom().nextFloat() * 0.06f;
+        SkillSounds.play(level, start, snd, radius, pitch);
     }
 
     private static void tickBuffered(MinecraftServer server, long now) {

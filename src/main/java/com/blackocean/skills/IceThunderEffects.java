@@ -50,8 +50,9 @@ final class IceThunderEffects {
                 Level.ExplosionInteraction.MOB, ParticleTypes.SMOKE, ParticleTypes.SMOKE, SkillProjectile.SILENT);
     }
 
-    static void sound(ServerLevel level, Vec3 at, String name, float vol, float pitch) {
-        level.playSound(null, at.x, at.y, at.z, SkillsRegistry.snd(name), SoundSource.PLAYERS, vol, pitch);
+    /** @param radius 들리는 반경 (블록, SkillSounds.R_*) */
+    static void sound(ServerLevel level, Vec3 at, String name, float radius, float pitch) {
+        SkillSounds.play(level, at, name, radius, pitch);
     }
 
     private static Vec3 out(Vec3 from, LivingEntity e) {
@@ -78,7 +79,7 @@ final class IceThunderEffects {
             SkillTargets.hurt(level, e, p, Element.ICE, s.damage());
             freeze(level, e, s.durationTicks());
         }
-        sound(level, c, "ice.nova", 4.0f, 1.0f);
+        sound(level, c, "ice.nova", SkillSounds.R_IMPACT, 1.0f);
         SkillEvents.send(level, s, SkillEvents.NOVA, p, SkillAim.groundBelow(level, p, p.position()), Vec3.ZERO, (float) r, 0, s.durationTicks(), -1);
     }
 
@@ -92,8 +93,8 @@ final class IceThunderEffects {
             stun(level, e, s.durationTicks());
             SkillTargets.knock(e, out(origin, e), s.speed() * (1.0 - 0.4 * f), 0.45);
         }
-        sound(level, origin, "thunder.clap", 5.0f, 0.9f);
-        sound(level, origin, "thunder.slam", 3.0f, 1.1f);
+        sound(level, origin, "thunder.clap", SkillSounds.R_IMPACT, 0.9f);
+        sound(level, origin, "thunder.slam", SkillSounds.R_CAST, 1.1f);
         SkillEvents.send(level, s, SkillEvents.CLAP, p, origin, dir, (float) s.range(), (float) s.radius(), 14, -1);
     }
 
@@ -119,7 +120,7 @@ final class IceThunderEffects {
             this.range = wall.getType() == HitResult.Type.MISS ? s.range() : Math.max(1.5, wall.getLocation().distanceTo(from));
             this.speed = Math.max(0.3, s.speed());
             this.ticks = (int) Math.ceil(range / speed);
-            sound(start, "ice.spikes", 3.0f, 1.0f);
+            sound(start, "ice.spikes", SkillSounds.R_CAST, 1.0f);
             SkillEvents.send(level, s, SkillEvents.SPIKES, p, start, dir, (float) width, (float) range, ticks, -1);
         }
 
@@ -128,7 +129,7 @@ final class IceThunderEffects {
             if (age > ticks) return true;
             double d = Math.min(range, age * speed);
             Vec3 front = groundAt(level, o, start.add(dir.scale(d)));
-            if (age % 3 == 0) sound(front, "ice.spikes", 1.6f, 0.9f + level.random.nextFloat() * 0.3f);
+            if (age % 4 == 0) sound(front, "ice.spikes", SkillSounds.R_RAPID, 0.92f + level.random.nextFloat() * 0.2f); // 변형 3개 + 4틱 간격 (예전 3틱은 겹쳐서 지글거림)
             for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class,
                     new net.minecraft.world.phys.AABB(front, front).inflate(width + 2, 3, width + 2), x -> SkillTargets.canHit(o, x))) {
                 Vec3 rel = e.position().subtract(start);
@@ -156,7 +157,7 @@ final class IceThunderEffects {
             this.r = Math.max(1.0, s.radius());
             this.duration = Math.max(20, s.durationTicks());
             burst(p, 1.0, 40);
-            sound(center, "ice.glacier", 8.0f, 1.0f);
+            sound(center, "ice.glacier", SkillSounds.R_ULT, 1.0f);
             terrain(level, center, 3.5f);
             SkillEvents.send(level, s, SkillEvents.GLACIER, p, center, Vec3.ZERO, (float) r, 0, duration, -1);
         }
@@ -174,7 +175,7 @@ final class IceThunderEffects {
         boolean step(ServerPlayer o) {
             if (age >= duration) {
                 burst(o, 0.6, 30);
-                sound(center, "ice.shatter", 6.0f, 0.6f);
+                sound(center, "ice.glacier_shatter", SkillSounds.R_ULT, 1.0f);
                 SkillEvents.send(level, skill, SkillEvents.GLACIER, o, center, Vec3.ZERO, (float) r, 1, 0, -1);
                 return true;
             }
@@ -210,7 +211,7 @@ final class IceThunderEffects {
             this.dest = flat.length() > max ? start.add(flat.normalize().scale(max)).add(0, target.y - start.y, 0) : target;
             this.ticks = Math.max(6, s.durationTicks());
             this.arc = 2.5 + flat.length() * 0.25;
-            sound(start, "thunder.charge", 2.0f, 1.4f);
+            sound(start, "thunder.leap", SkillSounds.R_CAST, 1.0f);
             SkillEvents.send(level, s, SkillEvents.LEAP, p, start, dest, (float) s.radius(), 0, ticks, -1);
             step(p);
         }
@@ -247,8 +248,8 @@ final class IceThunderEffects {
                     stun(level, e, 12);
                 }
                 SkillTargets.setVelocity(o, Vec3.ZERO);
-                sound(c, "thunder.slam", 5.0f, 1.0f);
-                sound(c, "thunder.clap", 3.0f, 1.2f);
+                sound(c, "thunder.slam", SkillSounds.R_IMPACT, 1.0f);
+                sound(c, "thunder.clap", SkillSounds.R_CAST, 1.2f);
                 SkillEvents.send(level, skill, SkillEvents.LEAP, o, c, c, (float) r, 1, 0, -1);
             }
             return age > ticks + 20; // 착지 후 1초 동안 낙하 피해 없음
@@ -261,7 +262,7 @@ final class IceThunderEffects {
 
         Roar(ServerLevel level, ServerPlayer p, Skill s) {
             super(level, p, s);
-            sound(p.position(), "thunder.roar", 4.0f, 1.0f);
+            sound(p.position(), "thunder.roar", SkillSounds.R_IMPACT, 1.0f);
             SkillEvents.send(level, s, SkillEvents.ROAR, p, SkillAim.groundBelow(level, p, p.position()), Vec3.ZERO, (float) s.radius(), 0, PULL, -1);
         }
 
@@ -287,7 +288,7 @@ final class IceThunderEffects {
                 stun(level, e, skill.durationTicks());
                 SkillTargets.knock(e, out(c, e), 0.5, 0.55);
             }
-            sound(c, "thunder.clap", 5.0f, 0.8f);
+            sound(c, "thunder.roar_burst", SkillSounds.R_IMPACT, 1.0f);
             SkillEvents.send(level, skill, SkillEvents.ROAR, o, SkillAim.groundBelow(level, o, c), Vec3.ZERO, (float) br, 1, 0, -1);
             return true;
         }
@@ -310,7 +311,7 @@ final class IceThunderEffects {
             this.rise = Math.max(10, s.durationTicks());
             this.r = Math.max(1.0, s.radius());
             p.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE, rise + SLAM + 10, 2, false, false, true));
-            sound(start, "thunder.charge", 5.0f, 0.6f);
+            sound(start, "thunder.rise", SkillSounds.R_ULT_CHARGE, 1.0f);
             SkillEvents.send(level, s, SkillEvents.JUDGMENT, p, start, target, (float) r, 0, rise, -1);
         }
 
@@ -333,7 +334,7 @@ final class IceThunderEffects {
                 SkillTargets.setVelocity(o, v);
                 if (age == rise) {
                     slamFrom = o.position();
-                    sound(o.position(), "thunder.hammer", 5.0f, 0.6f);
+                    sound(o.position(), "thunder.hammer", SkillSounds.R_ULT_CHARGE, 0.6f);
                 }
                 return false;
             }
@@ -355,7 +356,7 @@ final class IceThunderEffects {
                     SkillTargets.hurt(level, e, o, Element.THUNDER, skill.damage2(), true);
                     SkillTargets.setVelocity(e, out(target, e).scale(0.3).add(0, 0.45, 0));
                 }
-                sound(target, "thunder.slam", 5.0f, 0.8f + 0.1f * n);
+                sound(target, "thunder.aftershock", SkillSounds.R_BIG, 0.95f + 0.05f * n);
                 SkillEvents.send(level, skill, SkillEvents.JUDGMENT, o, target, target, (float) rr, 2, n, -1);
             }
             return false;
@@ -375,8 +376,8 @@ final class IceThunderEffects {
                 SkillTargets.setVelocity(e, out(target, e).scale(1.2 * (1 - 0.5 * f)).add(0, 0.9, 0));
                 stun(level, e, 20);
             }
-            sound(target, "thunder.judgment", 8.0f, 1.0f);
-            sound(target, "thunder.clap", 6.0f, 0.6f);
+            sound(target, "thunder.judgment", SkillSounds.R_ULT, 1.0f);
+            sound(target, "thunder.clap", SkillSounds.R_ULT_CHARGE, 0.6f);
             terrain(level, target, 4.0f);
             SkillEvents.send(level, skill, SkillEvents.JUDGMENT, o, target, target, (float) r, 1, 0, -1);
         }

@@ -6,6 +6,7 @@ import com.blackocean.skills.SkillServer;
 import com.blackocean.skills.SkillTargets;
 import com.blackocean.skills.SkillsConfig;
 import com.blackocean.skills.SkillsHooks;
+import com.blackocean.skills.SkillSounds;
 import com.blackocean.skills.SkillsRegistry;
 import com.blackocean.skills.SubLevels;
 import com.blackocean.skills.network.SkillEvents;
@@ -184,7 +185,7 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
         SkillTargets.hurt(level, h.entity, owner, skill.element, skill.damage(), true);
         Vec3 flight = getDeltaMovement().normalize();
         SkillTargets.knock(h.entity, flight, 0.7, 0.25);
-        level.playSound(null, h.pos.x, h.pos.y, h.pos.z, SkillsRegistry.snd("wind.blade"), SoundSource.PLAYERS, 1.2f, 1.3f);
+        SkillSounds.play(level, h.pos, "wind.blade_hit", SkillSounds.R_HIT, 0.95f + random.nextFloat() * 0.1f);
         SkillEvents.send(level, skill, SkillEvents.PIERCE, owner, h.pos, flight, 1f, 0f, getId(), h.entity.getId());
     }
 
@@ -206,10 +207,10 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
                         SkillTargets.knock(e, push.lengthSqr() < 1.0E-4 ? new Vec3(0, 1, 0) : push.normalize(), 1.6 * (1 - 0.5 * f), 0.7);
                     }
                     terrain(level, center, 4.0f);
-                    level.playSound(null, pos.x, pos.y, pos.z, SkillsRegistry.snd("fire.sun_impact"), SoundSource.PLAYERS, 8.0f, 1.0f);
+                    SkillSounds.play(level, pos, "fire.sun_impact", SkillSounds.R_ULT, 1.0f);
                     SkillServer.addFireField(level, owner, pos, radius * 0.7f, skill);
                 }
-                case WIND_BLADE -> level.playSound(null, pos.x, pos.y, pos.z, SkillsRegistry.snd("wind.blade"), SoundSource.PLAYERS, 1.2f, 0.8f);
+                case WIND_BLADE -> SkillSounds.play(level, pos, "wind.blade_hit", SkillSounds.R_HIT, 0.8f);
                 default -> {
                     if (direct != null) {
                         SkillTargets.hurt(level, direct, owner, skill.element, skill.damage(), rapid());
@@ -241,11 +242,18 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
                         case FIRE_BULLETS -> "fire_bullets.impact";
                         case WATER_BULLET -> "water.splash";
                         case ICE_SPEAR, ICE_SHARDS -> "ice.shatter";
-                        case THUNDER_HAMMER -> "thunder.clap";
+                        case THUNDER_HAMMER -> "thunder.hammer_impact";
                         default -> "fire_fist.impact";
                     };
-                    level.playSound(null, pos.x, pos.y, pos.z, SkillsRegistry.snd(snd), SoundSource.PLAYERS,
-                            skill == Skill.FIRE_FIST || skill == Skill.THUNDER_HAMMER ? 4.0f : skill == Skill.ICE_SHARDS ? 1.2f : 2.2f, 0.95f + random.nextFloat() * 0.1f);
+                    float pitch = 0.95f + random.nextFloat() * 0.1f;
+                    switch (skill) {
+                        // 파편 7발·연사 5발: 같은 자리에서 한꺼번에 터지는 소리는 하나로 (겹치면 지글거리는 소음)
+                        case ICE_SHARDS -> SkillSounds.playLimited(level, pos, snd, SkillSounds.R_RAPID, pitch + 0.1f, 3, 3.0);
+                        case FIRE_BULLETS -> SkillSounds.playLimited(level, pos, snd, SkillSounds.R_RAPID, pitch, 2, 2.0);
+                        case FIRE_FIST, THUNDER_HAMMER -> SkillSounds.play(level, pos, snd, SkillSounds.R_BIG, pitch);
+                        case ICE_SPEAR -> SkillSounds.play(level, pos, snd, SkillSounds.R_IMPACT, pitch - 0.08f);
+                        default -> SkillSounds.play(level, pos, snd, SkillSounds.R_HIT, pitch);
+                    }
                 }
             }
         }

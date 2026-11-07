@@ -62,13 +62,14 @@ public final class SkillsRegistry {
 
     static {
         for (String n : new String[]{
-                "fire_bullets.shot", "fire_bullets.impact", "fire_pillar.warn", "fire_pillar.erupt", "flame_ring.charge", "flame_ring.burst",
-                "fire.sun_charge", "fire.sun_impact",
-                "lightning.charge", "lightning.zap", "lightning.thunder", "lightning.blink", "lightning.discharge", "lightning.storm_charge",
-                "wind.charge", "wind.blade", "wind.dash", "wind.tornado", "wind.burst",
-                "ice.charge", "ice.shot", "ice.shatter", "ice.spikes", "ice.nova", "ice.glacier",
-                "thunder.charge", "thunder.hammer", "thunder.clap", "thunder.slam", "thunder.roar", "thunder.judgment",
-                "water.charge", "water.shot", "water.splash", "water.jet", "water.wave", "water.dragon",
+                "fire_bullets.charge", "fire_bullets.shot", "fire_bullets.impact", "fire_pillar.charge", "fire_pillar.warn", "fire_pillar.erupt",
+                "flame_ring.charge", "flame_ring.burst",
+                "fire.sun_charge", "fire.sun_launch", "fire.sun_impact", "fire.sun_burn",
+                "lightning.charge", "lightning.zap", "lightning.thunder", "lightning.strike", "lightning.blink", "lightning.blink_arrive", "lightning.discharge", "lightning.storm_charge", "lightning.storm_end",
+                "wind.charge", "wind.blade", "wind.blade_hit", "wind.dash", "wind.tornado", "wind.tornado_end", "wind.burst", "wind.tempest_charge",
+                "water.charge", "water.shot", "water.splash", "water.jet", "water.prison", "water.burst", "water.wave", "water.dragon_charge", "water.dragon", "water.dragon_impact",
+                "ice.charge", "ice.shot", "ice.shards", "ice.shatter", "ice.spikes", "ice.nova", "ice.age_charge", "ice.glacier", "ice.glacier_shatter",
+                "thunder.charge", "thunder.hammer", "thunder.hammer_impact", "thunder.leap", "thunder.clap", "thunder.slam", "thunder.roar", "thunder.roar_burst", "thunder.rise", "thunder.aftershock", "thunder.judgment",
                 "common.ultimate", "common.transform"}) {
             sound(n);
         }

@@ -51,7 +51,7 @@ final class ServerEffects {
             SkillTargets.hurt(level, e, p, Element.FIRE, (float) (s.damage() * f));
             SkillTargets.knock(e, flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize(), s.speed() * f, 0.35 + 0.25 * f);
         }
-        level.playSound(null, c.x, c.y, c.z, SkillsRegistry.snd("flame_ring.burst"), SoundSource.PLAYERS, 4.0f, 1.0f);
+        SkillSounds.play(level, c, "flame_ring.burst", SkillSounds.R_IMPACT, 1.0f);
         Vec3 feet = SkillAim.groundBelow(level, p, p.position());
         SkillEvents.send(level, s, SkillEvents.BURST, p, feet, Vec3.ZERO, (float) radius, 0, 18, -1);
     }
@@ -76,7 +76,7 @@ final class ServerEffects {
         }
         if (first == null) {
             SkillEvents.send(level, s, SkillEvents.BOLT, p, start, end, 1.2f, 0, 0, -1);
-            level.playSound(null, end.x, end.y, end.z, SkillsRegistry.snd("lightning.zap"), SoundSource.PLAYERS, 2.0f, 1.0f);
+            SkillSounds.play(level, end, "lightning.zap", SkillSounds.R_CAST, 1.0f);
             return;
         }
         Set<LivingEntity> done = new HashSet<>();
@@ -89,7 +89,7 @@ final class ServerEffects {
             SkillEvents.send(level, s, SkillEvents.BOLT, p, from, to, i == 0 ? 1.2f : 0.8f, 0, 0, cur.getId());
             SkillTargets.hurt(level, cur, p, Element.LIGHTNING, dmg);
             SkillTargets.stun(cur, 10);
-            level.playSound(null, to.x, to.y, to.z, SkillsRegistry.snd("lightning.zap"), SoundSource.PLAYERS, 2.0f, 0.9f + i * 0.1f);
+            SkillSounds.play(level, to, "lightning.zap", i == 0 ? SkillSounds.R_CAST : SkillSounds.R_HIT, 0.95f + i * 0.08f);
             done.add(cur);
             from = to;
             dmg *= 0.75f;
@@ -131,8 +131,8 @@ final class ServerEffects {
                 SkillTargets.stun(e, 15);
             }
         }
-        level.playSound(null, a.x, a.y, a.z, SkillsRegistry.snd("lightning.blink"), SoundSource.PLAYERS, 2.5f, 1.0f);
-        level.playSound(null, b.x, b.y, b.z, SkillsRegistry.snd("lightning.zap"), SoundSource.PLAYERS, 2.5f, 0.8f);
+        SkillSounds.play(level, a, "lightning.blink", SkillSounds.R_CAST, 1.0f);
+        SkillSounds.play(level, b, "lightning.blink_arrive", SkillSounds.R_CAST, 1.0f);
         SkillEvents.send(level, s, SkillEvents.BLINK, p, a, b, (float) r, 0, 0, -1);
     }
 
@@ -145,7 +145,7 @@ final class ServerEffects {
             SkillTargets.stun(e, s.durationTicks());
             if (n++ < 16) SkillEvents.send(level, s, SkillEvents.BOLT, p, c, e.getBoundingBox().getCenter(), 0.9f, 0, 0, e.getId());
         }
-        level.playSound(null, c.x, c.y, c.z, SkillsRegistry.snd("lightning.discharge"), SoundSource.PLAYERS, 4.0f, 1.0f);
+        SkillSounds.play(level, c, "lightning.discharge", SkillSounds.R_IMPACT, 1.0f);
         SkillEvents.send(level, s, SkillEvents.BURST, p, SkillAim.groundBelow(level, p, p.position()), Vec3.ZERO, (float) s.radius(), 0, 14, -1);
     }
 
@@ -164,7 +164,7 @@ final class ServerEffects {
                 && (x.getOwner() == null || SkillTargets.canHit(p, x.getOwner())))) {
             pr.discard();
         }
-        level.playSound(null, c.x, c.y, c.z, SkillsRegistry.snd("wind.burst"), SoundSource.PLAYERS, 4.0f, 1.0f);
+        SkillSounds.play(level, c, "wind.burst", SkillSounds.R_IMPACT, 1.0f);
         SkillEvents.send(level, s, SkillEvents.BURST, p, SkillAim.groundBelow(level, p, p.position()), Vec3.ZERO, (float) r, 0, 16, -1);
     }
 
@@ -208,8 +208,9 @@ final class ServerEffects {
             return false;
         }
 
-        void sound(Vec3 at, String name, float vol, float pitch) {
-            level.playSound(null, at.x, at.y, at.z, SkillsRegistry.snd(name), SoundSource.PLAYERS, vol, pitch);
+        /** @param radius 들리는 반경 (블록, SkillSounds.R_*) */
+        void sound(Vec3 at, String name, float radius, float pitch) {
+            SkillSounds.play(level, at, name, radius, pitch);
         }
     }
 
@@ -229,7 +230,7 @@ final class ServerEffects {
                 Vec3 out = e.position().subtract(base).multiply(1, 0, 1);
                 SkillTargets.knock(e, out.lengthSqr() < 1.0E-4 ? Vec3.ZERO : out.normalize(), 0.25, 1.0);
             }
-            sound(base, "fire_pillar.erupt", 4.0f, 1.0f);
+            sound(base, "fire_pillar.erupt", SkillSounds.R_IMPACT, 1.0f);
             SkillEvents.send(level, s, SkillEvents.ERUPT, p, base, Vec3.ZERO, (float) r, (float) HEIGHT, duration, -1);
         }
 
@@ -257,6 +258,7 @@ final class ServerEffects {
             this.base = base;
             this.radius = radius;
             this.duration = s.durationTicks();
+            sound(base, "fire.sun_burn", SkillSounds.R_BIG, 1.0f);
             SkillEvents.send(level, s, SkillEvents.FIELD, p, base, Vec3.ZERO, radius, 0, duration, -1);
         }
 
@@ -298,7 +300,7 @@ final class ServerEffects {
                 SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage(), true);
                 SkillTargets.stun(e, 15);
             }
-            sound(at, "lightning.thunder", 3.0f, 1.25f);
+            sound(at, "lightning.strike", SkillSounds.R_IMPACT, 0.95f + o.getRandom().nextFloat() * 0.1f);
             SkillEvents.send(level, skill, SkillEvents.STRIKE, o, at, Vec3.ZERO, (float) hr, 0, 0, -1);
             fired++;
         }
@@ -320,7 +322,7 @@ final class ServerEffects {
             super(level, p, s);
             this.center = center;
             this.duration = Math.max(20, s.durationTicks());
-            sound(center, "lightning.thunder", 6.0f, 0.6f);
+            sound(center, "lightning.thunder", SkillSounds.R_ULT_CHARGE, 0.6f);
             SkillEvents.send(level, s, SkillEvents.STORM, p, center, Vec3.ZERO, (float) s.radius(), 0, duration, -1);
         }
 
@@ -341,8 +343,10 @@ final class ServerEffects {
                     SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage2(), true);
                     SkillTargets.stun(e, 10);
                 }
-                if (age % 8 == 0) sound(at, "lightning.thunder", 3.5f, 1.1f + o.getRandom().nextFloat() * 0.3f);
-                else sound(at, "lightning.zap", 3.0f, 0.8f);
+                // 4틱마다 낙뢰: 큰 낙뢰·작은 파직 번갈아, 구르는 천둥은 1초마다 한 번만 (겹쳐서 소음이 되지 않게)
+                if (age % 8 == 0) sound(at, "lightning.strike", SkillSounds.R_IMPACT, 0.9f + o.getRandom().nextFloat() * 0.2f);
+                else sound(at, "lightning.zap", SkillSounds.R_HIT, 0.85f + o.getRandom().nextFloat() * 0.15f);
+                if (age % 20 == 10) sound(center, "lightning.thunder", SkillSounds.R_ULT_CHARGE, 0.8f + o.getRandom().nextFloat() * 0.2f);
                 SkillEvents.send(level, skill, SkillEvents.STRIKE, o, at, Vec3.ZERO, 2.2f, 0, 0, -1);
             }
             if (age == duration) {
@@ -352,7 +356,7 @@ final class ServerEffects {
                     SkillTargets.stun(e, 30);
                     SkillTargets.knock(e, Vec3.ZERO, 0, 0.9);
                 }
-                sound(center, "lightning.thunder", 10.0f, 0.55f);
+                sound(center, "lightning.storm_end", SkillSounds.R_ULT, 1.0f);
                 SkillEvents.send(level, skill, SkillEvents.STRIKE, o, center, Vec3.ZERO, (float) big, 1f, 0, -1);
                 return true;
             }
@@ -373,7 +377,7 @@ final class ServerEffects {
             this.ticks = Math.max(2, s.durationTicks());
             this.perTick = s.range() / ticks;
             if (p.isPassenger()) p.stopRiding();
-            sound(p.position(), "wind.dash", 2.5f, 1.0f);
+            sound(p.position(), "wind.dash", SkillSounds.R_CAST, 1.0f);
             SkillEvents.send(level, s, SkillEvents.DASH, p, p.position(), dir, (float) s.radius(), (float) s.range(), ticks, -1);
             push(p);
         }
@@ -420,7 +424,7 @@ final class ServerEffects {
             this.r = s.radius();
             this.h = big ? 22.0 : 7.0;
             this.duration = Math.max(10, s.durationTicks());
-            sound(center, "wind.tornado", big ? 6.0f : 3.0f, big ? 0.7f : 1.0f);
+            sound(center, "wind.tornado", big ? SkillSounds.R_ULT_CHARGE : SkillSounds.R_IMPACT, big ? 0.7f : 1.0f);
             SkillEvents.send(level, s, SkillEvents.TORNADO, p, center, Vec3.ZERO, (float) r, (float) h, duration, -1);
         }
 
@@ -434,7 +438,8 @@ final class ServerEffects {
 
         @Override
         boolean step(ServerPlayer o) {
-            if (age % 60 == 0 && age < duration - 20) sound(center, "wind.tornado", big ? 6.0f : 3.0f, big ? 0.7f : 1.0f);
+            // 반복음 길이: 3초 (궁극기는 음정 0.7 → 약 4.3초) — 이음매가 겹치지 않게 다시 틂
+            if (age % (big ? 76 : 60) == 0 && age < duration - 20) sound(center, "wind.tornado", big ? SkillSounds.R_ULT_CHARGE : SkillSounds.R_IMPACT, big ? 0.7f : 1.0f);
             double pullR = r * (big ? 2.3 : 1.6);
             List<LivingEntity> in = SkillTargets.inCylinder(level, o, center, pullR, 1.0, h, center.add(0, 1, 0));
             if (age >= duration) {
@@ -444,7 +449,7 @@ final class ServerEffects {
                     SkillTargets.setVelocity(e, (flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize()).scale(big ? 2.0 : 1.4).add(0, 0.45, 0));
                     e.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 70, 0, false, false, true));
                 }
-                sound(center, "wind.burst", big ? 6.0f : 3.0f, 0.8f);
+                sound(center, "wind.tornado_end", big ? SkillSounds.R_ULT : SkillSounds.R_IMPACT, big ? 0.75f : 1.0f);
                 return true;
             }
             boolean hurtTick = age % 10 == 0;
@@ -474,7 +479,7 @@ final class ServerEffects {
         Jet(ServerLevel level, ServerPlayer p, Skill s) {
             super(level, p, s);
             this.ticks = Math.max(4, s.durationTicks());
-            sound(p.position(), "water.jet", 2.5f, 1.0f);
+            sound(p.position(), "water.jet", SkillSounds.R_CAST, 1.0f);
             SkillEvents.send(level, s, SkillEvents.JET, p, p.position(), Vec3.ZERO, (float) s.range(), (float) s.radius(), ticks, -1);
         }
 
@@ -512,7 +517,7 @@ final class ServerEffects {
             super(level, p, s);
             this.center = center;
             this.duration = Math.max(10, s.durationTicks());
-            sound(center, "water.splash", 3.0f, 0.8f);
+            sound(center, "water.prison", SkillSounds.R_IMPACT, 1.0f);
             SkillEvents.send(level, s, SkillEvents.PRISON, p, center, Vec3.ZERO, (float) s.radius(), 0, duration, -1);
         }
 
@@ -527,7 +532,7 @@ final class ServerEffects {
                     SkillTargets.hurt(level, e, o, Element.WATER, skill.damage(), true);
                     SkillTargets.knock(e, out.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : out.normalize(), 0.6, 0.7);
                 }
-                sound(center, "water.splash", 4.0f, 0.7f);
+                sound(center, "water.burst", SkillSounds.R_IMPACT, 1.0f);
                 return true;
             }
             for (LivingEntity e : in) {
@@ -561,7 +566,7 @@ final class ServerEffects {
             this.range = wall.getType() == HitResult.Type.MISS ? s.range() : Math.max(1.0, wall.getLocation().distanceTo(from));
             this.speed = Math.max(0.2, s.speed());
             this.ticks = (int) Math.ceil(range / speed);
-            sound(start, "water.wave", 4.0f, 1.0f);
+            sound(start, "water.wave", SkillSounds.R_BIG, 1.0f);
             SkillEvents.send(level, s, SkillEvents.WAVE, p, start, dir, (float) width, (float) range, ticks, -1);
         }
 
@@ -595,7 +600,7 @@ final class ServerEffects {
             super(level, p, s);
             this.target = target;
             this.linger = s.durationTicks();
-            sound(p.position(), "water.dragon", 6.0f, 1.0f);
+            sound(p.position(), "water.dragon", SkillSounds.R_ULT_CHARGE, 1.0f);
             SkillEvents.send(level, s, SkillEvents.DRAGON, p, p.position().add(0, 1, 0), target, (float) s.radius(), linger, FLIGHT, -1);
         }
 
@@ -611,8 +616,7 @@ final class ServerEffects {
                     SkillTargets.knock(e, out.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : out.normalize(), 0.8, 1.1);
                     SkillTargets.slow(e, 80, 2);
                 }
-                sound(target, "water.splash", 8.0f, 0.6f);
-                sound(target, "water.wave", 6.0f, 0.8f);
+                sound(target, "water.dragon_impact", SkillSounds.R_ULT, 1.0f);
             } else if (age > FLIGHT && age % 10 == 0) {
                 for (LivingEntity e : SkillTargets.inCylinder(level, o, target, r, 1.0, 4.0, target.add(0, 1, 0))) {
                     Vec3 to = target.subtract(e.position()).multiply(1, 0, 1);

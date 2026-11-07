@@ -152,7 +152,7 @@ final class IceThunderEffects {
             if (age > ticks) return true;
             double d = Math.min(range, age * speed);
             Vec3 front = groundAt(level, o, start.add(dir.scale(d)));
-            if (age % 4 == 0) sound(front, "ice.spikes", SkillSounds.R_RAPID, 0.92f + level.random.nextFloat() * 0.2f); // 변형 3개 + 4틱 간격 (예전 3틱은 겹쳐서 지글거림)
+            if (age % 4 == 0) sound(front, "ice.spikes", SkillSounds.R_CHARGE, 0.92f + level.random.nextFloat() * 0.2f); // 변형 3개 + 4틱 간격 (예전 3틱은 겹쳐서 지글거림), 반복음이라 반경은 작게
             for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class,
                     new net.minecraft.world.phys.AABB(front, front).inflate(width + 2, 3, width + 2), x -> SkillTargets.canHit(o, x))) {
                 Vec3 rel = e.position().subtract(start);
@@ -160,6 +160,7 @@ final class IceThunderEffects {
                 if (along < d - speed - 1.0 || along > d + 0.8 || lat > width + e.getBbWidth() * 0.5) continue;
                 if (!hit.add(e.getId())) continue;
                 SkillTargets.hurt(level, e, o, Element.ICE, skill.damage(), true);
+                SkillSounds.playLimited(level, e.getBoundingBox().getCenter(), "ice.shard_hit", SkillSounds.R_HIT, 0.85f + level.random.nextFloat() * 0.1f, 2, 2.5);
                 // 얼림이 위로 가는 속도를 없애므로 얼린 다음에 띄움
                 freeze(level, e, skill.durationTicks());
                 SkillTargets.setVelocity(e, new Vec3(0, 0.75, 0).add(dir.scale(0.15)));
@@ -196,6 +197,8 @@ final class IceThunderEffects {
 
         @Override
         boolean step(ServerPlayer o) {
+            // 산산조각 직전 차오름 (끝 = 마지막 폭발 틱)
+            if (age == Math.max(1, duration - SkillSounds.SWELL_TICKS)) sound(center, "common.ult_swell", SkillSounds.R_ULT_CHARGE, 1.0f);
             if (age >= duration) {
                 burst(o, 0.6, 30);
                 sound(center, "ice.glacier_shatter", SkillSounds.R_ULT, 1.0f);
@@ -203,11 +206,13 @@ final class IceThunderEffects {
                 return true;
             }
             if (age % 10 == 0) {
-                for (LivingEntity e : SkillTargets.inCylinder(level, o, center, r, 1.0, 4.0, center.add(0, 1, 0))) {
+                List<LivingEntity> in = SkillTargets.inCylinder(level, o, center, r, 1.0, 4.0, center.add(0, 1, 0));
+                for (LivingEntity e : in) {
                     SkillTargets.hurt(level, e, o, Element.ICE, skill.damage2(), true);
                     SkillTargets.slow(e, 30, 3);
                     e.setTicksFrozen(Math.min(139, e.getTicksFrozen() + 30));
                 }
+                if (!in.isEmpty()) SkillSounds.tick(level, center.add(0, 1, 0), "ice.tick", 1.0f, 8, r + 2);
             }
             return false;
         }
@@ -253,6 +258,8 @@ final class IceThunderEffects {
         boolean step(ServerPlayer o) {
             if (!o.isAlive()) return true;
             o.fallDistance = 0;
+            // 내려찍기 직전 바람 (끝 = 착지 틱)
+            if (!landed && age == Math.max(0, ticks - SkillSounds.WHOOSH_TICKS)) sound(dest, "common.heavy_whoosh", SkillSounds.R_CAST, 1.0f);
             if (!landed) {
                 if (age < ticks) {
                     // 경로의 기울기(속도) + 어긋난 만큼 조금만 보정 → 핑이 높아도 출렁이지 않음
@@ -358,6 +365,7 @@ final class IceThunderEffects {
                 if (age == rise) {
                     slamFrom = o.position();
                     sound(o.position(), "thunder.hammer", SkillSounds.R_ULT_CHARGE, 0.6f);
+                    sound(target, "common.heavy_whoosh", SkillSounds.R_IMPACT, 1.0f); // 내려꽂는 바람 (SLAM 6틱 = 바람 길이)
                 }
                 return false;
             }

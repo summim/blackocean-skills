@@ -70,7 +70,9 @@ public final class SkillsRegistry {
                 "water.charge", "water.shot", "water.splash", "water.jet", "water.prison", "water.burst", "water.wave", "water.dragon_charge", "water.dragon", "water.dragon_impact",
                 "ice.charge", "ice.shot", "ice.shards", "ice.shatter", "ice.spikes", "ice.nova", "ice.age_charge", "ice.glacier", "ice.glacier_shatter",
                 "thunder.charge", "thunder.hammer", "thunder.hammer_impact", "thunder.leap", "thunder.clap", "thunder.slam", "thunder.roar", "thunder.roar_burst", "thunder.rise", "thunder.aftershock", "thunder.judgment",
-                "common.ultimate", "common.transform"}) {
+                "common.ultimate", "common.transform",
+                // 2.3 타격감: 지속 피해 틱 · 가벼운 파편 적중 · 무거운 공격 직전 바람 · 궁극기 직전 차오름 · 대폭풍 마지막 타격
+                "fire.tick", "wind.tick", "water.tick", "ice.tick", "ice.shard_hit", "common.heavy_whoosh", "common.ult_swell", "wind.tempest_end"}) {
             sound(n);
         }
     }

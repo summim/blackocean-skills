@@ -163,6 +163,20 @@
       }
     ]
   },
+  "fire.tick": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire.tick",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire/tick_1"
+      },
+      {
+        "name": "blackocean_skills:skill/fire/tick_2",
+        "volume": 0.92,
+        "pitch": 0.97
+      }
+    ]
+  },
   "fire.sun_burn": {
     "category": "player",
     "subtitle": "subtitles.blackocean_skills.fire.sun_burn",
@@ -355,6 +369,29 @@
       }
     ]
   },
+  "wind.tempest_end": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.wind.tempest_end",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/wind/tempest_end"
+      }
+    ]
+  },
+  "wind.tick": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.wind.tick",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/wind/tick_1"
+      },
+      {
+        "name": "blackocean_skills:skill/wind/tick_2",
+        "volume": 0.92,
+        "pitch": 0.97
+      }
+    ]
+  },
   "water.charge": {
     "category": "player",
     "subtitle": "subtitles.blackocean_skills.water.charge",
@@ -460,6 +497,20 @@
       }
     ]
   },
+  "water.tick": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.water.tick",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/water/tick_1"
+      },
+      {
+        "name": "blackocean_skills:skill/water/tick_2",
+        "volume": 0.92,
+        "pitch": 0.97
+      }
+    ]
+  },
   "ice.charge": {
     "category": "player",
     "subtitle": "subtitles.blackocean_skills.ice.charge",
@@ -489,6 +540,25 @@
     "sounds": [
       {
         "name": "blackocean_skills:skill/ice/shards"
+      }
+    ]
+  },
+  "ice.shard_hit": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.ice.shard_hit",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/ice/shard_hit_1"
+      },
+      {
+        "name": "blackocean_skills:skill/ice/shard_hit_2",
+        "volume": 0.92,
+        "pitch": 0.97
+      },
+      {
+        "name": "blackocean_skills:skill/ice/shard_hit_3",
+        "volume": 0.96,
+        "pitch": 1.03
       }
     ]
   },
@@ -563,6 +633,20 @@
     "sounds": [
       {
         "name": "blackocean_skills:skill/ice/glacier_shatter"
+      }
+    ]
+  },
+  "ice.tick": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.ice.tick",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/ice/tick_1"
+      },
+      {
+        "name": "blackocean_skills:skill/ice/tick_2",
+        "volume": 0.92,
+        "pitch": 0.97
       }
     ]
   },
@@ -685,6 +769,29 @@
     "sounds": [
       {
         "name": "blackocean_skills:skill/common/transform"
+      }
+    ]
+  },
+  "common.heavy_whoosh": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.common.heavy_whoosh",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/common/heavy_whoosh_1"
+      },
+      {
+        "name": "blackocean_skills:skill/common/heavy_whoosh_2",
+        "volume": 0.92,
+        "pitch": 0.97
+      }
+    ]
+  },
+  "common.ult_swell": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.common.ult_swell",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/common/ult_swell"
       }
     ]
   }

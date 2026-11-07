@@ -32,7 +32,8 @@ public final class SkillsConfig {
             damage = b.defineInRange("damage", s.dDamage, 0.0, 500.0);
             damage2 = b.defineInRange("damage2", s.dDamage2, 0.0, 500.0);
             range = b.defineInRange("range", s.dRange, 0.0, 96.0);
-            radius = b.defineInRange("radius", s.dRadius, 0.0, 32.0);
+            // 부채꼴 스킬(얼음 파편·뇌명 일격)의 radius 는 반각(도)이라 기본값이 32 를 넘음 → 범위를 따로
+            radius = b.defineInRange("radius", s.dRadius, 0.0, s.aim == Skill.Aim.CONE ? 89.0 : 32.0);
             duration = b.comment("(초)").defineInRange("duration", s.dDuration, 0.0, 30.0);
             speed = b.defineInRange("speed", s.dSpeed, 0.0, 3.9);
             b.pop();
@@ -47,7 +48,7 @@ public final class SkillsConfig {
         PVP = b.comment("false 면 플레이어끼리는 피해 없음").define("pvp", true);
         ALLOW_FIRE = b.comment("true 면 화염 스킬이 지형·대상에 불을 붙임").define("allowFire", false);
         ALLOW_BLOCK_DAMAGE = b.comment("true 면 폭발 스킬이 지형을 부숨").define("allowBlockDamage", false);
-        DEFAULT_ELEMENT = b.comment("능력을 정하지 않은 플레이어의 능력: fire, lightning, wind, water, none(스킬 없음)")
+        DEFAULT_ELEMENT = b.comment("능력을 정하지 않은 플레이어의 능력: fire, lightning, wind, water, ice, thunder, none(스킬 없음)")
                 .define("defaultElement", "fire", o -> o instanceof String s && (s.equals("none") || Element.byId(s) != null));
         DAMAGE_MULT = b.comment("모든 스킬 피해 배율").defineInRange("damageMultiplier", 1.0, 0.0, 10.0);
         COOLDOWN_MULT = b.comment("모든 스킬 쿨타임 배율").defineInRange("cooldownMultiplier", 1.0, 0.0, 10.0);

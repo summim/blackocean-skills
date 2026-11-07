@@ -41,6 +41,9 @@ import static com.blackocean.skills.client.fx.FxManager.spawn;
  *               충돌 시 거대 물기둥·충격파·화면 번쩍·흔들림, 이어서 소용돌이
  * </pre>
  * 색: 흰빛 → 청록 → 하늘 → 짙은 파랑.
+ * 무거운 순간에는 땅이 뜯겨 나감 (DebrisFx: 물 구슬 적중, 감옥 파열, 해일 앞머리가 밀어내는 흙, 해룡 충돌 구덩이),
+ * 끝난 뒤에도 물결 고리·떨어지는 물방울·젖은 자국이 남음.
+ * <p>성능: 수류 분사의 레이캐스트는 틱에만 하고 프레임은 보간.</p>
  */
 final class WaterFx {
     private static final Element W = Element.WATER;
@@ -526,6 +529,39 @@ final class WaterFx {
         mistBurst(pos, R * 0.5f * big, fizzle ? 3 : 10, 0.45f);
         if (blockHit) SkillFx.addDecal(pos, n, R * 0.95f, 160, 0.2f, 0.35f, 0.6f);
         if (!fizzle) shake(pos, 1.8f, 14f);
+        if (blockHit && n.y > 0.5) {
+            // 바닥에 맞음: 흙이 튀고, 젖은 바닥에 물결이 몇 번 번짐 (잔류)
+            DebrisFx.burst(pos, 1.2f, 6, 0.45f);
+            ripples(pos, R * 1.3f, 3, 4);
+        } else if (blockHit && Math.abs(n.y) < 0.5) {
+            DebrisFx.directed(pos, new Vec3(n.x, 0, n.z), 2.0f, 45f, 4, 0.4f);
+        }
+    }
+
+    /** 바닥에 천천히 번지는 물결 고리 n 개 (첫 고리는 delay0 틱 뒤) */
+    private static void ripples(Vec3 at, float r, int n, int delay0) {
+        Vec3 c = at.add(0, 0.05, 0);
+        for (int k = 0; k < n; k++) {
+            FxManager.addRing(c, UP, 0.2f + 0.2f * k, r * (1f - 0.15f * k), 22, delay0 + k * 8, 0.38f - 0.08f * k, W);
+        }
+    }
+
+    /** p 아래 바닥 (6칸까지, 없으면 p) */
+    private static Vec3 groundAt(Vec3 p) {
+        Minecraft mc = Minecraft.getInstance();
+        Level level = mc.level;
+        if (level == null || mc.player == null) return p;
+        Vec3 from = p.add(0, 0.6, 0);
+        BlockHitResult down = SubLevels.clip(level, new ClipContext(from, from.add(0, -6.6, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, mc.player));
+        return down.getType() == HitResult.Type.MISS ? p : down.getLocation();
+    }
+
+    /** 가까이 있으면 화면 번쩍 (멀수록 약하게) */
+    private static void flashNear(Vec3 p, int rgb, float strength, int ticks, float range) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        double d = mc.player.position().distanceTo(p);
+        if (d < range) ScreenFx.flash(rgb, strength * (float) (1 - d / range), ticks);
     }
 
     // =====================================================================
@@ -538,6 +574,9 @@ final class WaterFx {
         final Player caster;
         final float range, rad;
         final int duration;
+        /** 틱마다 한 번 계산한 물줄기 (직전·이번 틱). 프레임은 둘 사이를 보간 → 매 프레임 레이캐스트 없음 */
+        @Nullable
+        Beam prevBeam, curBeam;
 
         JetFx(Player caster, float range, float rad, int duration) {
             this.caster = caster;
@@ -545,12 +584,23 @@ final class WaterFx {
             this.rad = rad > 0.05f ? rad : 0.9f;
             this.duration = Math.max(4, duration);
             Beam b = beam(1f);
+            prevBeam = curBeam = b;
             if (b != null) {
                 // 분사 시작: 손에서 터지는 물보라
                 flashGlow(b.start(), 2.5f, 3.5f, 4, C_WHITE, 1f);
                 FxManager.addRing(b.start().add(b.dir().scale(0.4)), b.dir(), 0.2f, 2.2f, 6, 0, 0.9f, W);
                 crown(b.start(), b.dir(), 0.6f, 8);
             }
+        }
+
+        @Nullable
+        private static Beam lerpBeam(@Nullable Beam a, @Nullable Beam b, float pt) {
+            if (b == null) return null;
+            if (a == null || a.hit() != b.hit()) return b;
+            Vec3 s0 = lerp(a.start(), b.start(), pt), e0 = lerp(a.end(), b.end(), pt);
+            Vec3 d = e0.subtract(s0);
+            Vec3 dir = d.lengthSqr() < 1.0E-6 ? b.dir() : d.normalize();
+            return new Beam(s0, e0, dir, b.hit(), b.normal());
         }
 
         @Nullable
@@ -581,8 +631,11 @@ final class WaterFx {
         boolean tick() {
             age++;
             if (caster.isRemoved() || age > duration + 5) return true;
+            prevBeam = curBeam;
+            curBeam = beam(1f);
+            if (prevBeam == null) prevBeam = curBeam;
             if (age > duration) return false;
-            Beam b = beam(1f);
+            Beam b = curBeam;
             if (b == null) return true;
             Vec3 start = b.start(), end = b.end(), dir = b.dir();
             double len = start.distanceTo(end);
@@ -621,6 +674,11 @@ final class WaterFx {
                 }
                 if (age % 3 == 0) FxManager.addRing(end.add(n.scale(0.05)), n, 0.3f, 2.8f, 8, 0, 0.7f, W);
                 if (age % 6 == 1) SkillFx.addDecal(end, n, 1.5f, 110, 0.2f, 0.35f, 0.6f);
+                // 고압 물줄기가 땅을 파냄
+                if (age % 5 == 2 && n.y > 0.5) {
+                    Vec3 fl = new Vec3(refl.x, 0, refl.z);
+                    DebrisFx.directed(end, fl.lengthSqr() < 1.0E-4 ? dir : fl, 2.0f, 40f, 2, 0.35f);
+                }
             } else {
                 // 허공: 끝에서 흩어지는 물보라
                 for (int i = 0, m = count(4); i < m; i++) {
@@ -638,7 +696,7 @@ final class WaterFx {
             float t = age + pt;
             float fade = t > duration ? 1f - clamp01((t - duration) / 5f) : 1f;
             if (fade <= 0f) return;
-            Beam b = beam(pt);
+            Beam b = lerpBeam(prevBeam, curBeam, pt);
             if (b == null) return;
             float ext = easeOutCubic(Math.min(1f, t / 3f));
             Vec3 start = b.start(), dir = b.dir();
@@ -703,6 +761,7 @@ final class WaterFx {
     // =====================================================================
 
     private static final class PrisonFx extends Fx {
+        static final int AFTER = 36;
         final Vec3 center, core;
         final float R, Rs;
         final int duration;
@@ -730,13 +789,23 @@ final class WaterFx {
         @Override
         boolean tick() {
             age++;
-            if (age > duration + 1) return true;
+            if (age > duration + AFTER) return true;
             FxManager.lod = FxManager.lodAt(center);
             if (age == duration) {
                 burst();
                 return false;
             }
-            if (age > duration) return false;
+            if (age > duration) {
+                // 잔류: 하늘로 튄 물이 비처럼 떨어짐
+                float lf = 1f - (age - duration) / (float) AFTER;
+                for (int i = 0, m = count(4); i < m; i++) {
+                    if (RNG.nextFloat() > lf) continue;
+                    float ang = RNG.nextFloat() * TAU;
+                    float rr = R * 1.6f * (float) Math.sqrt(RNG.nextFloat());
+                    drop(center.add(Math.cos(ang) * rr, rand(4f, 7f), Math.sin(ang) * rr), new Vec3(0, -rand(0.2f, 0.4f), 0), rand(0.16f, 0.24f), 20, 0.04f);
+                }
+                return false;
+            }
             // 구 안에서 오르는 기포
             for (int i = 0, m = count(4); i < m; i++) {
                 Vec3 d = randomDir().scale(Rs * 0.85 * Math.cbrt(RNG.nextDouble()));
@@ -782,6 +851,12 @@ final class WaterFx {
             mistBurst(core, Rs * 0.8f, 16, 0.5f);
             SkillFx.addDecal(center, UP, R * 1.5f, 200, 0.2f, 0.35f, 0.6f);
             shake(center, 2.6f, R + 14f);
+            // 바닥에서 솟구치는 물기둥 + 패인 땅 + 튀는 흙
+            SkillFx.addPillar(center, R * 0.45f, 7f, 9, false, W);
+            DebrisFx.burst(center, R * 0.7f, 16, 0.9f);
+            DebrisFx.crater(center, R * 0.8f, 140, W);
+            ripples(center, R * 2.2f, 3, 6);
+            flashNear(center, 0x7FD0FF, 0.22f, 8, R + 8f);
         }
 
         @Override
@@ -915,6 +990,18 @@ final class WaterFx {
                 Vec3 at = fr.add(dir.scale(0.4)).add(side.scale(x)).add(0, 0.3, 0);
                 splash(at, dir.scale(0.2).add(0, 0.1, 0), 1.2f, 2.2f, 8 + RNG.nextInt(4), 0.02f);
             }
+            // 마루에서 하늘로 흩날리는 물보라 커튼
+            for (int i = 0, m = count(3); i < m; i++) {
+                float x = rand(-W2, W2);
+                float tp = taper(x);
+                Vec3 at = fr.add(dir.scale(0.3)).add(side.scale(x)).add(0, 3.3 * hs * tp, 0);
+                splash(at, dir.scale(rand(0.1f, 0.2f)).add(0, rand(0.15f, 0.3f), 0), 1.4f, 2.8f, 9 + RNG.nextInt(5), 0.03f);
+            }
+            // 앞머리가 흙·돌을 밀어냄
+            if (age % 2 == 0) {
+                Vec3 g = fr.add(side.scale(rand(-W2, W2) * 0.9f)).add(dir.scale(0.6));
+                DebrisFx.directed(g, dir, 2.5f, 30f, 3, 0.55f);
+            }
             // 지나간 자리의 젖은 자국
             if (age % 3 == 0) {
                 Vec3 at = fr.subtract(dir.scale(1.5));
@@ -945,6 +1032,8 @@ final class WaterFx {
             flashGlow(c.add(0, 1.5, 0), W2 * 2.5f, W2 * 3.5f, 10, C_AZURE, 0.5f);
             SkillFx.addDecal(c, UP, W2 * 1.1f, 140, 0.2f, 0.35f, 0.6f);
             shake(c, 2.2f, 16f);
+            DebrisFx.directed(c, dir, W2 * 0.9f, 60f, 14, 0.85f);
+            ripples(c, W2 * 1.6f, 3, 3);
         }
 
         @Override
@@ -1014,6 +1103,17 @@ final class WaterFx {
             }
             strip(bb, crest, cols + 1, wc, hc, 0.15f, -time * 0.2f, null);
             strip(bb, lip, cols + 1, wl, hl, 0.2f, time * 0.15f, null);
+            // 앞면 아래쪽에서 부글거리는 흰 거품 띠
+            Vec3[] foam = new Vec3[cols + 1];
+            float[] wf = new float[cols + 1], hf = new float[cols + 1];
+            for (int c = 0; c <= cols; c++) {
+                float x = -W2 + 2f * W2 * c / cols;
+                float tp = taper(x);
+                foam[c] = grid[3 * (cols + 1) + c].add(dir.scale(0.25)).add(0, 0.1 + 0.08 * Math.sin(x * 2.1f + time * 0.9f), 0);
+                wf[c] = 1.1f * tp;
+                hf[c] = 0.75f * tp;
+            }
+            strip(bb, foam, cols + 1, wf, hf, 0.3f, -time * 0.35f, null);
             FxRender.draw(bb);
 
             glow(fr.add(0, 2.0 * hs, 0), W2 * 2.6f, C_AZURE, 0.18f * fade);
@@ -1026,6 +1126,7 @@ final class WaterFx {
 
     private static final class DragonFx extends Fx {
         static final int SEGS = 28;
+        static final int RAIN = 50;
         static final float LAG = 0.45f;
         static final float RISE = 0.55f;
         final Vec3 S, T, A;
@@ -1049,6 +1150,9 @@ final class WaterFx {
             dropBurst(feet.add(0, 0.4, 0), UP, 0.8f, 40, 0.26f);
             mistBurst(feet.add(0, 0.6, 0), 1.6f, 8, 0.45f);
             shake(start, 1.6f, 20f);
+            // 용이 솟는 동안 하늘이 어두워지고 바다색으로 물듦
+            ScreenFx.darken(lerp(start, target, 0.5), R * 3f + 16f, 0.4f, this.flight + this.whirl + 30);
+            DebrisFx.burst(groundAt(start), 2.0f, 10, 0.7f);
         }
 
         /** 머리의 경로 (t = 틱). t < 0: 땅속에서 올라옴, t > flight: 땅속으로 꽂힘 */
@@ -1083,10 +1187,12 @@ final class WaterFx {
         @Override
         boolean tick() {
             age++;
-            if (age > flight + whirl + 12) return true;
+            if (age > flight + Math.max(whirl + 12, RAIN)) return true;
             if (age < flight + 13) shed();
+            if (age == (int) (flight * RISE)) roar();
             if (age == flight) impact();
             if (age > flight && age <= flight + whirl) whirlTick();
+            if (age > flight && age <= flight + RAIN) rain();
             return false;
         }
 
@@ -1113,6 +1219,29 @@ final class WaterFx {
             }
         }
 
+        /** 꼭대기에서 잠깐 멈춰 포효: 공중 충격파 + 번쩍 */
+        private void roar() {
+            Vec3 h = path(age);
+            FxManager.lod = FxManager.lodAt(h);
+            flashGlow(h, 6f, 12f, 6, C_WHITE, 0.9f);
+            FxManager.addRing(h, UP, 1f, 9f, 12, 0, 0.9f, W);
+            FxManager.addRing(h, UP, 0.6f, 6f, 10, 3, 0.7f, W);
+            dropBurst(h, UP, 0.9f, 30, 0.3f);
+            shake(h, 1.4f, 40f);
+        }
+
+        /** 충돌 뒤: 하늘로 튄 바닷물이 넓게 비처럼 쏟아짐 */
+        private void rain() {
+            float lf = 1f - (age - flight) / (float) RAIN;
+            FxManager.lod = FxManager.lodAt(T);
+            for (int i = 0, m = count(5); i < m; i++) {
+                if (RNG.nextFloat() > lf) continue;
+                float ang = RNG.nextFloat() * TAU;
+                float rr = R * 1.8f * (float) Math.sqrt(RNG.nextFloat());
+                drop(T.add(Math.cos(ang) * rr, rand(8f, 13f), Math.sin(ang) * rr), new Vec3(0, -rand(0.3f, 0.5f), 0), rand(0.2f, 0.3f), 30, 0.04f);
+            }
+        }
+
         private void impact() {
             FxManager.lod = FxManager.lodAt(T);
             Vec3 c = T.add(0, 0.08, 0);
@@ -1134,10 +1263,15 @@ final class WaterFx {
             dropBurst(T.add(0, 0.5, 0), UP, 1.6f, 120, 0.34f);
             mistBurst(T.add(0, 1, 0), R * 0.6f, 24, 0.55f);
             SkillFx.addDecal(T, UP, R * 1.15f, 260, 0.2f, 0.35f, 0.6f);
+            // 땅이 크게 패고 조각이 사방으로 + 바깥으로 밀려가는 둥근 해일 벽
+            DebrisFx.burst(T, R, 48, 1.5f);
+            DebrisFx.crater(T, R * 1.15f, whirl + 220, W);
+            add(new TsunamiRingFx(T, R));
+            ripples(T, R * 2.6f, 3, 14);
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
                 double d = mc.player.position().distanceTo(T);
-                if (d < 40) ScreenFx.flash(0x6FC8FF, 0.35f + 0.4f * (float) (1 - d / 40), 16);
+                if (d < 48) ScreenFx.flash(d < 20 ? 0xE6F7FF : 0x6FC8FF, 0.4f + 0.45f * (float) (1 - d / 48), 18);
             }
             shake(T, 6.5f, 48f);
         }
@@ -1289,6 +1423,65 @@ final class WaterFx {
         }
     }
 
+    /** 해룡 충돌: 바깥으로 밀려가며 낮아지는 둥근 물의 벽 */
+    private static final class TsunamiRingFx extends Fx {
+        static final int LIFE = 18;
+        final Vec3 c;
+        final float R;
+
+        TsunamiRingFx(Vec3 c, float R) {
+            this.c = c;
+            this.R = R;
+        }
+
+        @Override
+        boolean tick() {
+            age++;
+            if (age <= LIFE * 0.7f && age % 2 == 0) {
+                FxManager.lod = FxManager.lodAt(c);
+                float r = radius(age);
+                for (int i = 0, m = count(8); i < m; i++) {
+                    float ang = RNG.nextFloat() * TAU;
+                    Vec3 d = new Vec3(Math.cos(ang), 0, Math.sin(ang));
+                    splash(c.add(d.scale(r)).add(0, height(age) * rand(0.5f, 1f), 0), d.scale(rand(0.15f, 0.3f)).add(0, rand(0.1f, 0.25f), 0),
+                            1.6f, 3f, 10 + RNG.nextInt(5), 0.03f);
+                }
+            }
+            return age > LIFE;
+        }
+
+        float radius(float t) {
+            return R * (0.3f + 1.6f * easeOutCubic(clamp01(t / LIFE)));
+        }
+
+        float height(float t) {
+            float f = clamp01(t / LIFE);
+            return 4.2f * (float) Math.sin(Math.PI * Math.min(1f, f * 1.4f)) * (1f - f * 0.5f) + 0.2f;
+        }
+
+        @Override
+        void render(float pt, float time) {
+            float t = age + pt;
+            float f = clamp01(t / LIFE);
+            float fade = 1f - f * f;
+            if (fade <= 0.01f) return;
+            float r = radius(t);
+            RenderSystem.disableCull();
+            FxRender.elemShader(W, 2.0f, 0.1f + 0.75f * f, 1.05f * fade);
+            SkillFx.column(c, r * 0.97f, r * 1.06f, height(t), 0.95f, 0.04f, time * 0.02f, 0.08f, time);
+            FxRender.elemShader(W, 3.0f, Math.min(1f, 0.25f + 0.7f * f), 1.2f * fade);
+            BufferBuilder bb = FxRender.quads();
+            FxRender.ring(bb, c.add(0, height(t) * 0.92, 0), UP, r * 0.96f, r * 1.1f, 0.9f * fade, time * 0.4f, 64);
+            FxRender.ring(bb, c.add(0, 0.06, 0), UP, r * 0.8f, r * 1.12f, 0.7f * fade, -time * 0.3f, 64);
+            FxRender.draw(bb);
+        }
+
+        @Override
+        Vec3 anchor() {
+            return c;
+        }
+    }
+
     // =====================================================================
     // 준비 동작
     // =====================================================================
@@ -1360,6 +1553,12 @@ final class WaterFx {
                 for (int i = 0, m = count(2); i < m; i++) {
                     float ang = RNG.nextFloat() * TAU;
                     splash(c.target.add(Math.cos(ang) * r, 0.3, Math.sin(ang) * r), new Vec3(0, 0.08, 0), 0.8f + 0.8f * k, 0.4f, 8, 0f);
+                }
+                // 모을수록 땅이 울리고 목표 테두리에서 흙이 들썩임
+                if (c.age % 2 == 0) shake(c.target, 0.15f + 0.45f * k, r * 4f);
+                if (k > 0.5f && c.age % 4 == 0) {
+                    float ang = RNG.nextFloat() * TAU;
+                    DebrisFx.burst(c.target.add(Math.cos(ang) * r, 0, Math.sin(ang) * r), 0.8f, 2, 0.3f + 0.4f * k);
                 }
             }
             default -> { }

@@ -147,4 +147,34 @@ public final class SkillTargets {
         e.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, ticks, 5, false, true, true));
         e.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, ticks, 1, false, false, true));
     }
+
+    /** 얼림: 거의 못 움직이고 화면 가장자리에 서리 (바닐라 동상 표시, 동상 피해는 없게 140 미만) */
+    public static void freeze(LivingEntity e, int ticks) {
+        if (ticks <= 0) return;
+        e.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, ticks, 6, false, true, true));
+        e.addEffect(new MobEffectInstance(MobEffects.DIG_SLOWDOWN, ticks, 2, false, false, true));
+        e.setTicksFrozen(Math.max(e.getTicksFrozen(), Math.min(139, 60 + ticks * 2)));
+        Vec3 v = e.getDeltaMovement();
+        if (v.y > 0) setVelocity(e, new Vec3(v.x * 0.2, 0, v.z * 0.2));
+    }
+
+    /** 부채꼴 안 (수평 각도 기준, 위아래는 넉넉히). halfDeg = 반각 */
+    public static List<LivingEntity> inCone(ServerLevel level, @Nullable Entity owner, Vec3 origin, Vec3 dir, double range, double halfDeg) {
+        List<LivingEntity> out = new ArrayList<>();
+        Vec3 f = new Vec3(dir.x, 0, dir.z);
+        if (f.lengthSqr() < 1.0E-6) return out;
+        f = f.normalize();
+        double cos = Math.cos(Math.toRadians(Math.min(179.0, Math.max(1.0, halfDeg))));
+        for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(origin, origin).inflate(range + 1, 4, range + 1), x -> canHit(owner, x))) {
+            Vec3 rel = e.position().subtract(origin);
+            if (rel.y < -3 || rel.y > 4) continue;
+            Vec3 flat = new Vec3(rel.x, 0, rel.z);
+            double d = flat.length();
+            if (d - e.getBbWidth() * 0.5 > range) continue;
+            if (d > 1.0 && flat.scale(1.0 / d).dot(f) < cos) continue;
+            if (owner != null && !canSee(level, owner, origin.add(0, 0.8, 0), e)) continue;
+            out.add(e);
+        }
+        return out;
+    }
 }

@@ -23,7 +23,12 @@ public final class ClientPacketHandler {
         Entity caster = mc.level.getEntity(p.casterId());
         if (caster != null && skill != null) {
             if (caster == mc.player) SkillBarHud.castStarted(skill);
-            FxManager.onCastStart(caster, skill, p.chargeTicks(), new Vec3(p.x(), p.y(), p.z()), p.size());
+            // 신호 처리 중 오류가 나면 NeoForge 가 서버 접속을 끊으므로, 연출 오류는 여기서 막는다
+            try {
+                FxManager.onCastStart(caster, skill, p.chargeTicks(), new Vec3(p.x(), p.y(), p.z()), p.size());
+            } catch (RuntimeException ex) {
+                FxManager.fxError("cast_start", ex);
+            }
         }
     }
 
@@ -41,7 +46,11 @@ public final class ClientPacketHandler {
 
     public static void onEvent(SkillEventPayload p) {
         if (Minecraft.getInstance().level == null) return;
-        FxManager.onEvent(p);
+        try {
+            FxManager.onEvent(p);
+        } catch (RuntimeException ex) {
+            FxManager.fxError("event " + p.kind(), ex);
+        }
     }
 
     public static void onStats(SkillStatsPayload p) {

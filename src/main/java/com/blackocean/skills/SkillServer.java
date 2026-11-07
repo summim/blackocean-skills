@@ -47,6 +47,7 @@ public final class SkillServer {
     private static final Map<UUID, long[]> READY_AT = new HashMap<>();
     private static final List<Pending> PENDING = new ArrayList<>();
     private static final Map<UUID, Buffered> BUFFERED = new HashMap<>();
+    private static final Map<UUID, Long> LAST_REQUEST = new HashMap<>();
     private static final List<ServerEffects.Effect> EFFECTS = new ArrayList<>();
 
     /**
@@ -67,6 +68,17 @@ public final class SkillServer {
     /** 클라이언트가 1~5 키를 눌러 보낸 요청 (slot 0~4). 메인 스레드에서 호출된다. */
     public static void tryCast(ServerPlayer p, int slot) {
         if (slot < 0 || slot >= Skill.SLOTS) return;
+        // 요청 폭주 방지: 한 사람당 한 틱에 한 번만
+        long tick = p.server.getTickCount();
+        Long last = LAST_REQUEST.put(p.getUUID(), tick);
+        if (last != null && last == tick) return;
+        // 기절·얼림 중엔 스킬 못 씀 (명령어·API 발동은 예외)
+        net.minecraft.world.effect.MobEffectInstance slowFx = p.getEffect(net.minecraft.world.effect.MobEffects.MOVEMENT_SLOWDOWN);
+        if (slowFx != null && slowFx.getAmplifier() >= 5) {
+            p.displayClientMessage(Component.translatable("msg.blackocean_skills.stunned"), true);
+            PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(-1, 0, 0, true));
+            return;
+        }
         Element e = PlayerElements.get(p);
         if (e == null) {
             p.displayClientMessage(Component.translatable("msg.blackocean_skills.no_element"), true);
@@ -82,7 +94,8 @@ public final class SkillServer {
         int left = remainingTicks(p, skill);
         Skill charging = chargingSkill(p.getUUID());
         if (charging == skill) return; // 모으는 중에 같은 키를 또 누름 → 무시 (예전엔 잠시 뒤 거절 표시가 떴음)
-        if (left <= BUFFER_TICKS && (left > 0 || charging != null)) {
+        boolean busy = charging != null || movingBlocks(p, skill);
+        if (left <= BUFFER_TICKS && (left > 0 || busy)) {
             // 곧 쓸 수 있음 → 예약 (마지막에 누른 스킬이 이김)
             BUFFERED.put(p.getUUID(), new Buffered(skill, p.server.getTickCount() + Math.max(left, 0) + BUFFER_TICKS + 40));
             return;
@@ -106,7 +119,8 @@ public final class SkillServer {
      * @return 시작했으면 true
      */
     public static boolean cast(ServerPlayer p, Skill skill, boolean useCooldown) {
-        if (!p.isAlive() || p.isSpectator() || chargingSkill(p.getUUID()) != null) return false;
+        if (!p.isAlive() || p.isSpectator() || p.isSleeping() || chargingSkill(p.getUUID()) != null) return false;
+        if (movingBlocks(p, skill)) return false; // 돌진·도약 중에 또 이동 스킬 → 두 효과가 속도를 서로 덮어씀
         ServerLevel level = p.serverLevel();
         Vec3 eye = p.getEyePosition(), look = p.getLookAngle();
 
@@ -161,6 +175,8 @@ public final class SkillServer {
             case LIGHTNING_STORM -> new ChargeSound("lightning.storm_charge", 3.0f, 1.0f);
             case WIND_TEMPEST -> new ChargeSound("wind.charge", 2.5f, 0.7f);
             case WATER_DRAGON -> new ChargeSound("water.charge", 2.5f, 0.7f);
+            case ICE_AGE -> new ChargeSound("ice.charge", 3.0f, 0.6f);
+            case THUNDER_JUDGMENT -> new ChargeSound("thunder.charge", 3.0f, 0.7f);
             default -> new ChargeSound(s.element.id + ".charge", 1.4f, s.slot == 1 ? 1.4f : 1.0f);
         };
     }
@@ -199,6 +215,21 @@ public final class SkillServer {
 
     private static long[] readyAt(UUID id) {
         return READY_AT.computeIfAbsent(id, k -> new long[N]);
+    }
+
+    /** 시전자를 움직이는 스킬 (서로 겹치면 매 틱 속도를 서로 덮어써서 엉뚱한 곳으로 감) */
+    private static boolean movesCaster(Skill s) {
+        return s == Skill.WIND_DASH || s == Skill.LIGHTNING_BLINK || s == Skill.THUNDER_LEAP || s == Skill.THUNDER_JUDGMENT;
+    }
+
+    /** 이동 스킬인데 지금 다른 이동 효과가 몸을 움직이는 중이면 true */
+    private static boolean movingBlocks(ServerPlayer p, Skill s) {
+        if (!movesCaster(s)) return false;
+        UUID id = p.getUUID();
+        for (ServerEffects.Effect e : EFFECTS) {
+            if (e.ownerId.equals(id) && e.controlsOwner()) return true;
+        }
+        return false;
     }
 
     /** 모으는 중(아직 발동 전)인 스킬. 탄환 연사 중(2발째부터)은 해당 없음. */
@@ -292,6 +323,12 @@ public final class SkillServer {
             case WIND_DASH -> EFFECTS.add(new ServerEffects.Dash(level, p, skill));
             case WATER_JET -> EFFECTS.add(new ServerEffects.Jet(level, p, skill));
             case WATER_WAVE -> EFFECTS.add(new ServerEffects.Wave(level, p, skill));
+            case ICE_SPEAR, THUNDER_HAMMER -> projectile(p, skill, 0.3, 0, 0);
+            case ICE_SHARDS -> fan(p, skill, 7);
+            case ICE_SPIKES -> EFFECTS.add(new IceThunderEffects.Spikes(level, p, skill));
+            case FROST_NOVA -> IceThunderEffects.frostNova(level, p, skill);
+            case THUNDERCLAP -> IceThunderEffects.thunderclap(level, p, skill);
+            case THUNDER_ROAR -> EFFECTS.add(new IceThunderEffects.Roar(level, p, skill));
             default -> {
                 if (target == null) return;
                 switch (skill) {
@@ -301,10 +338,27 @@ public final class SkillServer {
                     case WIND_WHIRLWIND, WIND_TEMPEST -> EFFECTS.add(new ServerEffects.Tornado(level, p, skill, target));
                     case WATER_PRISON -> EFFECTS.add(new ServerEffects.Prison(level, p, skill, target));
                     case WATER_DRAGON -> EFFECTS.add(new ServerEffects.Dragon(level, p, skill, target));
+                    case ICE_AGE -> EFFECTS.add(new IceThunderEffects.Glacier(level, p, skill, target));
+                    case THUNDER_LEAP -> EFFECTS.add(new IceThunderEffects.Leap(level, p, skill, target));
+                    case THUNDER_JUDGMENT -> EFFECTS.add(new IceThunderEffects.Judgment(level, p, skill, target));
                     default -> { }
                 }
             }
         }
+    }
+
+    /** 부채꼴로 여러 발 (얼음 파편). radius = 반각(도) */
+    private static void fan(ServerPlayer p, Skill skill, int count) {
+        ServerLevel level = p.serverLevel();
+        Vec3 eye = p.getEyePosition(), look = p.getLookAngle();
+        Vec3 start = SkillAim.handPos(level, p, eye, look, 0, 0);
+        Vec3 dir = SkillAim.aimDirection(level, p, eye, look, start, skill.range());
+        double half = Math.toRadians(Math.min(80.0, Math.max(1.0, skill.radius())));
+        for (int i = 0; i < count; i++) {
+            double a = count == 1 ? 0 : -half + 2 * half * i / (count - 1);
+            level.addFreshEntity(SkillProjectile.create(level, p, skill, start, dir.yRot((float) a).normalize()));
+        }
+        level.playSound(null, start.x, start.y, start.z, SkillsRegistry.snd("ice.shot"), SoundSource.PLAYERS, 2.4f, 1.3f);
     }
 
     /** 투사체 발사. side: 손 좌우, lift: 머리 위 높이(태양), spreadDeg: 탄 퍼짐 */
@@ -323,6 +377,8 @@ public final class SkillServer {
             case FIRE_BULLETS -> "fire_bullets.shot";
             case WIND_BLADE -> "wind.blade";
             case WATER_BULLET -> "water.shot";
+            case ICE_SPEAR -> "ice.shot";
+            case THUNDER_HAMMER -> "thunder.hammer";
             default -> "fire_fist.launch";
         };
         float pitch = skill == Skill.FIRE_SUN ? 0.55f : skill == Skill.FIRE_BULLETS ? 0.92f + p.getRandom().nextFloat() * 0.16f : 1.0f;
@@ -345,7 +401,7 @@ public final class SkillServer {
                 deny(p, b.skill());
                 continue;
             }
-            if (chargingSkill(p.getUUID()) != null || remainingTicks(p, b.skill()) > 0) continue;
+            if (chargingSkill(p.getUUID()) != null || remainingTicks(p, b.skill()) > 0 || movingBlocks(p, b.skill())) continue;
             it.remove();
             Element el = PlayerElements.get(p);
             if (el != b.skill().element || !b.skill().enabled() || !cast(p, b.skill(), true)) deny(p, b.skill());
@@ -380,6 +436,7 @@ public final class SkillServer {
 
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         UUID id = event.getEntity().getUUID();
+        LAST_REQUEST.remove(id);
         PENDING.removeIf(x -> x.player().equals(id));
         BUFFERED.remove(id);
     }

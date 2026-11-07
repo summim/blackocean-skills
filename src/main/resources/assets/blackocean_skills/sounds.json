@@ -1,326 +1,458 @@
 {
-    "fire_fist.charge": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_fist.charge",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_fist/charge",
-                "attenuation_distance": 24
-            }
-        ]
-    },
-    "fire_fist.launch": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_fist.launch",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_fist/launch",
-                "attenuation_distance": 40
-            }
-        ]
-    },
-    "fire_fist.travel": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_fist.travel",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_fist/travel",
-                "attenuation_distance": 32
-            }
-        ]
-    },
-    "fire_fist.impact": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_fist.impact",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_fist/impact",
-                "attenuation_distance": 64
-            }
-        ]
-    },
-    "fire_fist.crackle": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_fist.crackle",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_fist/crackle",
-                "attenuation_distance": 24
-            }
-        ]
-    },
-    "fire_bullets.shot": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_bullets.shot",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_bullets/shot",
-                "attenuation_distance": 32
-            }
-        ]
-    },
-    "fire_bullets.impact": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_bullets.impact",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_bullets/impact",
-                "attenuation_distance": 40
-            }
-        ]
-    },
-    "fire_pillar.warn": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_pillar.warn",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_pillar/warn",
-                "attenuation_distance": 32
-            }
-        ]
-    },
-    "fire_pillar.erupt": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire_pillar.erupt",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire_pillar/erupt",
-                "attenuation_distance": 64
-            }
-        ]
-    },
-    "flame_ring.charge": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.flame_ring.charge",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/flame_ring/charge",
-                "attenuation_distance": 28
-            }
-        ]
-    },
-    "flame_ring.burst": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.flame_ring.burst",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/flame_ring/burst",
-                "attenuation_distance": 64
-            }
-        ]
-    },
-    "fire.sun_charge": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire.sun_charge",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire/sun_charge",
-                "attenuation_distance": 48
-            }
-        ]
-    },
-    "fire.sun_impact": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.fire.sun_impact",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/fire/sun_impact",
-                "attenuation_distance": 96
-            }
-        ]
-    },
-    "lightning.charge": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.lightning.charge",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/lightning/charge",
-                "attenuation_distance": 24
-            }
-        ]
-    },
-    "lightning.zap": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.lightning.zap",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/lightning/zap",
-                "attenuation_distance": 40,
-                "volume": 1.6
-            }
-        ]
-    },
-    "lightning.thunder": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.lightning.thunder",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/lightning/thunder",
-                "attenuation_distance": 128,
-                "volume": 1.6
-            }
-        ]
-    },
-    "lightning.blink": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.lightning.blink",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/lightning/blink",
-                "attenuation_distance": 32,
-                "volume": 1.3
-            }
-        ]
-    },
-    "lightning.discharge": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.lightning.discharge",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/lightning/discharge",
-                "attenuation_distance": 48,
-                "volume": 1.3
-            }
-        ]
-    },
-    "lightning.storm_charge": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.lightning.storm_charge",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/lightning/storm_charge",
-                "attenuation_distance": 96
-            }
-        ]
-    },
-    "wind.charge": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.wind.charge",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/wind/charge",
-                "attenuation_distance": 24
-            }
-        ]
-    },
-    "wind.blade": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.wind.blade",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/wind/blade",
-                "attenuation_distance": 32
-            }
-        ]
-    },
-    "wind.dash": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.wind.dash",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/wind/dash",
-                "attenuation_distance": 32
-            }
-        ]
-    },
-    "wind.tornado": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.wind.tornado",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/wind/tornado",
-                "attenuation_distance": 64
-            }
-        ]
-    },
-    "wind.burst": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.wind.burst",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/wind/burst",
-                "attenuation_distance": 48
-            }
-        ]
-    },
-    "water.charge": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.water.charge",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/water/charge",
-                "attenuation_distance": 24
-            }
-        ]
-    },
-    "water.shot": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.water.shot",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/water/shot",
-                "attenuation_distance": 32
-            }
-        ]
-    },
-    "water.splash": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.water.splash",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/water/splash",
-                "attenuation_distance": 48
-            }
-        ]
-    },
-    "water.jet": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.water.jet",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/water/jet",
-                "attenuation_distance": 40
-            }
-        ]
-    },
-    "water.wave": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.water.wave",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/water/wave",
-                "attenuation_distance": 64
-            }
-        ]
-    },
-    "water.dragon": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.water.dragon",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/water/dragon",
-                "attenuation_distance": 96
-            }
-        ]
-    },
-    "common.ultimate": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.common.ultimate",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/common/ultimate",
-                "attenuation_distance": 96
-            }
-        ]
-    },
-    "common.transform": {
-        "category": "player",
-        "subtitle": "subtitles.blackocean_skills.common.transform",
-        "sounds": [
-            {
-                "name": "blackocean_skills:skill/common/transform",
-                "attenuation_distance": 32
-            }
-        ]
-    }
+  "fire_fist.charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_fist.charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_fist/charge",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "fire_fist.launch": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_fist.launch",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_fist/launch",
+        "attenuation_distance": 40
+      }
+    ]
+  },
+  "fire_fist.travel": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_fist.travel",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_fist/travel",
+        "attenuation_distance": 32
+      }
+    ]
+  },
+  "fire_fist.impact": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_fist.impact",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_fist/impact",
+        "attenuation_distance": 64
+      }
+    ]
+  },
+  "fire_fist.crackle": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_fist.crackle",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_fist/crackle",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "fire_bullets.shot": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_bullets.shot",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_bullets/shot",
+        "attenuation_distance": 32
+      }
+    ]
+  },
+  "fire_bullets.impact": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_bullets.impact",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_bullets/impact",
+        "attenuation_distance": 40
+      }
+    ]
+  },
+  "fire_pillar.warn": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_pillar.warn",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_pillar/warn",
+        "attenuation_distance": 32
+      }
+    ]
+  },
+  "fire_pillar.erupt": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire_pillar.erupt",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire_pillar/erupt",
+        "attenuation_distance": 64
+      }
+    ]
+  },
+  "flame_ring.charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.flame_ring.charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/flame_ring/charge",
+        "attenuation_distance": 28
+      }
+    ]
+  },
+  "flame_ring.burst": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.flame_ring.burst",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/flame_ring/burst",
+        "attenuation_distance": 64
+      }
+    ]
+  },
+  "fire.sun_charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire.sun_charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire/sun_charge",
+        "attenuation_distance": 48
+      }
+    ]
+  },
+  "fire.sun_impact": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.fire.sun_impact",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/fire/sun_impact",
+        "attenuation_distance": 96
+      }
+    ]
+  },
+  "lightning.charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.lightning.charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/lightning/charge",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "lightning.zap": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.lightning.zap",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/lightning/zap",
+        "attenuation_distance": 40,
+        "volume": 1.6
+      }
+    ]
+  },
+  "lightning.thunder": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.lightning.thunder",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/lightning/thunder",
+        "attenuation_distance": 128,
+        "volume": 1.6
+      }
+    ]
+  },
+  "lightning.blink": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.lightning.blink",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/lightning/blink",
+        "attenuation_distance": 32,
+        "volume": 1.3
+      }
+    ]
+  },
+  "lightning.discharge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.lightning.discharge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/lightning/discharge",
+        "attenuation_distance": 48,
+        "volume": 1.3
+      }
+    ]
+  },
+  "lightning.storm_charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.lightning.storm_charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/lightning/storm_charge",
+        "attenuation_distance": 96
+      }
+    ]
+  },
+  "wind.charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.wind.charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/wind/charge",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "wind.blade": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.wind.blade",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/wind/blade",
+        "attenuation_distance": 32
+      }
+    ]
+  },
+  "wind.dash": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.wind.dash",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/wind/dash",
+        "attenuation_distance": 32
+      }
+    ]
+  },
+  "wind.tornado": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.wind.tornado",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/wind/tornado",
+        "attenuation_distance": 64
+      }
+    ]
+  },
+  "wind.burst": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.wind.burst",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/wind/burst",
+        "attenuation_distance": 48
+      }
+    ]
+  },
+  "water.charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.water.charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/water/charge",
+        "attenuation_distance": 24
+      }
+    ]
+  },
+  "water.shot": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.water.shot",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/water/shot",
+        "attenuation_distance": 32
+      }
+    ]
+  },
+  "water.splash": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.water.splash",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/water/splash",
+        "attenuation_distance": 48
+      }
+    ]
+  },
+  "water.jet": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.water.jet",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/water/jet",
+        "attenuation_distance": 40
+      }
+    ]
+  },
+  "water.wave": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.water.wave",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/water/wave",
+        "attenuation_distance": 64
+      }
+    ]
+  },
+  "water.dragon": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.water.dragon",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/water/dragon",
+        "attenuation_distance": 96
+      }
+    ]
+  },
+  "common.ultimate": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.common.ultimate",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/common/ultimate",
+        "attenuation_distance": 96
+      }
+    ]
+  },
+  "common.transform": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.common.transform",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/common/transform",
+        "attenuation_distance": 32
+      }
+    ]
+  },
+  "ice.charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.ice.charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/ice/charge",
+        "attenuation_distance": 64,
+        "volume": 1.0
+      }
+    ]
+  },
+  "ice.shot": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.ice.shot",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/ice/shot",
+        "attenuation_distance": 64,
+        "volume": 1.0
+      }
+    ]
+  },
+  "ice.shatter": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.ice.shatter",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/ice/shatter",
+        "attenuation_distance": 64,
+        "volume": 1.0
+      }
+    ]
+  },
+  "ice.spikes": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.ice.spikes",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/ice/spikes",
+        "attenuation_distance": 64,
+        "volume": 1.0
+      }
+    ]
+  },
+  "ice.nova": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.ice.nova",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/ice/nova",
+        "attenuation_distance": 64,
+        "volume": 1.0
+      }
+    ]
+  },
+  "ice.glacier": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.ice.glacier",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/ice/glacier",
+        "attenuation_distance": 96,
+        "volume": 1.0
+      }
+    ]
+  },
+  "thunder.charge": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.thunder.charge",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/thunder/charge",
+        "attenuation_distance": 64,
+        "volume": 1.0
+      }
+    ]
+  },
+  "thunder.hammer": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.thunder.hammer",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/thunder/hammer",
+        "attenuation_distance": 64,
+        "volume": 1.0
+      }
+    ]
+  },
+  "thunder.clap": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.thunder.clap",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/thunder/clap",
+        "attenuation_distance": 96,
+        "volume": 1.0
+      }
+    ]
+  },
+  "thunder.slam": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.thunder.slam",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/thunder/slam",
+        "attenuation_distance": 96,
+        "volume": 1.0
+      }
+    ]
+  },
+  "thunder.roar": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.thunder.roar",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/thunder/roar",
+        "attenuation_distance": 64,
+        "volume": 1.0
+      }
+    ]
+  },
+  "thunder.judgment": {
+    "category": "player",
+    "subtitle": "subtitles.blackocean_skills.thunder.judgment",
+    "sounds": [
+      {
+        "name": "blackocean_skills:skill/thunder/judgment",
+        "attenuation_distance": 96,
+        "volume": 1.0
+      }
+    ]
+  }
 }

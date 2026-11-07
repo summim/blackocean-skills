@@ -2,6 +2,7 @@ package com.blackocean.skills.client.fx;
 
 import com.blackocean.skills.Element;
 import com.blackocean.skills.Skill;
+import com.blackocean.skills.SubLevels;
 import com.blackocean.skills.network.SkillEventPayload;
 import com.blackocean.skills.network.SkillEvents;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -9,6 +10,10 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,6 +38,8 @@ import static com.blackocean.skills.client.fx.FxManager.spawn;
  *  4 폭풍 방벽   : 바깥으로 퍼지는 낮은 바람 벽 + 방사 속도선 + 충격파 여러 겹 + 흙먼지 고리
  *  5 천공의 대폭풍: 회오리의 거대판 (22블록) + 하늘 어두워짐 + 강한 화면 흔들림 + 날아다니는 잔해
  * </pre>
+ * 무거운 순간에는 땅이 뜯겨 나감 (DebrisFx: 돌진 출발·도착, 회오리 테두리, 방벽, 칼날 적중) +
+ * 회오리에 빨려 들어가 빙빙 돌며 솟는 실제 바닥 블록 조각 (WindDebris) + 금 간 땅 자국 (잔류).
  */
 final class WindFx {
     private WindFx() {}
@@ -67,7 +74,10 @@ final class WindFx {
                 float h = e.size2() > 0.5f ? e.size2() : (big ? 22f : 7f);
                 int dur = Math.max(10, e.duration());
                 add(new TornadoFx(pos, r, h, dur, big));
-                if (big) ScreenFx.darken(pos, r * 2f, 0.35f, dur + 20);
+                if (big) {
+                    ScreenFx.darken(pos, r * 2.5f, 0.45f, dur + 40);
+                    flashNear(pos, 0xBFFFE6, 0.4f, 14, 56f);
+                }
             }
             case SkillEvents.BURST -> add(new BurstFx(pos, Math.max(1f, e.size()), Math.max(12, e.duration())));
             default -> { }
@@ -77,6 +87,7 @@ final class WindFx {
     static void tick() {
         FX.removeIf(Fx::tick);
         SHOCKS.removeIf(Fx::tick);
+        WindDebris.tick();
     }
 
     static void renderAdditive(float pt, float time) {
@@ -87,6 +98,7 @@ final class WindFx {
     }
 
     static void renderAlpha(float pt, float time) {
+        WindDebris.render(pt);
         if (FX.isEmpty()) return;
         boolean any = false;
         for (Fx f : FX) {
@@ -106,12 +118,13 @@ final class WindFx {
     }
 
     static boolean isEmpty() {
-        return FX.isEmpty() && SHOCKS.isEmpty();
+        return FX.isEmpty() && SHOCKS.isEmpty() && WindDebris.isEmpty();
     }
 
     static void clear() {
         FX.clear();
         SHOCKS.clear();
+        WindDebris.clear();
     }
 
     private static void add(Fx f) {
@@ -199,6 +212,12 @@ final class WindFx {
                     Vec3 tangent = new Vec3(-Math.sin(ang), 0, Math.cos(ang));
                     leaf(t.add(Math.cos(ang) * rr, 0.2, Math.sin(ang) * rr), tangent.scale(0.2 * sc).add(0, rand(0.08f, 0.18f), 0), 12 + RNG.nextInt(8), 0.2f);
                 }
+                // 모을수록 땅이 들썩이고 테두리가 뜯겨 나감 (기대감)
+                if (k > 0.45f && c.age % (big ? 3 : 6) == 0) {
+                    float ang = RNG.nextFloat() * TAU;
+                    DebrisFx.burst(t.add(Math.cos(ang) * R, 0, Math.sin(ang) * R), 0.8f, big ? 3 : 1, 0.35f + 0.4f * k);
+                }
+                if (big && c.age % 2 == 0) shakeAt(t, 0.15f + 0.45f * k, R * 4f);
                 if (big) {
                     // 시전자 둘레를 감아 높이 솟는 바람
                     Vec3 cp = caster.position();
@@ -480,6 +499,9 @@ final class WindFx {
                 Vec3 d = randomDir().add(n).normalize();
                 dust(pos.add(d.scale(0.3)), d.scale(rand(0.06f, 0.14f)), 0.8f, 2.4f, 20 + RNG.nextInt(10), 0.35f);
             }
+            // 칼날이 땅·벽을 베어 낸 조각
+            if (n.y > 0.5) DebrisFx.burst(pos, 1.0f, 6, 0.5f);
+            else if (Math.abs(n.y) < 0.5) DebrisFx.directed(pos, new Vec3(n.x, 0, n.z), 2.5f, 50f, 6, 0.5f);
         }
         shakeAt(pos, fizzle ? 0.4f : 0.9f, 12f);
     }
@@ -645,8 +667,16 @@ final class WindFx {
                 Vec3 d = dir.scale(-rand(0.3f, 0.8f)).add(randomDir().scale(0.35));
                 streakSpark(body, d, 0.08f, 6 + RNG.nextInt(4));
             }
+            // 박차고 나간 땅: 뒤로 튀는 흙덩이 + 금 간 발자국
+            Vec3 g = groundAt(start);
+            DebrisFx.directed(g, dir.scale(-1), 3.5f, 35f, 10, 0.7f);
+            DebrisFx.burst(g, 1.2f, 6, 0.45f);
+            DebrisFx.crater(g, 1.4f, 90, W);
             Minecraft mc = Minecraft.getInstance();
-            if (caster != null && caster == mc.player) CameraShake.add(0.8f);
+            if (caster != null && caster == mc.player) {
+                CameraShake.add(0.8f);
+                ScreenFx.flash(0xC8FFE8, 0.12f, 5); // 음속 돌파 번쩍
+            }
         }
 
         Vec3 sim(float a) {
@@ -713,6 +743,16 @@ final class WindFx {
                 for (int i = 0; i < count(6); i++) {
                     wisp(p.add(randomDir().scale(0.4)), dir.scale(0.15).add(randomDir().scale(0.12)), 1.0f, 2.0f, 7, 0.8f);
                 }
+                // 멈춰 선 자리: 앞으로 쏟아지는 흙덩이 + 바닥 충격
+                Vec3 ge = groundAt(p);
+                DebrisFx.burst(ge, 1.6f, 8, 0.6f);
+                DebrisFx.directed(ge, dir, 3f, 40f, 8, 0.7f);
+                for (int i = 0; i < count(8); i++) {
+                    float ang = RNG.nextFloat() * TAU;
+                    Vec3 d = new Vec3(Math.cos(ang), 0, Math.sin(ang));
+                    dust(ge.add(d.scale(0.4)).add(0, 0.2, 0), d.scale(rand(0.12f, 0.24f)).add(dir.scale(0.08)), 0.7f, 2.2f, 16 + RNG.nextInt(8), 0.38f);
+                }
+                shakeAt(p, 0.7f, 10f);
             }
             return false;
         }
@@ -792,6 +832,9 @@ final class WindFx {
         final int dur;
         final boolean big;
         final float r0, r1, seed;
+        final int id = ++idSeq;
+        /** 끝난 뒤 낙엽·흙먼지가 내려앉는 시간 */
+        final int linger;
 
         TornadoFx(Vec3 base, float R, float H, int dur, boolean big) {
             this.base = base;
@@ -821,6 +864,11 @@ final class WindFx {
                 streakSpark(base.add(0, 0.3, 0), d.scale(rand(0.6f, 1.3f) * (big ? 1.5f : 1f)), big ? 0.16f : 0.1f, 8 + RNG.nextInt(8));
             }
             shakeAt(base, big ? 3.0f : 1.2f, big ? R * 4f : R * 3f);
+            this.linger = big ? 60 : 30;
+            // 땅이 뜯겨 나감: 사방으로 튀는 조각 + 금 간 자국(바람빛) + 처음 빨려 드는 조각들
+            DebrisFx.burst(base, R * 0.9f, big ? 36 : 14, big ? 1.3f : 0.65f);
+            DebrisFx.crater(base, R * (big ? 1.35f : 1.05f), dur + (big ? 160 : 80), W);
+            for (int i = 0; i < count(big ? 26 : 10); i++) WindDebris.lift(id, base, R * 0.8f, H * 0.75f, big ? 1.6f : 1f);
         }
 
         float grow(float t) {
@@ -853,11 +901,21 @@ final class WindFx {
         boolean tick() {
             age++;
             float t = age;
-            if (t > dur + 16) return true;
+            if (t > dur + Math.max(16, linger)) return true;
             FxManager.lod = FxManager.lodAt(base);
             float sz = big ? 2.2f : 1f;
+            if (t > dur) settle();
             if (t <= dur) {
                 float g = grow(t);
+                // 바닥 블록 조각이 빨려 들어가 깔때기를 따라 솟음
+                for (int i = 0; i < count(big ? 4 : 1); i++) {
+                    WindDebris.lift(id, base, radiusAt(0.05f) * 1.15f, Math.max(2f, H * g * 0.8f), big ? 1.6f : 1f);
+                }
+                // 테두리의 땅이 계속 뜯겨 나감
+                if (age % (big ? 5 : 9) == 0) {
+                    float ang = RNG.nextFloat() * TAU;
+                    DebrisFx.burst(base.add(Math.cos(ang) * R * 1.1, 0, Math.sin(ang) * R * 1.1), 1.2f, big ? 4 : 2, big ? 0.9f : 0.55f);
+                }
                 // 깔때기를 따라 감아 오르는 바람결
                 for (int i = 0; i < count(big ? 8 : 4); i++) {
                     float f = RNG.nextFloat() * 0.9f;
@@ -962,6 +1020,32 @@ final class WindFx {
                 dust(base.add(out.scale(R * 0.7f)).add(0, 0.4, 0), out.scale(rand(0.25f, 0.45f) * sz).add(0, 0.03, 0), 1.2f * sz, 3.6f * sz, 22 + RNG.nextInt(10), 0.4f);
             }
             shakeAt(base, big ? 4.0f : 1.6f, big ? R * 5f : R * 4f);
+            // 빨려 올라간 조각을 바깥으로 내던지고, 바닥이 한 번 더 터짐
+            WindDebris.fling(id, big ? 1.8f : 1.1f);
+            DebrisFx.burst(base, R * 1.5f, big ? 40 : 16, big ? 1.5f : 0.9f);
+            if (big) {
+                flashNear(base, 0xF0FFF8, 0.5f, 12, 64f);
+                shock(base.add(0, H * 0.6, 0), UP, R, R * 4.5f, R * 0.6f, 14, 0, 0.9f);
+                FxManager.addRing(base.add(0, 0.1, 0), UP, R, R * 6f, 18, 2, 0.8f, W);
+            }
+        }
+
+        /** 끝난 뒤: 하늘로 올라갔던 낙엽·흙먼지가 천천히 내려앉음 */
+        void settle() {
+            float lf = 1f - clamp01((age - dur) / (float) linger);
+            if (lf <= 0f) return;
+            float spread = R * (big ? 3f : 2f);
+            for (int i = 0; i < count(big ? 3 : 1); i++) {
+                if (RNG.nextFloat() > lf) continue;
+                Vec3 at = base.add(rand(-spread, spread), rand(H * 0.25f, H * 0.7f), rand(-spread, spread));
+                leaf(at, new Vec3(rand(-0.05f, 0.05f), -rand(0.02f, 0.06f), rand(-0.05f, 0.05f)), 40 + RNG.nextInt(30), big ? 0.32f : 0.22f);
+            }
+            if (age % 3 == 0 && RNG.nextFloat() < lf) {
+                float ang = RNG.nextFloat() * TAU;
+                float rr = R * rand(0.6f, 1.8f);
+                dust(base.add(Math.cos(ang) * rr, 0.3, Math.sin(ang) * rr), new Vec3(-Math.sin(ang) * 0.05, 0.01, Math.cos(ang) * 0.05),
+                        1.0f * (big ? 2f : 1f), 3.0f * (big ? 2f : 1f), 30 + RNG.nextInt(15), 0.3f * lf);
+            }
         }
 
         @Override
@@ -1075,6 +1159,19 @@ final class WindFx {
                 float u0 = (frame & 7) / 8f, v0 = (frame >> 3) / 8f;
                 FxRender.billboard(bb, p, R * (big ? 1.4f : 1.3f), (float) ang, u0, v0, u0 + 0.125f, v0 + 0.125f, 0.8f, 0.75f, 0.64f, 0.22f * fade * g);
             }
+            if (big) {
+                // 꼭대기에서 도는 폭풍 구름 고리
+                float topY = H * g;
+                int m2 = 14;
+                for (int i = 0; i < m2; i++) {
+                    double ang = i * TAU / m2 + time * 0.012;
+                    double rr = R * (2.1 + 0.45 * Math.sin(i * 1.7));
+                    Vec3 p = base.add(Math.cos(ang) * rr + swayX(t), topY * 0.95 + Math.sin(i * 2.3) * 1.2, Math.sin(ang) * rr + swayZ(t));
+                    int frame = 8 + (i * 7) % 40;
+                    float u0 = (frame & 7) / 8f, v0 = (frame >> 3) / 8f;
+                    FxRender.billboard(bb, p, R * 2.6f, (float) ang * 2f, u0, v0, u0 + 0.125f, v0 + 0.125f, 0.34f, 0.38f, 0.4f, 0.4f * fade * g);
+                }
+            }
         }
     }
 
@@ -1083,6 +1180,7 @@ final class WindFx {
     // ---------------------------------------------------------------------
 
     static final class BurstFx extends Fx {
+        static final int LINGER = 30;
         final Vec3 c;
         final float R;
         final int life;
@@ -1132,6 +1230,10 @@ final class WindFx {
                 dust(c.add(d.scale(0.8)).add(0, 0.25, 0), d.scale(rand(0.4f, 0.6f) * R / 7f + 0.12f).add(0, 0.02, 0), 0.9f, 2.8f, 18 + RNG.nextInt(10), 0.4f);
             }
             shakeAt(c, 2.2f, R + 10f);
+            // 발밑 땅이 터져 나감 + 바람빛으로 금 간 자국
+            DebrisFx.burst(c, R * 0.5f, 18, 0.9f);
+            DebrisFx.crater(c, 2.4f, 110, W);
+            flashNear(c, 0xD8FFF0, 0.2f, 7, R + 4f);
         }
 
         float radius(float t, float delay) {
@@ -1142,8 +1244,14 @@ final class WindFx {
         @Override
         boolean tick() {
             age++;
-            if (age > life + 4) return true;
+            if (age > life + LINGER) return true;
             FxManager.lod = FxManager.lodAt(c);
+            if (age > life * 0.6f && age % 2 == 0 && RNG.nextFloat() < 1f - (age - life * 0.6f) / (life * 0.4f + LINGER)) {
+                // 잔류: 가장자리에서 천천히 도는 흙먼지
+                float a = RNG.nextFloat() * TAU;
+                Vec3 d = new Vec3(Math.cos(a), 0, Math.sin(a));
+                dust(c.add(d.scale(R * rand(0.8f, 1.05f))).add(0, 0.2, 0), new Vec3(-d.z * 0.06, 0.01, d.x * 0.06), 0.9f, 2.6f, 24 + RNG.nextInt(10), 0.28f);
+            }
             if (age < life * 0.6f) {
                 float rr = radius(age, 0f);
                 for (int i = 0; i < count(8); i++) {
@@ -1163,6 +1271,17 @@ final class WindFx {
         @Override
         void render(float pt, float time) {
             float t = age + pt;
+            // 잔류: 가장자리에 천천히 도는 옅은 바람 고리
+            float lt = t - life * 0.5f;
+            if (lt > 0f) {
+                float la = 1f - clamp01(lt / (life * 0.5f + LINGER));
+                if (la > 0.01f) {
+                    FxRender.elemShader(W, 1.0f, 0.35f + 0.5f * (1f - la), 0.7f * la);
+                    BufferBuilder lb = FxRender.quads();
+                    dashedRing(lb, c.add(0, 0.04, 0), UP, R * 0.9f, R * 1.0f, 0.75f * la, time * 0.05f, 16, 0.5f);
+                    FxRender.draw(lb);
+                }
+            }
             float fade = 1f - clamp01((t - life * 0.45f) / (life * 0.55f));
             if (fade <= 0f) return;
             float erosion = Math.min(1f, 0.05f + 0.9f * clamp01((t - life * 0.3f) / life));
@@ -1399,6 +1518,26 @@ final class WindFx {
         Vec3 f = new Vec3(v.x, 0, v.z);
         if (f.lengthSqr() < 1.0E-6) return v.lengthSqr() < 1.0E-6 ? new Vec3(0, 0, 1) : v.normalize();
         return f.normalize();
+    }
+
+    private static int idSeq;
+
+    /** p 아래 바닥 (6칸까지, 없으면 p) — 땅 조각 연출의 기준점 */
+    private static Vec3 groundAt(Vec3 p) {
+        Minecraft mc = Minecraft.getInstance();
+        Level level = mc.level;
+        if (level == null || mc.player == null) return p;
+        Vec3 from = p.add(0, 0.6, 0);
+        BlockHitResult down = SubLevels.clip(level, new ClipContext(from, from.add(0, -6.6, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.ANY, mc.player));
+        return down.getType() == HitResult.Type.MISS ? p : down.getLocation();
+    }
+
+    /** 가까이 있으면 화면 번쩍 (멀수록 약하게) */
+    private static void flashNear(Vec3 p, int rgb, float strength, int ticks, float range) {
+        Player me = Minecraft.getInstance().player;
+        if (me == null) return;
+        double d = me.position().distanceTo(p);
+        if (d < range) ScreenFx.flash(rgb, strength * (float) (1 - d / range), ticks);
     }
 
     private static void shakeAt(Vec3 p, float amp, float range) {

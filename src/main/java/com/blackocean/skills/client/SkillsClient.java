@@ -72,7 +72,10 @@ public final class SkillsClient {
         modBus.addListener(EntityRenderersEvent.RegisterRenderers.class,
                 e -> e.registerEntityRenderer(SkillsRegistry.SKILL_PROJECTILE.get(), NoopRenderer::new));
         modBus.addListener(RegisterClientReloadListenersEvent.class,
-                e -> e.registerReloadListener((ResourceManagerReloadListener) rm -> ObjMesh.clearCache()));
+                e -> e.registerReloadListener((ResourceManagerReloadListener) rm -> {
+                    ObjMesh.clearCache();
+                    SkillBarHud.invalidateCaches(); // 아이콘 유무·번역 글자 (언어 변경도 여기로 옴)
+                }));
         modBus.addListener(RegisterGuiLayersEvent.class, e -> {
             ScreenFx.register(e);
             SkillBarHud.register(e);
@@ -168,9 +171,16 @@ public final class SkillsClient {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) return;
         if (!mc.isPaused()) {
-            FxManager.tick(mc);
+            try {
+                FxManager.tick(mc);
+                ScreenFx.tick();
+            } catch (RuntimeException ex) {
+                // 연출 오류로 게임이 튕기지 않게: 기록하고 연출을 모두 비움 (판정은 서버라 게임에는 영향 없음)
+                FxManager.fxError("tick", ex);
+                FxManager.clear();
+                ScreenFx.clear();
+            }
             SkillBarHud.tick();
-            ScreenFx.tick();
         }
     }
 

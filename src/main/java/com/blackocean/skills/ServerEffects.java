@@ -160,6 +160,7 @@ final class ServerEffects {
             SkillTargets.knock(e, flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize(), s.speed() * f, 0.55);
         }
         for (Projectile pr : level.getEntitiesOfClass(Projectile.class, new AABB(c, c).inflate(r), x -> x.getOwner() != p && !(x instanceof ThrownTrident) && !(x instanceof FishingHook)
+                && !(x instanceof net.minecraft.world.entity.projectile.ThrownEnderpearl) && x.getDeltaMovement().lengthSqr() > 0.01
                 && (x.getOwner() == null || SkillTargets.canHit(p, x.getOwner())))) {
             pr.discard();
         }
@@ -201,6 +202,11 @@ final class ServerEffects {
 
         /** 시전자가 사라져 중간에 끝날 때 */
         void abort() {}
+
+        /** true 면 지금 시전자의 몸을 움직이는 중 (돌진·도약·강림) → 다른 이동 스킬은 끝날 때까지 기다림 */
+        boolean controlsOwner() {
+            return false;
+        }
 
         void sound(Vec3 at, String name, float vol, float pitch) {
             level.playSound(null, at.x, at.y, at.z, SkillsRegistry.snd(name), SoundSource.PLAYERS, vol, pitch);
@@ -370,6 +376,11 @@ final class ServerEffects {
             sound(p.position(), "wind.dash", 2.5f, 1.0f);
             SkillEvents.send(level, s, SkillEvents.DASH, p, p.position(), dir, (float) s.radius(), (float) s.range(), ticks, -1);
             push(p);
+        }
+
+        @Override
+        boolean controlsOwner() {
+            return age < ticks;
         }
 
         void push(ServerPlayer o) {

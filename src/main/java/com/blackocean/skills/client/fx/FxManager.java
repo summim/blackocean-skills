@@ -13,6 +13,7 @@ import com.blackocean.skills.network.SkillEventPayload;
 import com.blackocean.skills.network.SkillEvents;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.Tesselator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.sounds.SoundSource;
@@ -56,6 +57,27 @@ public final class FxManager {
 
     private static ClientLevel lastLevel;
 
+    /** 목록 상한 (여럿이 동시에 쏴도 무한히 쌓이지 않게) */
+    private static final int MAX_IMPACTS = 48, MAX_RINGS = 320;
+
+    /** 스프라이트를 종류·능력별로 한 번에 나눠 둠 (프레임마다 재사용) */
+    private static final int NK = Sprite.KINDS.length, NE = Element.VALUES.length;
+    @SuppressWarnings("unchecked")
+    private static final ArrayList<Sprite>[] BUCKETS = new ArrayList[NK * NE];
+
+    static {
+        for (int i = 0; i < BUCKETS.length; i++) BUCKETS[i] = new ArrayList<>();
+    }
+
+    /** 이번 프레임 후광 풀 (매 프레임 새로 만들지 않음) */
+    private static final Sprite[] GLOW_POOL = new Sprite[768];
+    private static int glowPoolUsed;
+
+    /** 그리기 도우미 재사용 */
+    private static final ArrayList<Vec3> TRAIL_PTS = new ArrayList<>(32);
+    private static final Quaternionf MESH_Q = new Quaternionf();
+    private static final Vector3f MESH_P = new Vector3f(), MESH_N = new Vector3f();
+
     private FxManager() {}
 
     public static void clear() {
@@ -72,20 +94,33 @@ public final class FxManager {
         LightningFx.clear();
         WindFx.clear();
         WaterFx.clear();
+        IceFx.clear();
+        ThunderFx.clear();
+        DebrisFx.clear();
         CameraShake.clear();
     }
 
     static void addRing(Vec3 center, Vec3 normal, float r0, float r1, int life, int delay, float alpha) {
-        RINGS.add(new RingWave(center, normal, r0, r1, life, delay, alpha));
+        addRingWave(new RingWave(center, normal, r0, r1, life, delay, alpha));
     }
 
     /** 능력 색 충격파 링 */
     static void addRing(Vec3 center, Vec3 normal, float r0, float r1, int life, int delay, float alpha, Element el) {
+        float[] c = FxRender.ringTintRef(el);
+        addRing(center, normal, r0, r1, life, delay, alpha, c[0], c[1], c[2]);
+    }
+
+    /** 원하는 색의 충격파 링 (흰빛 충격파 등) */
+    static void addRing(Vec3 center, Vec3 normal, float r0, float r1, int life, int delay, float alpha, float r, float g, float b) {
         RingWave w = new RingWave(center, normal, r0, r1, life, delay, alpha);
-        float[] c = FxRender.ringTint(el);
-        w.cr = c[0];
-        w.cg = c[1];
-        w.cb = c[2];
+        w.cr = r;
+        w.cg = g;
+        w.cb = b;
+        addRingWave(w);
+    }
+
+    private static void addRingWave(RingWave w) {
+        if (RINGS.size() >= MAX_RINGS) RINGS.remove(0);
         RINGS.add(w);
     }
 
@@ -93,8 +128,27 @@ public final class FxManager {
         FRAME_GLOWS.add(s);
     }
 
+    /** 이번 프레임에만 그리는 후광 (풀에서 꺼내 씀 — 새 Sprite 를 만들지 않음). 그리기 중에만 부를 것 */
+    static void frameGlow(double x, double y, double z, float size, float r, float g, float b, float a) {
+        if (a <= 0.004f || size <= 0f) return;
+        Sprite s;
+        if (glowPoolUsed < GLOW_POOL.length) {
+            s = GLOW_POOL[glowPoolUsed];
+            if (s == null) s = GLOW_POOL[glowPoolUsed] = new Sprite(Sprite.Kind.GLOW, Vec3.ZERO, Vec3.ZERO, 1f, 1f, 1);
+            glowPoolUsed++;
+        } else {
+            s = new Sprite(Sprite.Kind.GLOW, Vec3.ZERO, Vec3.ZERO, 1f, 1f, 1);
+        }
+        FRAME_GLOWS.add(s.place(x, y, z, size, r, g, b, a));
+    }
+
+    static void frameGlow(Vec3 p, float size, float r, float g, float b, float a) {
+        frameGlow(p.x, p.y, p.z, size, r, g, b, a);
+    }
+
+    /** 입자 양 배율 = 설정 particleAmount x 품질(fxQuality) */
     static float amount() {
-        return SkillsClientConfig.PARTICLE_AMOUNT.get().floatValue();
+        return SkillsClientConfig.PARTICLE_AMOUNT.get().floatValue() * SkillsClientConfig.quality().particles;
     }
 
     /** 한 화면에 동시에 있을 수 있는 입자 최대 수. 여럿이 동시에 쏴도 프레임이 무너지지 않게. */
@@ -205,6 +259,14 @@ public final class FxManager {
             if (el != null) transform(e.pos(), el, caster);
             return;
         }
+        if (e.kind() == SkillEvents.FREEZE) {
+            IceFx.onStatus(e);
+            return;
+        }
+        if (e.kind() == SkillEvents.STUN) {
+            ThunderFx.onStatus(e);
+            return;
+        }
         if (skill == null) return;
         if (e.kind() == SkillEvents.ULT_CAST) {
             ScreenFx.ultimate(skill, caster, e.pos());
@@ -233,6 +295,8 @@ public final class FxManager {
             case LIGHTNING -> LightningFx.onEvent(e, skill, caster);
             case WIND -> WindFx.onEvent(e, skill, caster);
             case WATER -> WaterFx.onEvent(e, skill, caster);
+            case ICE -> IceFx.onEvent(e, skill, caster);
+            case THUNDER -> ThunderFx.onEvent(e, skill, caster);
         }
     }
 
@@ -244,19 +308,33 @@ public final class FxManager {
         boolean blockHit = p.target() < 0 && !fizzle;
         // 벽에 맞으면 벽면을 따라, 그 외(바닥·생물·공중)에는 수평으로 충격파가 퍼짐
         Vec3 ringNormal = blockHit && Math.abs(n.y) < 0.5 ? n : UP;
-        IMPACTS.add(new ImpactFx(pos, n, ringNormal, fizzle, small));
+        boolean wall = blockHit && Math.abs(n.y) < 0.5;
+        Vec3 ground = null;
+        if (!fizzle && !wall) {
+            ground = blockHit && n.y > 0.6 ? pos : DebrisFx.findGround(pos.add(0, 0.3, 0), small ? 1.6 : 3.6);
+        }
+        if (IMPACTS.size() >= MAX_IMPACTS) IMPACTS.remove(0);
+        IMPACTS.add(new ImpactFx(pos, n, ringNormal, fizzle, small, ground));
         if (!small && !fizzle) {
-            // 화염 주먹: 맞은 자리에서 짧게 솟구치는 불기둥 + 바닥이면 그을음 자국
+            // 화염 주먹: 맞은 자리에서 짧게 솟구치는 불기둥 + 땅이 터져 조각이 튀고 금 간 자국
             SkillFx.addPillar(pos.subtract(0, blockHit && n.y > 0.7 ? 0 : 0.6, 0), 0.95f, 4.8f, 7, true);
-            if (blockHit) SkillFx.addDecal(pos, n, n.y > 0.7 ? 2.8f : 2.2f, 160);
-        } else if (small && blockHit) {
-            SkillFx.addDecal(pos, n, 0.9f, 100);
+            if (ground != null) {
+                DebrisFx.burst(ground, UP, 2.3f, 28, 1.0f, Element.FIRE);
+                DebrisFx.crater(ground, 2.8f, 240, Element.FIRE);
+            } else if (wall) {
+                DebrisFx.burst(pos, n, 1.6f, 16, 0.9f, Element.FIRE);
+                SkillFx.addDecal(pos, n, 2.2f, 160);
+            }
+        } else if (small && !fizzle) {
+            if (ground != null && pos.y - ground.y < 1.4) DebrisFx.burst(ground, UP, 0.7f, 5, 0.45f, null);
+            else if (wall) DebrisFx.burst(pos, n, 0.5f, 3, 0.4f, null);
+            if (blockHit) SkillFx.addDecal(pos, n, 0.9f, 100);
         }
     }
 
     /** 열매를 먹은 순간: 그 능력 색의 기둥 + 고리 + 화면 번쩍 (본인) */
     private static void transform(Vec3 pos, Element el, @org.jetbrains.annotations.Nullable Entity who) {
-        float[] c = FxRender.tint(el);
+        float[] c = FxRender.tintRef(el);
         spawn(new Sprite(Sprite.Kind.GLOW, pos.add(0, 1, 0), Vec3.ZERO, 6f, 12f, 16).color(c[0], c[1], c[2], 1f).elem(el));
         addRing(pos.add(0, 0.05, 0), UP, 0.5f, 8f, 16, 0, 1f, el);
         addRing(pos.add(0, 1.0, 0), UP, 0.3f, 5f, 12, 3, 0.8f, el);
@@ -310,6 +388,9 @@ public final class FxManager {
         LightningFx.tick();
         WindFx.tick();
         WaterFx.tick();
+        IceFx.tick();
+        ThunderFx.tick();
+        DebrisFx.tick();
         AimPreview.tick();
         RINGS.removeIf(r -> ++r.age >= r.delay + r.life);
         SPRITES.removeIf(Sprite::tick);
@@ -323,10 +404,11 @@ public final class FxManager {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES) return;
         if (Minecraft.getInstance().level == null) return;
         if (CHARGES.isEmpty() && PROJECTILES.isEmpty() && IMPACTS.isEmpty() && RINGS.isEmpty() && SPRITES.isEmpty() && SkillFx.isEmpty()
-                && FireFx.isEmpty() && LightningFx.isEmpty() && WindFx.isEmpty() && WaterFx.isEmpty() && !AimPreview.active()) return;
+                && FireFx.isEmpty() && LightningFx.isEmpty() && WindFx.isEmpty() && WaterFx.isEmpty() && IceFx.isEmpty() && ThunderFx.isEmpty() && DebrisFx.isEmpty() && !AimPreview.active()) return;
 
         FxRender.begin(event);
         try {
+            bucketSprites();
             float pt = FxRender.partial;
             float time = (Minecraft.getInstance().level.getGameTime() % 24000L) + pt;
 
@@ -337,6 +419,9 @@ public final class FxManager {
             LightningFx.renderAlpha(pt, time);
             WindFx.renderAlpha(pt, time);
             WaterFx.renderAlpha(pt, time);
+            IceFx.renderAlpha(pt, time);
+            ThunderFx.renderAlpha(pt, time);
+            DebrisFx.render(pt, time);
             FxRender.alphaBlend();
             AimPreview.render(pt, time);
             FxRender.alphaBlend();
@@ -357,84 +442,97 @@ public final class FxManager {
             WindFx.renderAdditive(pt, time);
             FxRender.additive();
             WaterFx.renderAdditive(pt, time);
+            IceFx.renderAdditive(pt, time);
+            ThunderFx.renderAdditive(pt, time);
+            FxRender.additive();
+            DebrisFx.renderAdditive(pt, time);
             FxRender.additive();
             drawRings(pt);
             drawSprites(Sprite.Kind.FLAME, pt);
             drawSprites(Sprite.Kind.EMBER, pt);
             drawSprites(Sprite.Kind.SPARK, pt);
             drawSprites(Sprite.Kind.GLOW, pt);
+        } catch (RuntimeException ex) {
+            // 연출 하나의 오류로 게임 전체가 멈추지 않게: 기록하고 연출을 모두 비움
+            fxError("render", ex);
+            Tesselator.getInstance().clear();
+            clear();
         } finally {
             FRAME_GLOWS.clear();
+            glowPoolUsed = 0;
+            for (ArrayList<Sprite> b : BUCKETS) b.clear();
             FxRender.end();
         }
     }
 
-    private static void drawSprites(Sprite.Kind kind, float pt) {
-        List<Sprite> list = kind == Sprite.Kind.GLOW ? concat(SPRITES, FRAME_GLOWS) : SPRITES;
-        if (list.isEmpty()) return;
-        // 능력마다 그림이 달라서 능력별로 나눠 그림 (GLOW·SPARK 는 흰 그림을 색칠하므로 한 번에)
+    private static final org.slf4j.Logger LOG = com.mojang.logging.LogUtils.getLogger();
+    private static int fxErrors;
+
+    /** 연출 오류 기록 (같은 오류로 기록이 넘치지 않게 몇 번만) */
+    public static void fxError(String where, Throwable ex) {
+        if (fxErrors++ < 5) LOG.error("[BlackOcean Skills] 연출 오류 ({}) — 연출을 비웁니다", where, ex);
+    }
+
+    /** 종류·능력별로 나눔 (GLOW·SPARK 는 흰 그림을 색칠하므로 능력 상관없이 한 칸) */
+    private static int bucket(Sprite.Kind kind, Element el) {
         boolean shared = kind == Sprite.Kind.GLOW || kind == Sprite.Kind.SPARK;
-        for (Element el : shared ? new Element[]{Element.FIRE} : Element.VALUES) {
-            drawSprites(kind, pt, list, shared ? null : el);
+        return kind.ordinal() * NE + (shared ? 0 : el.ordinal());
+    }
+
+    private static void bucketSprites() {
+        for (ArrayList<Sprite> b : BUCKETS) b.clear();
+        for (int i = 0, n = SPRITES.size(); i < n; i++) {
+            Sprite s = SPRITES.get(i);
+            BUCKETS[bucket(s.kind, s.elem)].add(s);
         }
     }
 
-    private static void drawSprites(Sprite.Kind kind, float pt, List<Sprite> list, @org.jetbrains.annotations.Nullable Element only) {
-        boolean any = false;
-        for (Sprite s : list) {
-            if (s.kind == kind && (only == null || s.elem == only)) {
-                any = true;
-                break;
-            }
+    private static void drawSprites(Sprite.Kind kind, float pt) {
+        if (kind == Sprite.Kind.GLOW && !FRAME_GLOWS.isEmpty()) BUCKETS[bucket(kind, Element.FIRE)].addAll(FRAME_GLOWS);
+        for (int e = 0; e < NE; e++) {
+            ArrayList<Sprite> list = BUCKETS[kind.ordinal() * NE + e];
+            if (list.isEmpty()) continue;
+            // 능력마다 그림이 달라서 능력별로 나눠 그림 (한 묶음 = 그림 하나 = 그리기 한 번)
+            FxRender.spriteShader(FxRender.spriteTexture(kind, Element.VALUES[e]));
+            RenderSystem.disableCull();
+            BufferBuilder bb = FxRender.quads();
+            for (int i = 0, n = list.size(); i < n; i++) emitSprite(bb, list.get(i), kind, pt);
+            FxRender.draw(bb);
         }
-        if (!any) return;
-        FxRender.spriteShader(FxRender.spriteTexture(kind, only == null ? Element.FIRE : only));
-        RenderSystem.disableCull();
-        BufferBuilder bb = FxRender.quads();
-        for (Sprite s : list) {
-            if (s.kind != kind || (only != null && s.elem != only)) continue;
-            float t = s.t(pt);
-            Vec3 p = s.pos(pt);
-            float size = s.size(pt);
-            switch (kind) {
-                case FLAME -> {
-                    // 64칸 그림 묶음을 넘기며 불꽃이 일렁이게
-                    int f = (s.frameOffset + (int) ((s.age + pt) * 2.2f)) & 63;
-                    float u0 = (f & 7) / 8f, v0 = (f >> 3) / 8f;
-                    float a = Sprite.fadeInOut(t, 0.12f) * s.alpha;
-                    FxRender.billboard(bb, p, size, s.rot, u0, v0, u0 + 0.125f, v0 + 0.125f, s.r * a, s.g * a, s.b * a, a);
-                }
-                case GLOW -> {
-                    float a = (s.life <= 1 ? 1f : Sprite.fadeInOut(t, 0.15f)) * s.alpha;
-                    FxRender.billboard(bb, p, size, s.rot, 0, 0, 1, 1, s.r * a, s.g * a, s.b * a, a);
-                }
-                case EMBER -> {
-                    float flicker = 0.7f + 0.3f * (float) Math.sin((s.age + pt) * 1.7f + s.frameOffset);
-                    float a = Sprite.fadeInOut(t, 0.1f) * s.alpha * flicker;
-                    FxRender.billboard(bb, p, size, s.rot, 0, 0, 1, 1, s.r * a, s.g * a, s.b * a, a);
-                }
-                case SPARK -> {
-                    float a = (1f - t) * s.alpha;
-                    Vec3 tail = p.subtract(s.vel().scale(2.2));
-                    FxRender.streak(bb, tail, p, size, s.r * a, s.g * a, s.b * a, a);
-                }
-                case SMOKE -> {
-                    int f = Math.min(63, (int) (t * 63f));
-                    float u0 = (f & 7) / 8f, v0 = (f >> 3) / 8f;
-                    float a = Sprite.fadeInOut(t, 0.2f) * s.alpha;
-                    FxRender.billboard(bb, p, size, s.rot, u0, v0, u0 + 0.125f, v0 + 0.125f, s.r, s.g, s.b, a);
-                }
-            }
-        }
-        FxRender.draw(bb);
     }
 
-    private static List<Sprite> concat(List<Sprite> a, List<Sprite> b) {
-        if (b.isEmpty()) return a;
-        List<Sprite> out = new ArrayList<>(a.size() + b.size());
-        out.addAll(a);
-        out.addAll(b);
-        return out;
+    private static void emitSprite(BufferBuilder bb, Sprite s, Sprite.Kind kind, float pt) {
+        float t = s.t(pt);
+        double x = s.ix(pt), y = s.iy(pt), z = s.iz(pt);
+        float size = s.size(pt);
+        switch (kind) {
+            case FLAME -> {
+                // 64칸 그림 묶음을 넘기며 불꽃이 일렁이게
+                int f = (s.frameOffset + (int) ((s.age + pt) * 2.2f)) & 63;
+                float u0 = (f & 7) / 8f, v0 = (f >> 3) / 8f;
+                float a = Sprite.fadeInOut(t, 0.12f) * s.alpha;
+                FxRender.billboard(bb, x, y, z, size, s.rot, u0, v0, u0 + 0.125f, v0 + 0.125f, s.r * a, s.g * a, s.b * a, a);
+            }
+            case GLOW -> {
+                float a = (s.life <= 1 ? 1f : Sprite.fadeInOut(t, 0.15f)) * s.alpha;
+                FxRender.billboard(bb, x, y, z, size, s.rot, 0, 0, 1, 1, s.r * a, s.g * a, s.b * a, a);
+            }
+            case EMBER -> {
+                float flicker = 0.7f + 0.3f * (float) Math.sin((s.age + pt) * 1.7f + s.frameOffset);
+                float a = Sprite.fadeInOut(t, 0.1f) * s.alpha * flicker;
+                FxRender.billboard(bb, x, y, z, size, s.rot, 0, 0, 1, 1, s.r * a, s.g * a, s.b * a, a);
+            }
+            case SPARK -> {
+                float a = (1f - t) * s.alpha;
+                FxRender.streak(bb, x - s.vx * 2.2, y - s.vy * 2.2, z - s.vz * 2.2, x, y, z, size, s.r * a, s.g * a, s.b * a, a);
+            }
+            case SMOKE -> {
+                int f = Math.min(63, (int) (t * 63f));
+                float u0 = (f & 7) / 8f, v0 = (f >> 3) / 8f;
+                float a = Sprite.fadeInOut(t, 0.2f) * s.alpha;
+                FxRender.billboard(bb, x, y, z, size, s.rot, u0, v0, u0 + 0.125f, v0 + 0.125f, s.r, s.g, s.b, a);
+            }
+        }
     }
 
     private static void drawRings(float pt) {
@@ -483,11 +581,11 @@ public final class FxManager {
     /** 메시를 화염 셰이더로 그린다. heat 는 정점별 열기 계산 방식. */
     static void drawMesh(ObjMesh mesh, Vec3 center, Vec3 dir, float scale, HeatFn heat, float uvShift) {
         if (mesh.count == 0) return;
-        Quaternionf q = new Quaternionf().rotationTo(0f, 0f, 1f, (float) dir.x, (float) dir.y, (float) dir.z);
+        Quaternionf q = MESH_Q.rotationTo(0f, 0f, 1f, (float) dir.x, (float) dir.y, (float) dir.z);
         float ox = (float) (center.x - FxRender.cam.x);
         float oy = (float) (center.y - FxRender.cam.y);
         float oz = (float) (center.z - FxRender.cam.z);
-        Vector3f p = new Vector3f(), n = new Vector3f();
+        Vector3f p = MESH_P, n = MESH_N;
         BufferBuilder bb = FxRender.triangles();
         for (int i = 0; i < mesh.count; i++) {
             float lx = mesh.pos[i * 3], ly = mesh.pos[i * 3 + 1], lz = mesh.pos[i * 3 + 2];
@@ -557,6 +655,8 @@ public final class FxManager {
                     case LIGHTNING -> LightningFx.tickCharge(this, k);
                     case WIND -> WindFx.tickCharge(this, k);
                     case WATER -> WaterFx.tickCharge(this, k);
+                    case ICE -> IceFx.tickCharge(this, k);
+                    case THUNDER -> ThunderFx.tickCharge(this, k);
                 }
                 // 투사체는 나가는 순간 끝, 나머지는 서버 발동 신호가 올 때까지 조금 더 기다림 (신호가 오면 바로 지움)
                 int wait = skill.aim == Skill.Aim.PROJECTILE ? 0 : 10;
@@ -642,8 +742,8 @@ public final class FxManager {
 
         private void launchBurst(Vec3 hand, Vec3 look) {
             spawn(new Sprite(Sprite.Kind.GLOW, hand, Vec3.ZERO, 4.2f, 5.4f, 4).color(1f, 0.85f, 0.55f, 1f));
-            RINGS.add(new RingWave(hand.add(look.scale(0.6)), look, 0.3f, 3.4f, 6, 0, 1f));
-            RINGS.add(new RingWave(hand.add(look.scale(1.4)), look, 0.2f, 2.2f, 5, 1, 0.7f));
+            addRingWave(new RingWave(hand.add(look.scale(0.6)), look, 0.3f, 3.4f, 6, 0, 1f));
+            addRingWave(new RingWave(hand.add(look.scale(1.4)), look, 0.2f, 2.2f, 5, 1, 0.7f));
             for (int i = 0; i < count(18); i++) {
                 Vec3 v = look.scale(rand(0.3f, 0.8f)).add(randomDir().scale(0.3));
                 spawn(new Sprite(Sprite.Kind.SPARK, hand, v, 0.1f, 0.1f, 6 + RNG.nextInt(5))
@@ -655,8 +755,14 @@ public final class FxManager {
                 f.frameOffset = RNG.nextInt(64);
                 spawn(f);
             }
+            // 손에서 터지는 흰빛 핵
+            spawn(new Sprite(Sprite.Kind.GLOW, hand, Vec3.ZERO, 1.6f, 3.6f, 3).color(1f, 1f, 0.95f, 1f));
+            addRing(hand.add(look.scale(0.9)), look, 0.2f, 2.6f, 5, 0, 0.8f, 1f, 0.92f, 0.75f);
             Minecraft mc = Minecraft.getInstance();
-            if (caster == mc.player) CameraShake.add(0.9f);
+            if (caster == mc.player) {
+                CameraShake.add(1.1f);
+                CameraShake.kick(-0.9f, 0f);
+            }
         }
 
         Vec3 handPos(float pt, double side) {
@@ -679,6 +785,8 @@ public final class FxManager {
                     case LIGHTNING -> LightningFx.renderCharge(this, pt, k, time);
                     case WIND -> WindFx.renderCharge(this, pt, k, time);
                     case WATER -> WaterFx.renderCharge(this, pt, k, time);
+                    case ICE -> IceFx.renderCharge(this, pt, k, time);
+                    case THUNDER -> ThunderFx.renderCharge(this, pt, k, time);
                 }
                 FxRender.additive();
                 return;
@@ -733,9 +841,7 @@ public final class FxManager {
         }
 
         private void handGlow(Vec3 at, float size, float alpha) {
-            Sprite glow = new Sprite(Sprite.Kind.GLOW, at, Vec3.ZERO, size, 0, 1).color(1f, 0.6f, 0.25f, alpha);
-            glow.size1 = glow.size0;
-            FRAME_GLOWS.add(glow);
+            frameGlow(at, size, 1f, 0.6f, 0.25f, alpha);
         }
     }
 
@@ -791,6 +897,8 @@ public final class FxManager {
                     case LIGHTNING -> LightningFx.trackProjectile(this, p);
                     case WIND -> WindFx.trackProjectile(this, p);
                     case WATER -> WaterFx.trackProjectile(this, p);
+                    case ICE -> IceFx.trackProjectile(this, p);
+                    case THUNDER -> ThunderFx.trackProjectile(this, p);
                 }
                 return;
             }
@@ -867,7 +975,8 @@ public final class FxManager {
 
         void renderTrail(float pt, float time) {
             if (trail.size() < 2) return;
-            List<Vec3> pts = new ArrayList<>();
+            List<Vec3> pts = TRAIL_PTS;
+            pts.clear();
             pts.add(head(pt));
             int i = 0;
             for (Vec3 v : trail) {
@@ -883,6 +992,9 @@ public final class FxManager {
                 case BULLET -> 0.38f;
                 case SUN -> 2.6f;
                 case ORB -> 0.55f;
+                case SPEAR -> 0.5f;
+                case SHARD -> 0.2f;
+                case HAMMER -> 0.8f;
                 default -> 1f;
             };
             FxRender.elemShader(skill.element, 2.2f, 0.22f, 1.2f);
@@ -972,6 +1084,8 @@ public final class FxManager {
                     case LIGHTNING -> LightningFx.renderProjectile(this, c, pt, time);
                     case WIND -> WindFx.renderProjectile(this, c, pt, time);
                     case WATER -> WaterFx.renderProjectile(this, c, pt, time);
+                    case ICE -> IceFx.renderProjectile(this, c, pt, time);
+                    case THUNDER -> ThunderFx.renderProjectile(this, c, pt, time);
                 }
                 FxRender.additive();
                 return;
@@ -982,9 +1096,7 @@ public final class FxManager {
                 FxRender.fireShader(2.0f, 0.0f, 1.15f);
                 RenderSystem.disableCull();
                 BlastSphere.draw(c, r, time * 3f);
-                Sprite halo = new Sprite(Sprite.Kind.GLOW, c, Vec3.ZERO, 2.0f, 0, 1).color(1f, 0.55f, 0.2f, 0.4f);
-                halo.size1 = halo.size0;
-                FRAME_GLOWS.add(halo);
+                frameGlow(c, 2.0f, 1f, 0.55f, 0.2f, 0.4f);
                 return;
             }
             float grow = Math.min(1f, (age + pt) / 2.5f);
@@ -1020,10 +1132,9 @@ public final class FxManager {
                     (0.1f + 0.75f * (float) Math.pow(1f - facing, 1.5)) * clamp01((z + 2.3f) / 1.6f), 0.5f);
 
             // 후광 (빛 번짐 흉내): 주먹 뒤에 크게 퍼지는 부드러운 빛
-            Sprite halo = new Sprite(Sprite.Kind.GLOW, c, Vec3.ZERO, 6.5f * scale / 1.3f, 0, 1)
-                    .color(1f, 0.55f, 0.2f, 0.32f + 0.05f * (float) Math.sin(time * 3.1f));
-            halo.size1 = halo.size0;
-            FRAME_GLOWS.add(halo);
+            frameGlow(c, 6.5f * scale / 1.3f, 1f, 0.55f, 0.2f, 0.32f + 0.05f * (float) Math.sin(time * 3.1f));
+            // 주먹 한가운데 흰빛 핵
+            frameGlow(c, 1.9f * scale, 1f, 0.92f, 0.8f, 0.45f);
         }
     }
 
@@ -1046,44 +1157,59 @@ public final class FxManager {
         final boolean fizzle;
         /** 불꽃 탄환 적중 (작은 폭발) */
         final boolean small;
+        /** 아래 바닥 (없으면 null) — 잔류 불길·불씨가 피어오르는 자리 */
+        @org.jetbrains.annotations.Nullable
+        final Vec3 ground;
+        final int life;
         int age;
 
         ImpactFx(Vec3 pos, Vec3 normal, Vec3 ringNormal, boolean fizzle, boolean small) {
+            this(pos, normal, ringNormal, fizzle, small, null);
+        }
+
+        ImpactFx(Vec3 pos, Vec3 normal, Vec3 ringNormal, boolean fizzle, boolean small, @org.jetbrains.annotations.Nullable Vec3 ground) {
             this.pos = pos;
             this.normal = normal;
             this.fizzle = fizzle;
             this.small = small;
+            this.ground = ground;
             float big = fizzle ? 0.45f : (small ? 0.4f : 1f);
             boolean lite = fizzle || small;
+            this.life = lite ? 16 : 58;
             lod = lodAt(pos);
 
-            // 섬광 (중심 흰빛 + 넓은 주황 번짐)
+            // 섬광 (흰빛 핵 → 넓은 주황 번짐)
+            if (!lite) spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 3f, 13f, 3).color(1f, 1f, 1f, 1f));
             spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 7.5f * big, 9f * big, 5).color(1f, 0.95f, 0.8f, 1f));
             spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 4f * big, 6f * big, 11).color(1f, 0.5f, 0.15f, 0.8f));
+            if (!lite) spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 10f, 16f, 18).color(1f, 0.35f, 0.08f, 0.35f));
 
-            // 충격파 링 2개 (빠르고 큰 것 + 느리고 작은 것)
+            // 충격파 링 (흰빛 빠른 링 → 큰 링 → 느린 링 → 늦게 따라오는 여진)
             Vec3 rc = pos.add(ringNormal.scale(0.08));
             if (!lite) {
-                RINGS.add(new RingWave(rc, ringNormal, 0.5f, 8.5f, 10, 0, 1f));
-                RINGS.add(new RingWave(rc, ringNormal, 0.4f, 4.8f, 7, 1, 0.8f));
-                RINGS.add(new RingWave(pos, normal.lengthSqr() > 0.5 ? normal : UP, 0.3f, 3.2f, 6, 2, 0.6f));
+                addRing(rc, ringNormal, 0.3f, 10.5f, 6, 0, 0.9f, 1f, 0.92f, 0.75f);
+                addRingWave(new RingWave(rc, ringNormal, 0.5f, 8.5f, 10, 0, 1f));
+                addRingWave(new RingWave(rc, ringNormal, 0.4f, 4.8f, 7, 1, 0.8f));
+                addRingWave(new RingWave(pos, normal.lengthSqr() > 0.5 ? normal : UP, 0.3f, 3.2f, 6, 2, 0.6f));
+                addRingWave(new RingWave(rc.add(ringNormal.scale(0.02)), ringNormal, 2.5f, 12.5f, 20, 4, 0.35f));
             } else {
-                RINGS.add(new RingWave(rc, ringNormal, 0.3f, small ? 1.8f : 2.2f, 6, 0, 0.6f));
+                addRingWave(new RingWave(rc, ringNormal, 0.3f, small ? 1.8f : 2.2f, 6, 0, 0.6f));
             }
 
             // 바깥으로 터지는 불꽃 덩어리
-            for (int i = 0; i < count(lite ? 5 : 22); i++) {
+            for (int i = 0; i < count(lite ? 5 : 26); i++) {
                 Vec3 d = randomDir().add(0, 0.35, 0).normalize();
-                Sprite f = new Sprite(Sprite.Kind.FLAME, pos.add(d.scale(0.4)), d.scale(rand(0.16f, 0.34f) * big),
-                        rand(1.4f, 2.0f) * big, rand(2.0f, 2.8f) * big, 10 + RNG.nextInt(7)).physics(-0.008f, 0.82f);
+                Sprite f = new Sprite(Sprite.Kind.FLAME, pos.add(d.scale(0.4)), d.scale(rand(0.16f, 0.36f) * big),
+                        rand(1.4f, 2.1f) * big, rand(2.0f, 3.0f) * big, 10 + RNG.nextInt(8)).physics(-0.008f, 0.82f);
                 f.frameOffset = RNG.nextInt(64);
+                f.rot = RNG.nextFloat() * 6.28f;
                 spawn(f);
             }
             // 사방으로 튀는 불꽃 줄기 (맞은 면 바깥쪽으로)
-            for (int i = 0; i < count(lite ? 10 : 56); i++) {
+            for (int i = 0; i < count(lite ? 10 : 64); i++) {
                 Vec3 d = randomDir();
                 if (d.dot(normal) < 0) d = d.subtract(normal.scale(2 * d.dot(normal)));
-                spawn(new Sprite(Sprite.Kind.SPARK, pos, d.scale(rand(0.55f, 1.25f) * big), 0.12f, 0.12f, 8 + RNG.nextInt(9))
+                spawn(new Sprite(Sprite.Kind.SPARK, pos, d.scale(rand(0.55f, 1.35f) * big), 0.12f, 0.12f, 8 + RNG.nextInt(9))
                         .color(1f, 0.82f, 0.45f, 1f).physics(0.045f, 0.9f));
             }
             // 잔류: 천천히 떠오르다 꺼지는 불씨
@@ -1108,13 +1234,13 @@ public final class FxManager {
                 spawn(sm);
             }
 
-            Minecraft mc = Minecraft.getInstance();
-            if (!fizzle && mc.player != null) {
-                double d = mc.player.position().distanceTo(pos);
+            if (!fizzle) {
                 if (small) {
-                    if (d < 8) CameraShake.add((float) (0.5 * (1 - d / 8)));
-                } else if (d < 16) {
-                    CameraShake.add((float) (2.6 * (1 - d / 16)));
+                    CameraShake.addAt(pos, 0.6f, 8f);
+                } else {
+                    CameraShake.addAt(pos, 3.4f, 18f);
+                    CameraShake.kickFrom(pos, 2.2f, 14f);
+                    ScreenFx.impact(pos, 0xFFB060, 0.3f, 10f);
                 }
             }
         }
@@ -1125,20 +1251,67 @@ public final class FxManager {
             if (age == 3 && !fizzle && !small) {
                 playAt(pos, SkillsRegistry.FIRE_FIST_CRACKLE.get(), 1.6f, 0.9f + RNG.nextFloat() * 0.2f);
             }
-            return age > 16;
+            if (!fizzle && !small && age >= 6) aftermath();
+            return age > life;
+        }
+
+        /** 잔류: 바닥에서 핥아 오르는 작은 불길·불씨, 옅게 피어오르는 연기 (점점 줄어듦) */
+        private void aftermath() {
+            lod = lodAt(pos);
+            float k = 1f - (float) age / life;
+            Vec3 g = ground != null ? ground : pos;
+            if (age < 34 && RNG.nextFloat() < 0.8f * k) {
+                for (int i = 0; i < count(2); i++) {
+                    float ang = RNG.nextFloat() * 6.28f;
+                    float rr = 1.8f * (float) Math.sqrt(RNG.nextFloat());
+                    Vec3 at = g.add(Math.cos(ang) * rr, 0.25, Math.sin(ang) * rr);
+                    Sprite f = new Sprite(Sprite.Kind.FLAME, at, new Vec3(0, rand(0.04f, 0.09f), 0), rand(0.7f, 1.2f) * (0.4f + 0.6f * k),
+                            0.25f, 8 + RNG.nextInt(6)).physics(-0.004f, 0.92f);
+                    f.frameOffset = RNG.nextInt(64);
+                    spawn(f);
+                }
+            }
+            if (age % 2 == 0) {
+                for (int i = 0; i < count(2); i++) {
+                    Vec3 at = g.add(rand(-1.6f, 1.6f), 0.2, rand(-1.6f, 1.6f));
+                    Sprite em = new Sprite(Sprite.Kind.EMBER, at, new Vec3(rand(-0.02f, 0.02f), rand(0.04f, 0.1f), rand(-0.02f, 0.02f)),
+                            rand(0.1f, 0.17f), 0.03f, 18 + RNG.nextInt(16)).color(1f, rand(0.45f, 0.7f), 0.2f, 1f).physics(-0.002f, 0.96f);
+                    em.sway = 0.003f;
+                    em.frameOffset = RNG.nextInt(100);
+                    spawn(em);
+                }
+            }
+            if (age % 4 == 0 && RNG.nextFloat() < k) {
+                Sprite sm = new Sprite(Sprite.Kind.SMOKE, g.add(rand(-1f, 1f), 0.6, rand(-1f, 1f)), new Vec3(0, rand(0.03f, 0.06f), 0),
+                        rand(1.2f, 1.8f), rand(3.2f, 4.2f), 30 + RNG.nextInt(14)).color(0.17f, 0.15f, 0.14f, 0.4f * k).physics(0f, 0.97f);
+                sm.rot = RNG.nextFloat() * 6.28f;
+                spawn(sm);
+            }
         }
 
         void render(float pt) {
-            // 폭발 구: 빠르게 부풀었다가 노이즈 모양으로 타서 사라짐
             float t = age + pt;
+            if (!fizzle && !small && ground != null && t < 44f) {
+                // 식어 가는 바닥 열기
+                float k = 1f - t / 44f;
+                frameGlow(ground.x, ground.y + 0.4, ground.z, 4.5f, 1f, 0.45f, 0.12f, 0.35f * k * k);
+            }
+            // 폭발 구: 빠르게 부풀었다가 노이즈 모양으로 타서 사라짐
             if (t > 15f) return;
             float big = fizzle ? 0.45f : (small ? 0.42f : 1f);
             float radius = (0.6f + 2.6f * easeOutCubic(t / 7f)) * big;
             float erosion = t < 4f ? 0f : Math.min(1f, (t - 4f) / 10f);
             float intensity = 1.05f - 0.4f * Math.min(1f, t / 12f);
-            FxRender.fireShader(1.4f, erosion, intensity);
+            FxRender.elemShader(Element.FIRE, 1.4f, erosion, intensity, t < 5f ? 0.6f * (1f - t / 5f) : 0f);
             RenderSystem.disableCull();
             BlastSphere.draw(pos, radius, t);
+            // 흰빛으로 타오르는 핵 (처음 몇 틱)
+            if (!fizzle && t < 6f) {
+                float k = 1f - t / 6f;
+                float rc = (0.35f + 1.3f * easeOutCubic(t / 2.5f)) * big;
+                FxRender.elemShader(Element.FIRE, 3f, 0.25f * (1f - k), 1.6f + 0.8f * k, 1f);
+                BlastSphere.draw(pos, rc, t * 2f + 30f);
+            }
         }
     }
 
@@ -1166,7 +1339,9 @@ public final class FxManager {
     /** 폭발 구 메시 (코드로 만든 둥근 구, 이음새 없는 UV). */
     static final class BlastSphere {
         private static final int LAT = 14, LON = 24;
-        private static float[] verts; // 삼각형으로 풀어 둔 단위 구: x,y,z,u,v
+        /** 정점마다 x,y,z,u,v + 울퉁불퉁 계산용 미리 구한 사인 값 (그릴 때 삼각함수를 안 씀) */
+        private static final int STRIDE = 10;
+        private static float[] verts;
 
         private static float[] build() {
             List<float[]> tris = new ArrayList<>();
@@ -1177,8 +1352,20 @@ public final class FxManager {
                     tris.add(a); tris.add(c); tris.add(d);
                 }
             }
-            float[] out = new float[tris.size() * 5];
-            for (int k = 0; k < tris.size(); k++) System.arraycopy(tris.get(k), 0, out, k * 5, 5);
+            float[] out = new float[tris.size() * STRIDE];
+            for (int k = 0; k < tris.size(); k++) {
+                float[] v = tris.get(k);
+                int o = k * STRIDE;
+                System.arraycopy(v, 0, out, o, 5);
+                float nx = v[0], ny = v[1], nz = v[2];
+                double th = Math.acos(Math.max(-1f, Math.min(1f, ny))), ph = Math.atan2(nz, nx);
+                double a = 3 * ph + 1.3, b = 5 * ph + 2 * th + 0.7;
+                out[o + 5] = (float) Math.sin(4 * th);
+                out[o + 6] = (float) Math.sin(a);
+                out[o + 7] = (float) Math.cos(a);
+                out[o + 8] = (float) Math.sin(b);
+                out[o + 9] = (float) Math.cos(b);
+            }
             return out;
         }
 
@@ -1192,20 +1379,22 @@ public final class FxManager {
         static void draw(Vec3 c, float radius, float time) {
             if (verts == null) verts = build();
             float ox = (float) (c.x - FxRender.cam.x), oy = (float) (c.y - FxRender.cam.y), oz = (float) (c.z - FxRender.cam.z);
+            // 울퉁불퉁한 불덩어리: sin(A + t1), sin(B - t2) 를 덧셈 정리로 (정점마다 삼각함수 없이)
+            float s1 = (float) Math.sin(time * 0.15), c1 = (float) Math.cos(time * 0.15);
+            float s2 = (float) Math.sin(time * 0.1), c2 = (float) Math.cos(time * 0.1);
+            float[] vs = verts;
             BufferBuilder bb = FxRender.triangles();
-            for (int k = 0; k < verts.length; k += 5) {
-                float nx = verts[k], ny = verts[k + 1], nz = verts[k + 2];
-                // 울퉁불퉁한 불덩어리: 방향마다 반지름을 조금씩 다르게 (시간에 따라 꿈틀거림)
-                double th = Math.acos(Math.max(-1f, Math.min(1f, ny))), ph = Math.atan2(nz, nx);
-                float lump = 1f + 0.13f * (float) (Math.sin(3 * ph + 1.3 + time * 0.15) * Math.sin(4 * th))
-                        + 0.09f * (float) Math.sin(5 * ph + 2 * th + 0.7 - time * 0.1);
-                float rr = radius * lump;
+            for (int k = 0; k < vs.length; k += STRIDE) {
+                float nx = vs[k], ny = vs[k + 1], nz = vs[k + 2];
+                float t1 = (vs[k + 6] * c1 + vs[k + 7] * s1) * vs[k + 5];
+                float t2 = vs[k + 8] * c2 - vs[k + 9] * s2;
+                float rr = radius * (1f + 0.13f * t1 + 0.09f * t2);
                 float x = ox + nx * rr, y = oy + ny * rr, z = oz + nz * rr;
                 float len = (float) Math.sqrt(x * x + y * y + z * z);
                 float facing = len > 1.0E-4f ? Math.abs(nx * x + ny * y + nz * z) / len : 1f;
                 // 구 아래쪽은 바닥에 눌려 조금 어둡게
                 float heat = (0.12f + 0.6f * facing) * (0.75f + 0.25f * (ny * 0.5f + 0.5f));
-                bb.addVertex(x, y, z).setUv(verts[k + 3], verts[k + 4]).setColor(1f, 1f, 1f, heat);
+                bb.addVertex(x, y, z).setUv(vs[k + 3], vs[k + 4]).setColor(1f, 1f, 1f, heat);
             }
             FxRender.draw(bb);
         }

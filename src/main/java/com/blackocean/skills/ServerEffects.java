@@ -294,7 +294,7 @@ final class ServerEffects {
         @Override
         boolean step(ServerPlayer o) {
             if (age >= duration) return true;
-            if (age % 10 == 0) {
+            if ((age - 1) % 10 == 0) { // 불바다가 생기는 첫 틱부터 피해 (표시와 같은 순간)
                 for (LivingEntity e : SkillTargets.inCylinder(level, o, base, radius, 1.0, 3.0, base.add(0, 1, 0))) {
                     SkillTargets.hurt(level, e, o, Element.FIRE, skill.damage2(), true);
                 }

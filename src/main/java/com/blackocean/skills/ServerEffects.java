@@ -45,15 +45,41 @@ final class ServerEffects {
     static void flameRing(ServerLevel level, ServerPlayer p, Skill s) {
         double radius = Math.max(0.5, s.radius());
         Vec3 c = p.position().add(0, 0.9, 0);
-        for (LivingEntity e : SkillTargets.inCylinder(level, p, p.position(), radius, 2.0, 4.0, c)) {
-            Vec3 flat = e.position().subtract(p.position()).multiply(1, 0, 1);
-            double f = 1.0 - 0.5 * Math.min(1.0, flat.length() / radius);
-            SkillTargets.hurt(level, e, p, Element.FIRE, (float) (s.damage() * f));
-            SkillTargets.knock(e, flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize(), s.speed() * f, 0.35 + 0.25 * f);
-        }
+        // 불의 벽이 퍼져 나가 닿는 순간에 맞음 (화면의 벽과 같은 속도: 5틱에 가장자리)
+        SkillServer.addEffect(new RingWave(level, p, s, p.position(), radius, c));
         SkillSounds.play(level, c, "flame_ring.burst", SkillSounds.R_IMPACT, 1.0f);
         Vec3 feet = SkillAim.groundBelow(level, p, p.position());
         SkillEvents.send(level, s, SkillEvents.BURST, p, feet, Vec3.ZERO, (float) radius, 0, 18, -1);
+    }
+
+    /** 화염 고리의 퍼지는 판정 */
+    static final class RingWave extends Effect {
+        static final int SPREAD = 5;
+        final Vec3 base, eye;
+        final double radius;
+        final java.util.Set<Integer> hit = new java.util.HashSet<>();
+
+        RingWave(ServerLevel level, ServerPlayer p, Skill s, Vec3 base, double radius, Vec3 eye) {
+            super(level, p, s);
+            this.base = base;
+            this.radius = radius;
+            this.eye = eye;
+            step(p);
+        }
+
+        @Override
+        boolean step(ServerPlayer o) {
+            if (age > SPREAD) return true;
+            double front = radius * Math.min(1.0, (age + 1.0) / (SPREAD + 1.0));
+            for (LivingEntity e : SkillTargets.inCylinder(level, o, base, front, 2.0, 4.0, eye)) {
+                if (!hit.add(e.getId())) continue;
+                Vec3 flat = e.position().subtract(base).multiply(1, 0, 1);
+                double f = 1.0 - 0.5 * Math.min(1.0, flat.length() / radius);
+                SkillTargets.hurt(level, e, o, Element.FIRE, (float) (skill.damage() * f));
+                SkillTargets.knock(e, flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize(), skill.speed() * f, 0.35 + 0.25 * f);
+            }
+            return false;
+        }
     }
 
     /** 뇌격: 즉시 번개 + 연쇄 */
@@ -291,11 +317,12 @@ final class ServerEffects {
         void strike(ServerPlayer o) {
             double r = skill.radius();
             Vec3 at = center;
+            // 첫 번째는 가운데, 2·3번째는 표시된 원(r) 안쪽에 떨어지고 판정도 원 밖으로 나가지 않음
+            double hr = fired == 0 ? Math.max(1.5, r * 0.8) : Math.max(1.5, r * 0.6);
             if (fired > 0) {
-                double a = o.getRandom().nextDouble() * Math.PI * 2, d = Math.sqrt(o.getRandom().nextDouble()) * r * 0.7;
+                double a = o.getRandom().nextDouble() * Math.PI * 2, d = Math.sqrt(o.getRandom().nextDouble()) * Math.max(0.0, r - hr);
                 at = SkillAim.groundBelow(level, o, center.add(Math.cos(a) * d, 2.0, Math.sin(a) * d));
             }
-            double hr = Math.max(1.5, r * 0.8);
             for (LivingEntity e : SkillTargets.inCylinder(level, o, at, hr, 1.0, 5.0, at.add(0, 1, 0))) {
                 SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage(), true);
                 SkillTargets.stun(e, 15);

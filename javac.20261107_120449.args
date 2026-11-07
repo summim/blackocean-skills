@@ -1,0 +1,6 @@
+-d
+/tmp/tmp.iNcS9qVpra/c
+-proc:none
+-Xmaxerrs
+9000
+@/tmp/tmp.iNcS9qVpra/f.txt

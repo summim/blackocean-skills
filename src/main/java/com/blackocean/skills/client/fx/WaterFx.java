@@ -32,6 +32,52 @@ import static com.blackocean.skills.client.fx.FxManager.spawn;
 
 /**
  * 물 능력 연출.
+ *
+ * <h2>2.3 디자인 (물 = 무거운 액체 덩어리: 물판·관·파도 벽 + 흰 거품 테 + 중력으로 떨어지는 물방울 /
+ * 떨어지고 튀며 사라지고 젖은 바닥에 물결 / 짙은 파랑 몸통, 흰 거품)</h2>
+ * 위계: 주 형태 = 가장 밝고 대비 큼 → 보조 층 40~60 % → 적중 = 짧은 정점(4틱 이하) → 잔류 = 옅게, 테두리 선 없음.
+ * <pre>
+ * 1 물 구슬 (가벼움)
+ *   실루엣  : 손바닥만 한 일렁이는 물 구 하나 + 흰 테.
+ *   주 형태 : 3D 물 구(구 메시) + 카메라를 향한 거품 테 + 비행 축을 감는 기울어진 고리.
+ *   보조    : 떨어지는 물방울 꼬리, 옅은 물안개.
+ *   적중    : 물보라 왕관 + 피해 반지름 r 에서 멈추는 고리 (6틱, 정점 2틱) + 젖은 자국.
+ *   사라짐  : 물방울이 포물선으로 떨어지고 바닥에 물결 2~3개 (테두리 없음).
+ *   경중    : 준비 5틱, 짧은 섬광·약한 흔들림. 투사체라 위험 범위 표시 없음 (조준 표시가 길을 보여 줌).
+ * 2 수류 분사 (가벼움·지속)
+ *   실루엣  : 손에서 곧게 뻗는 굵은 물기둥.
+ *   주 형태 : 축을 따라 꼬인 3D 관 2겹(바깥 + 반대로 꼬인 흰 심) — 어느 각도에서도 둥근 관,
+ *             + 카메라를 향한 빛 띠 3겹 (옆에서 보면 굵은 광택).
+ *   보조    : 노즐 고리·분무, 줄기에서 튀어 나가는 물방울.
+ *   적중    : 끝점에서 계속 튀는 물보라 + 맥동 고리, 땅을 파냄.
+ *   위험    : 분사 중 dangerLane(손 → 끝점, 반폭 = 굵기 r) — 실시간 조준을 그대로 따라감.
+ *   사라짐  : 5틱 동안 관이 가늘어지며 깎여 사라짐, 물방울은 떨어짐.
+ * 3 물의 감옥 (무거움)
+ *   실루엣  : 떠 있는 커다란 물방울(구) + 바닥 소용돌이.
+ *   주 형태 : 윤곽이 밝고 가운데가 투명한 물 구 (직접 만든 구 메시, 정면 면 밝기를 크게 낮춤 → 갇힌 상대가 보임).
+ *   보조    : 안쪽 나선 물줄기 3, 오르는 기포, 기울어진 물결 띠 2, 바닥 나선 팔.
+ *   적중    : 끝 틱 파열: 흰 섬광 + 고리가 끌어당김 반지름 r × 1.4 에서 멈춤 + 물기둥.
+ *   위험    : 준비 중 dangerZone(r × 1.4, 진행도) → 유지 중 dangerZone(r × 1.4, 파열까지 차오름).
+ *   사라짐  : 하늘로 튄 물이 24틱 비처럼 떨어짐, 젖은 자국 (테두리 없음).
+ *   경중    : 10틱 바닥 표시 → 6틱에 구가 차오름 → 끝 6틱 부풀어 오름(예고) → 한 번에 터짐.
+ * 4 해일 (무거움)
+ *   실루엣  : 앞머리가 말린 파도 벽 (옆에서 보면 갈고리 모양 단면).
+ *   주 형태 : 단면 9줄 × 폭 17칸의 3D 격자 면 (앞·옆·뒤에서 각각 벽·단면·물판으로 읽힘) + 마루의 흰 거품 띠.
+ *   보조    : 마루의 물보라 커튼, 발밑 물튀김, 앞머리가 밀어내는 흙, 지나간 자리 젖은 자국.
+ *   적중    : 끝에서 부서짐: 왕관 5개 + 앞으로 쏟아지는 물방울.
+ *   위험    : 준비 중·진행 중 dangerLane(출발 → 끝, 반폭 = 서버 폭), 진행도만큼 차오름.
+ *   사라짐  : 말린 끝이 앞으로 쏟아지며 6틱에 무너짐, 물결 3개 (테두리 없음).
+ *   경중    : 8틱 동안 발 앞에 물벽이 일어남 → 느리게 밀려감(0.9칸/틱).
+ * 5 해룡 강림 (궁극기, 가장 무거움)
+ *   실루엣  : 나선으로 솟았다 내리꽂히는 물의 용 (뿔·눈·지느러미).
+ *   주 형태 : 경로를 따르는 3D 관 몸통(28마디, 평행 이동 틀이라 꺾여도 안 뒤틀림) + 구슬 마디 + 빛나는 심.
+ *   보조    : 몸에서 떨어지는 물방울·안개, 꼭대기 포효 고리, 하늘이 어두워짐.
+ *   적중    : 충돌 틱: 거대 물기둥 + 피해 반지름 r 에서 멈추는 고리 + 둥근 해일 벽 + 화면 번쩍(제한됨).
+ *   위험    : 준비 중 dangerZone(r, 진행도) → 비행 중 dangerZone(r, 충돌까지 차오름)
+ *             → 소용돌이 동안 dangerZone(r, 서버가 끌어당기는 10틱 주기마다 차오름).
+ *   사라짐  : 넓게 쏟아지는 물비 36틱, 젖은 자국·물결 (테두리 없음).
+ *   경중    : 24틱 준비(발밑 물기둥, 땅울림) → 26틱 비행 → 충돌 → 60틱 소용돌이.
+ * </pre>
  * <pre>
  *  1 물 구슬   : 일렁이는 물 구 + 카메라를 향한 테두리 링 + 후광, 물방울·물안개 꼬리 / 적중 시 물보라 왕관·물방울·안개·링·젖은 자국
  *  2 수류 분사 : 손에서 뻗는 고압 물줄기 (꼬인 관 2겹 + 빛 띠 3겹), 노즐 분무, 끝점에서 계속 튀는 물보라
@@ -87,9 +133,9 @@ final class WaterFx {
                     add(new JetFx(p, e.size(), e.size2(), e.duration()));
                 }
             }
-            case SkillEvents.PRISON -> add(new PrisonFx(e.pos(), e.size(), e.duration()));
-            case SkillEvents.WAVE -> add(new WaveFx(e.pos(), e.vec(), e.size(), e.size2(), e.duration()));
-            case SkillEvents.DRAGON -> add(new DragonFx(e.pos(), e.vec(), e.size(), (int) e.size2(), e.duration()));
+            case SkillEvents.PRISON -> add(new PrisonFx(caster, e.pos(), e.size(), e.duration()));
+            case SkillEvents.WAVE -> add(new WaveFx(caster, e.pos(), e.vec(), e.size(), e.size2(), e.duration()));
+            case SkillEvents.DRAGON -> add(new DragonFx(caster, e.pos(), e.vec(), e.size(), (int) e.size2(), e.duration()));
             default -> { }
         }
     }
@@ -423,29 +469,24 @@ final class WaterFx {
         }
     }
 
-    /** 바닥 조준 준비 원 (물빛 링 + 번짐 + 흐르는 물 고리) */
-    private static void groundCircle(Vec3 base, float radius, float k, float time) {
-        float pulse = 0.75f + 0.25f * (float) Math.sin(time * (1.0f + 2.2f * k));
+    /**
+     * 바닥 조준 준비 원. 범위 끝(테두리)은 공용 위험 표시만 그림 (적 = 빨간 실선, 내 것·아군 = 점선) —
+     * 물 장식(안쪽 물빛 번짐·감겨 드는 물 팔)은 테두리 안쪽에서 부드럽게 끝나 경계로 착각되지 않음.
+     */
+    private static void groundCircle(Vec3 base, float radius, float k, float time, @Nullable Entity caster) {
         Vec3 c = base.add(0, 0.04, 0);
         RenderSystem.disableCull();
-        FxRender.spriteShader(FxRender.SHOCK_RING_WHITE);
-        BufferBuilder bb = FxRender.quads();
-        float a = (0.35f + 0.65f * k) * pulse;
-        FxRender.planeQuad(bb, c, UP, radius * 1.08f, time * 0.05f, a * C_AZURE[0], a * C_AZURE[1], a * C_AZURE[2], a);
-        FxRender.planeQuad(bb, c.add(0, 0.01, 0), UP, radius * (0.5f + 0.45f * k), -time * 0.08f, a * 0.6f * C_AQUA[0], a * 0.6f * C_AQUA[1], a * 0.6f * C_AQUA[2], a);
-        FxRender.draw(bb);
-
         FxRender.spriteShader(FxRender.GLOW_WHITE);
-        bb = FxRender.quads();
+        BufferBuilder bb = FxRender.quads();
         float g = 0.2f + 0.5f * k * k;
-        FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, radius * 1.3f, 0f, g * C_DEEP[0], g * C_DEEP[1], g * C_DEEP[2], g);
+        FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, radius * 0.95f, 0f, g * C_DEEP[0], g * C_DEEP[1], g * C_DEEP[2], g);
         FxRender.draw(bb);
 
         FxRender.elemShader(W, 1.6f, 0.3f - 0.25f * k, 0.8f + 0.4f * k);
         bb = FxRender.quads();
-        FxRender.ring(bb, c.add(0, 0.03, 0), UP, radius * (0.9f - 0.12f * k), radius * 1.04f, 0.5f + 0.5f * k, time * 0.3f, 56);
-        spiralArms(bb, c.add(0, 0.035, 0), radius * 0.95f, radius * 0.15f, 3, 0.6f, 0.5f + 0.4f * k, 0.35f + 0.4f * k, -time * 0.15f);
+        spiralArms(bb, c.add(0, 0.035, 0), radius * 0.88f, radius * 0.15f, 3, 0.6f, 0.5f + 0.4f * k, 0.35f + 0.4f * k, -time * 0.15f);
         FxRender.draw(bb);
+        zone(base, radius, k, caster, 1f, time);
     }
 
     // =====================================================================
@@ -613,7 +654,65 @@ final class WaterFx {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         double d = mc.player.position().distanceTo(p);
-        if (d < range) ScreenFx.flash(rgb, strength * (float) (1 - d / range), ticks);
+        if (d < range) limitedFlash(rgb, strength * (float) (1 - d / range), ticks);
+    }
+
+    /** 화면 번쩍 (여러 스킬이 겹치면 FxLimits 가 한 틱 합계를 제한) */
+    private static void limitedFlash(int rgb, float strength, int ticks) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        float ok = FxLimits.allowFlash(mc.level.getGameTime(), strength);
+        if (ok > 0.01f) ScreenFx.flash(rgb, ok, ticks);
+    }
+
+    /** 원형 위험 범위 (공용 표시: 적 = 빨간 실선 + 경고, 내 것·아군 = 점선). 그린 뒤 더하기 섞기를 되돌림 */
+    private static void zone(Vec3 base, float r, float fill, @Nullable Entity caster, float alpha, float time) {
+        if (alpha <= 0.01f) return;
+        SkillFx.dangerZone(base, r, clamp01(fill), W, caster, alpha, time);
+        FxRender.additive();
+        RenderSystem.disableCull();
+    }
+
+    /** 직선 위험 범위 (공용 표시). 그린 뒤 더하기 섞기를 되돌림 */
+    private static void lane(Vec3 start, Vec3 dir, float len, float halfW, float fill, @Nullable Entity caster, float alpha, float time) {
+        if (alpha <= 0.01f || len <= 0.05f) return;
+        SkillFx.dangerLane(start, dir, len, halfW, clamp01(fill), W, caster, alpha, time);
+        FxRender.additive();
+        RenderSystem.disableCull();
+    }
+
+    /**
+     * 윤곽이 밝고 가운데가 투명한 물 구 (fresnel 흉내). 카메라를 정면으로 보는 면은 열기를 크게 낮춰
+     * 안에 갇힌 사람·뒤의 사람이 비쳐 보이고, 가장자리는 짙은 물빛 테로 둥근 부피가 읽힘. elemShader 를 먼저 켤 것.
+     * @param core 정면(가운데) 밝기 비율 (0.1 = 거의 투명)
+     */
+    private static void fresnelSphere(Vec3 c, float r, float heat, float core, float time) {
+        if (r <= 0.05f || heat <= 0.001f) return;
+        final int lat = 12, lon = 22;
+        BufferBuilder bb = FxRender.quads();
+        for (int i = 0; i < lat; i++) {
+            float v0 = (float) i / lat, v1 = (float) (i + 1) / lat;
+            for (int j = 0; j < lon; j++) {
+                float u0 = (float) j / lon, u1 = (float) (j + 1) / lon;
+                sv(bb, c, r, u0, v0, heat, core, time);
+                sv(bb, c, r, u1, v0, heat, core, time);
+                sv(bb, c, r, u1, v1, heat, core, time);
+                sv(bb, c, r, u0, v1, heat, core, time);
+            }
+        }
+        FxRender.draw(bb);
+    }
+
+    private static void sv(BufferBuilder bb, Vec3 c, float r, float u, float v, float heat, float core, float time) {
+        double th = Math.PI * v, ph = TAU * u + time * 0.02;
+        double nx = Math.sin(th) * Math.cos(ph), ny = Math.cos(th), nz = Math.sin(th) * Math.sin(ph);
+        double rr = r * (1.0 + 0.04 * Math.sin(ph * 3 + th * 4 + time * 0.5));
+        double x = c.x + nx * rr, y = c.y + ny * rr, z = c.z + nz * rr;
+        double vx = FxRender.cam.x - x, vy = FxRender.cam.y - y, vz = FxRender.cam.z - z;
+        double len = Math.sqrt(vx * vx + vy * vy + vz * vz);
+        float facing = len > 1.0E-4 ? (float) Math.abs((nx * vx + ny * vy + nz * vz) / len) : 1f;
+        float rim = (float) Math.pow(1f - facing, 1.6);
+        FxRender.vertex(bb, x, y, z, u * 3f, v * 1.5f - time * 0.01f, 1f, 1f, 1f, heat * (core + (1f - core) * rim));
     }
 
     // =====================================================================
@@ -802,6 +901,8 @@ final class WaterFx {
             FxRender.draw(bb);
             glow(start, 1.3f, C_WHITE, 0.8f * fade);
             glow(start, 3.0f, C_AZURE, 0.45f * fade);
+            // 분사 중에만: 손 → 끝점, 반폭 = 서버 판정 굵기 (실시간 조준을 따라감). 끝나는 5틱 페이드에는 테두리 없음
+            if (t <= duration) lane(start, dir, (float) L, rad, t / duration, caster, 1f, time);
             if (atEnd) {
                 glow(b.end(), rad * 3f, C_WHITE, 0.55f * fade);
                 glow(b.end(), rad * 6.5f, C_AZURE, 0.35f * fade);
@@ -820,7 +921,10 @@ final class WaterFx {
         final float R, Rs, P;
         final int duration;
 
-        PrisonFx(Vec3 center, float radius, int duration) {
+        @Nullable final Entity caster;
+
+        PrisonFx(@Nullable Entity caster, Vec3 center, float radius, int duration) {
+            this.caster = caster;
             this.center = center;
             this.R = radius > 0.2f ? radius : 3.5f;
             this.P = prisonR(R);
@@ -924,9 +1028,12 @@ final class WaterFx {
             float pre = clamp01((t - (duration - 6)) / 6f); // 터지기 직전 부풀어 오름
             float rs = Rs * (0.25f + 0.75f * form) * (1f + 0.025f * (float) Math.sin(time * 0.55f) + 0.12f * pre * pre);
             RenderSystem.disableCull();
-            // 떠 있는 물 구
-            FxRender.elemShader(W, 0.9f + 1.5f * pre, 0.05f, 0.55f + 0.08f * (float) Math.sin(time * 0.3f) + 0.35f * pre);
-            FxManager.BlastSphere.draw(core, rs, time * 0.9f);
+            // 떠 있는 물 구: 윤곽이 밝고 가운데가 투명 → 갇힌 상대가 그대로 보임 (터지기 직전 가운데도 차오름)
+            FxRender.elemShader(W, 0.9f + 1.5f * pre, 0.05f, 0.75f + 0.08f * (float) Math.sin(time * 0.3f) + 0.35f * pre);
+            fresnelSphere(core, rs, 1f, 0.1f + 0.25f * pre * pre, time);
+            // 안쪽 얇은 막 (반대로 흐름, 아주 옅게 — 물 부피의 깊이감)
+            FxRender.elemShader(W, 1.4f, 0.2f, 0.35f);
+            fresnelSphere(core, rs * 0.86f, 0.8f, 0.04f, -time * 1.3f);
 
             BufferBuilder bb;
             // 일렁이는 띠 + 퍼지는 파문 + 바닥 소용돌이
@@ -941,11 +1048,11 @@ final class WaterFx {
             float rp = (t % 10f) / 10f;
             FxRender.ring(bb, core, UP, rs * (0.95f + 0.35f * rp), rs * (1.0f + 0.45f * rp), 0.6f * (1f - rp) * form, time * 0.2f, 48);
             Vec3 g = center.add(0, 0.05, 0);
-            FxRender.ring(bb, g, UP, R * 0.3f, P * 0.92f, 0.55f * form, -time * 0.35f, 56);
-            spiralArms(bb, g.add(0, 0.01, 0), P * 0.97f, R * 0.15f, 3, 0.8f, 0.9f, 0.75f * form, -time * 0.18f);
-            // 경계: 이 원 안이면 끌려 들어감 (터지기 직전 밝아짐)
-            FxRender.ring(bb, g.add(0, 0.015, 0), UP, P - 0.2f, P + 0.05f, (0.7f + 0.3f * pre) * form, time * 0.25f, 64);
+            FxRender.ring(bb, g, UP, R * 0.3f, P * 0.85f, 0.55f * form, -time * 0.35f, 56);
+            spiralArms(bb, g.add(0, 0.01, 0), P * 0.9f, R * 0.15f, 3, 0.8f, 0.9f, 0.75f * form, -time * 0.18f);
             FxRender.draw(bb);
+            // 경계 = 공용 위험 표시: 이 원 안이면 끌려 들어가고, 다 차는 순간 터짐
+            zone(center, P, t / duration, caster, 1f, time);
 
             // 안쪽 나선 물줄기 3가닥
             FxRender.elemShader(W, 2.6f, 0.15f, 1.0f);
@@ -987,7 +1094,10 @@ final class WaterFx {
         final float W2, range;
         final int duration;
 
-        WaveFx(Vec3 start, Vec3 vec, float halfWidth, float range, int duration) {
+        @Nullable final Entity caster;
+
+        WaveFx(@Nullable Entity caster, Vec3 start, Vec3 vec, float halfWidth, float range, int duration) {
+            this.caster = caster;
             this.start = start;
             Vec3 f = new Vec3(vec.x, 0, vec.z);
             this.dir = f.lengthSqr() < 1.0E-4 ? new Vec3(0, 0, 1) : f.normalize();
@@ -1176,6 +1286,8 @@ final class WaterFx {
             FxRender.draw(bb);
 
             glow(fr.add(0, 2.0 * hs, 0), W2 * 2.6f, C_AZURE, 0.18f * fade);
+            // 밀려가는 동안: 출발 → 끝 전체 길 (폭 = 서버 폭), 파도 앞머리가 지난 만큼 차오름. 부서지는 6틱에는 테두리 없음
+            if (t <= duration) lane(start, dir, range, W2, t / duration, caster, 1f, time);
         }
     }
 
@@ -1193,7 +1305,10 @@ final class WaterFx {
         final int whirl, flight;
         final double ang0;
 
-        DragonFx(Vec3 start, Vec3 target, float radius, int whirl, int flight) {
+        @Nullable final Entity caster;
+
+        DragonFx(@Nullable Entity caster, Vec3 start, Vec3 target, float radius, int whirl, int flight) {
+            this.caster = caster;
             this.S = start;
             this.T = target;
             this.R = radius > 0.5f ? radius : 7f;
@@ -1331,7 +1446,7 @@ final class WaterFx {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
                 double d = mc.player.position().distanceTo(T);
-                if (d < 48) ScreenFx.flash(d < 20 ? 0xE6F7FF : 0x6FC8FF, 0.4f + 0.45f * (float) (1 - d / 48), 18);
+                if (d < 48) limitedFlash(d < 20 ? 0xE6F7FF : 0x6FC8FF, 0.4f + 0.45f * (float) (1 - d / 48), 18);
             }
             shake(T, 6.5f, 48f);
         }
@@ -1369,6 +1484,9 @@ final class WaterFx {
             float t = age + pt;
             if (t - (SEGS - 1) * LAG < flight + 0.5f) renderBody(t, time);
             if (t > flight && whirl > 0) renderWhirl(t, time);
+            // 떨어질 곳: 비행 중에는 충돌까지 차오름, 소용돌이 동안은 서버가 끌어당기고 피해를 주는 10틱마다 차오름
+            if (t <= flight) zone(T, R, t / flight, caster, 1f, time);
+            else if (t <= flight + whirl) zone(T, R, ((age - flight) % 10 + pt) / 10f, caster, 1f, time);
         }
 
         private void renderBody(float t, float time) {
@@ -1456,9 +1574,8 @@ final class WaterFx {
             FxRender.elemShader(W, 1.8f, 0.12f + 0.5f * (1f - env), 1.05f * env);
             BufferBuilder bb = FxRender.quads();
             // 소용돌이 = 서버가 0.5초마다 끌어당기고 피해를 주는 반지름 R (테두리 실선)
-            FxRender.ring(bb, c, UP, R * 0.15f, R * 0.95f, 0.75f, -time * 0.45f, 64);
-            FxRender.ring(bb, c.add(0, 0.01, 0), UP, R - 0.25f, R + 0.05f, 0.85f, time * 0.3f, 64);
-            spiralArms(bb, c.add(0, 0.02, 0), R * 0.98f, R * 0.12f, 4, 0.9f, 1.3f, 0.9f, -time * 0.22f);
+            FxRender.ring(bb, c, UP, R * 0.15f, R * 0.88f, 0.75f, -time * 0.45f, 64);
+            spiralArms(bb, c.add(0, 0.02, 0), R * 0.9f, R * 0.12f, 4, 0.9f, 1.3f, 0.9f, -time * 0.22f);
             FxRender.draw(bb);
             // 가운데 솟는 물기둥
             FxRender.elemShader(W, 2.6f, 0.25f + 0.5f * (1f - env), 0.9f * env);
@@ -1690,7 +1807,7 @@ final class WaterFx {
             case WATER_PRISON -> {
                 // 실제로 끌려 들어가는 원통(반지름 r × 1.4) 그대로: 바닥 원 + 차오르는 물벽
                 float pr = prisonR(c.size);
-                groundCircle(c.target, pr, k, time);
+                groundCircle(c.target, pr, k, time, e);
                 FxRender.elemShader(W, 1.2f, 0.55f - 0.25f * k, 0.5f + 0.4f * k);
                 RenderSystem.disableCull();
                 SkillFx.column(c.target, pr, pr * 0.98f, 0.3f + 2.2f * k, 0.55f, 0.15f, 0f, 0.04f, time);
@@ -1726,9 +1843,11 @@ final class WaterFx {
                 glow(feet.add(fwd.scale(0.8)).add(0, 0.8, 0), 2.2f + 2f * k, C_AZURE, 0.25f + 0.25f * k);
                 glow(feet.add(side.scale(hw)).add(fwd.scale(0.7)).add(0, 0.3, 0), 1.0f, C_WHITE, 0.5f * k);
                 glow(feet.subtract(side.scale(hw)).add(fwd.scale(0.7)).add(0, 0.3, 0), 1.0f, C_WHITE, 0.5f * k);
+                // 곧 밀려갈 길 (주변 사람도 피할 수 있게): 서버 해일과 같은 폭·사거리·방향
+                lane(feet, fwd, Math.max(1f, com.blackocean.skills.client.ClientSkillStats.range(c.skill)), hw, k * 0.5f, e, 0.85f, time);
             }
             case WATER_DRAGON -> {
-                groundCircle(c.target, c.size, k, time);
+                groundCircle(c.target, c.size, k, time, e);
                 Vec3 feet = e.getPosition(pt);
                 float h = 2f + 8f * easeOutCubic(k);
                 RenderSystem.disableCull();

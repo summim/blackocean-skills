@@ -81,10 +81,14 @@ public final class DamageNumbers {
             float sz = Math.max(0.6f, hit.getBbHeight()) * (big ? 1.2f : 0.9f);
             FxManager.spawn(new Sprite(Sprite.Kind.GLOW, c, Vec3.ZERO, 1.4f * sz, 2.2f * sz, 2).color(1f, 1f, 1f, 0.7f));
         }
-        // 맞힌 느낌 (너무 잦으면 생략)
-        if (now - lastSound >= 2) {
+        // 맞힌 느낌: 타격음은 서버가 맞은 자리에서 이미 틂 (스킬 적중음·지속 피해 틱). 여기서는 겹치지 않게
+        //  - 마무리 일격만 또렷한 확인음
+        //  - 멀리(16칸 밖) 맞혀서 그 자리 소리가 거의 안 들릴 때만 아주 작게
+        double far2 = mc.player.distanceToSqr(e.x(), e.y(), e.z());
+        if ((kill || far2 > 16.0 * 16.0) && now - lastSound >= 4) {
             lastSound = now;
-            mc.player.playSound(kill ? SoundEvents.PLAYER_ATTACK_CRIT : SoundEvents.PLAYER_ATTACK_STRONG, kill ? 0.55f : 0.3f, big ? 0.8f : 1.25f);
+            if (kill) mc.player.playSound(SoundEvents.PLAYER_ATTACK_CRIT, 0.35f, 0.85f);
+            else mc.player.playSound(SoundEvents.PLAYER_ATTACK_STRONG, 0.12f, big ? 0.8f : 1.2f);
         }
     }
 

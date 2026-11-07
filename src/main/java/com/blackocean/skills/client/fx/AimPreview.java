@@ -371,7 +371,8 @@ public final class AimPreview {
         return switch (s) {
             case WIND_WHIRLWIND, WIND_TEMPEST -> r + 0.5f;          // 띄우고 0.5초마다 피해 (Tornado: d <= r + 0.5)
             case WATER_PRISON -> r * 1.4f;                          // 끌어당김·피해·파열 (Prison: r × 1.4)
-            case LIGHTNING_STRIKE -> r * 0.7f + Math.max(1.5f, r * 0.8f); // 낙뢰가 흩어지는 범위 + 한 번의 범위
+            // 낙뢰 3번 모두 원 r 안 (Strikes: 2·3번째는 중심에서 r - 범위 안, 첫 번째는 max(1.5, 0.8r)) → max(r, 1.5)
+            case LIGHTNING_STRIKE -> Math.max(r, 1.5f);
             default -> r;
         };
     }
@@ -474,7 +475,54 @@ public final class AimPreview {
             glowPass = false;
         }
         bb = null;
+        // 4) 실제 판정 경계 = 공용 위험 표시 (시전자 본인 = SELF 스타일). 키를 떼면 같은 함수가 같은 크기로
+        //    최종 예고·판정 범위를 그리므로, 조준 → 발동이 한 가지 그림 언어로 이어짐
+        //    같은 스킬을 모으는 중(그 사이 같은 키를 또 누름)이면 준비 연출이 이미 실제 범위를 그림 → 두 번 그리지 않음
+        if (valid && !FxManager.isCharging(p, s)) {
+            FxRender.additive();
+            dangers(s, a, range, radius, time, p);
+        }
         FxRender.alphaBlend();
+    }
+
+    /**
+     * 공용 위험 표시 (SkillFx.dangerZone/Lane, 시전자 = 나 → SELF 스타일, 차오름 0 = 아직 조준 중).
+     * 바닥 범위·끌어당김 범위·돌진/해일 길·물줄기 길이 여기서 그려짐 (이 파일의 같은 테두리 선은 빼서 겹치지 않음).
+     * 부채꼴과 얼음 가시 길은 벽·땅 높이에 맞춰 잘린 모양이 더 정확해서 이 파일이 직접 그림.
+     */
+    private static void dangers(Skill s, float a, float range, float radius, float time, LocalPlayer p) {
+        Element el = s.element;
+        switch (s.aim) {
+            case GROUND, SELF -> {
+                Vec3 t = new Vec3(lp[T], lp[T + 1], lp[T + 2]);
+                float main = s.aim == Skill.Aim.GROUND ? mainRadius(s, radius) : radius;
+                SkillFx.dangerZone(t, Math.max(0.5f, main), 0f, el, p, a, time);
+                float outer = outerRadius(s, radius);
+                if (outer > 0f) SkillFx.dangerZone(t, outer, 0f, el, p, a * 0.8f, time);
+            }
+            case BLINK -> SkillFx.dangerZone(new Vec3(lp[T], lp[T + 1], lp[T + 2]), Math.max(0.5f, radius), 0f, el, p, a, time);
+            case DASH, WAVE -> {
+                if (s == Skill.ICE_SPIKES) break;
+                Vec3 start = new Vec3(lp[A], lp[A + 1], lp[A + 2]);
+                Vec3 dir = new Vec3(lp[D], 0, lp[D + 2]);
+                if (dir.lengthSqr() < 1.0E-6) break;
+                SkillFx.dangerLane(start, dir.normalize(), (float) lp[X0], pathHalf(s, radius), 0f, el, p, a, time);
+            }
+            case LINE -> {
+                Vec3 start = new Vec3(lp[A], lp[A + 1], lp[A + 2]), end = new Vec3(lp[B], lp[B + 1], lp[B + 2]);
+                Vec3 d = end.subtract(start);
+                double len = d.length();
+                if (len > 0.2) SkillFx.dangerLane(start, d.scale(1.0 / len), (float) len, beamHalf(s, radius), 0f, el, p, a, time);
+            }
+            case PROJECTILE -> {
+                // 바닥에 떨어져 터지는 범위 (벽에 맞는 경우는 벽 면의 마법진이 보여 줌)
+                boolean splash = s.shape != Skill.Shape.BLADE && radius > 0.3f;
+                if (splash && hasNormal && lp[NR + 1] > 0.5) {
+                    SkillFx.dangerZone(new Vec3(lp[B], lp[B + 1], lp[B + 2]), radius, 0f, el, p, a * 0.9f, time);
+                }
+            }
+            default -> { }
+        }
     }
 
     private static boolean usesArrow(Skill s) {
@@ -498,13 +546,13 @@ public final class AimPreview {
             case PROJECTILE, LINE -> projectile(s, a, radius, time);
             case GROUND -> ground(s, a, range, radius, time);
             case SELF -> {
-                area(lp[T], lp[T + 1] + 0.06, lp[T + 2], radius, a, time, false);
+                area(lp[T], lp[T + 1] + 0.06, lp[T + 2], radius, a, time, false, false);
                 extraRings(s, lp[T], lp[T + 1] + 0.06, lp[T + 2], radius, a, time);
             }
             case DASH, WAVE -> path(s, a, radius, time);
             case BLINK -> {
                 double gx = lp[T], gy = lp[T + 1] + 0.06, gz = lp[T + 2];
-                area(gx, gy, gz, radius, a, time, false);
+                area(gx, gy, gz, radius, a, time, false, false);
                 flatQuad(R_MARK, gx, gy + 0.01, gz, Math.min(1.1, radius * 0.4), -time * 0.05, a);
             }
             case CONE -> cone(a, range, time);
@@ -522,8 +570,8 @@ public final class AimPreview {
         float hitR = beamHalf(s, radius);
         // 손에서 나가는 빛
         billboard(R_DOT, sx, sy, sz, 0.55 + 0.1 * Math.sin(time * 0.5), a * 0.8f);
-        // 길 양옆 가는 선
-        if (flatArrow) {
+        // 길 양옆 가는 선 (물줄기·번개 줄기는 공용 위험 표시가 길을 그림)
+        if (flatArrow && s.aim == Skill.Aim.PROJECTILE) {
             double dx = lp[D], dz = lp[D + 2];
             double l = Math.sqrt(dx * dx + dz * dz);
             if (l > 1.0E-4) {
@@ -572,7 +620,7 @@ public final class AimPreview {
         double tx = lp[T], ty = lp[T + 1] + 0.06, tz = lp[T + 2];
         boolean ult = s.ultimate();
         float main = mainRadius(s, radius);
-        area(tx, ty, tz, main, a, time, ult);
+        area(tx, ty, tz, main, a, time, ult, false);
         extraRings(s, tx, ty, tz, radius, a, time);
         float h = heightOf(s);
         if (h > 0) column(tx, ty, tz, main, h, a, time, ult);
@@ -583,7 +631,7 @@ public final class AimPreview {
     private static void extraRings(Skill s, double x, double y, double z, float radius, float a, float time) {
         float outer = outerRadius(s, radius);
         if (outer > 0f) {
-            ringLine(x, y + 0.018, z, outer, 0.06, a * 0.75f, Math.max(12, (int) (outer * 2.2f)), -time * 0.06, 0.0f);
+            // 바깥 테두리 선은 공용 위험 표시(dangers)가 그림 — 여기는 안쪽으로 흐르는 점만
             if (!glowPass) {
                 // 안쪽으로 흐르는 점 (끌려 들어감) / 여진은 바깥으로
                 float f = (time * 0.03f) % 1f;
@@ -601,14 +649,15 @@ public final class AimPreview {
     }
 
     /** 범위 마법진: 부드러운 바닥 빛 + 도는 룬 고리 + 빛이 도는 테두리 + 퍼지는 파동 + 가운데 표식. 궁극기는 겹 마법진 */
-    private static void area(double x, double y, double z, float r, float a, float time, boolean ult) {
+    private static void area(double x, double y, double z, float r, float a, float time, boolean ult, boolean edge) {
         r = Math.max(0.5f, r);
         if (!glowPass) {
             flatQuad(R_FILL, x, y, z, r, 0, a * 0.42f);
             if (ult) flatQuad(R_HEX, x, y + 0.004, z, r * 0.97, time * 0.004, a * 0.35f);
         }
-        flatQuad(R_RUNE, x, y + 0.008, z, r * 1.02, time * 0.018, a * 0.9f);
-        ringLine(x, y + 0.012, z, r, 0.08 + r * 0.008, a, 3, time * 0.16, 0.5f);
+        flatQuad(R_RUNE, x, y + 0.008, z, r * 0.98, time * 0.018, a * 0.9f);
+        // 판정 끝 테두리는 공용 위험 표시(dangers)가 그림. edge = true 는 판정 범위가 아닌 표식(돌진 끝 등)
+        if (edge) ringLine(x, y + 0.012, z, r, 0.08 + r * 0.008, a, 3, time * 0.16, 0.5f);
         float wave = (time * 0.035f) % 1f;
         ringLine(x, y + 0.014, z, r * (0.15f + 0.85f * wave), 0.05 + 0.04 * wave, a * 0.65f * (1f - wave), 0, 0, 1f);
         flatQuad(R_MARK, x, y + 0.016, z, Math.min(1.3, 0.35 + r * 0.22), -time * 0.04, a * 0.85f);
@@ -692,8 +741,11 @@ public final class AimPreview {
             }
             float f0 = (float) i / (n - 1), f1 = (float) (i + 1) / (n - 1);
             float a0 = a * (0.3f + 0.6f * f0), a1 = a * (0.3f + 0.6f * f1);
-            segLine(ax + px, ay, az + pz, bx + px, by, bz + pz, 0.06, a0, a1, true);
-            segLine(ax - px, ay, az - pz, bx - px, by, bz - pz, 0.06, a0, a1, true);
+            if (s == Skill.ICE_SPIKES) {
+                // 땅 높이를 따라가는 길이라 직접 그림 (돌진·해일의 곧은 길 테두리는 공용 위험 표시가 그림)
+                segLine(ax + px, ay, az + pz, bx + px, by, bz + pz, 0.06, a0, a1, true);
+                segLine(ax - px, ay, az - pz, bx - px, by, bz - pz, 0.06, a0, a1, true);
+            }
             if (!glowPass) fillStrip(ax, ay, az, bx, by, bz, px, pz, a0 * 0.25f, a1 * 0.25f);
         }
         // 앞으로 쓸고 가는 가로줄
@@ -727,7 +779,7 @@ public final class AimPreview {
                 billboard(R_DIAM, ex + px * k, ey + 0.1, ez + pz * k, 0.55, ea);
             }
         } else {
-            area(ex, ey - 0.03, ez, Math.max(0.8f, halfW), a * 0.8f, time, false);
+            area(ex, ey - 0.03, ez, Math.max(0.8f, halfW), a * 0.8f, time, false, true);
         }
     }
 

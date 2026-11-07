@@ -198,7 +198,15 @@ public final class SkillServer {
 
         // 모으는 소리: 시전자 본인은 자기 화면에서 바로 틀므로 제외하고 주변에만
         ChargeSound cs = chargeSound(skill);
-        level.playSound(p, p.getX(), p.getY(), p.getZ(), SkillsRegistry.snd(cs.name()), SoundSource.PLAYERS, cs.volume(), cs.pitch());
+        SkillSounds.play(level, p, p.position(), cs.name(), cs.volume() * 16f, cs.pitch());
+        // 뇌명 일격: 망치를 내려치는 바람이 타격 순간(발동 + 1틱)에 끝나도록 미리 (무거운 공격의 예고)
+        if (skill == Skill.THUNDERCLAP) {
+            int before = charge + 1 - SkillSounds.WHOOSH_TICKS; // 지금부터 바람을 틀 때까지 (틱)
+            Vec3 at0 = p.position();
+            Runnable w = () -> SkillSounds.play(level, at0, "common.heavy_whoosh", SkillSounds.R_CAST, 1.0f);
+            if (before <= 0) w.run();
+            else addEffect(new IceThunderEffects.Later(level, p, skill, before + 1, o -> w.run()));
+        }
         if (skill == Skill.FIRE_PILLAR && target != null) {
             SkillSounds.play(level, target, "fire_pillar.warn", SkillSounds.R_HIT, 1.0f);
         }
@@ -510,7 +518,7 @@ public final class SkillServer {
             dur[s.ordinal()] = s.durationTicks();
             spd[s.ordinal()] = (float) s.speed();
         }
-        PacketDistributor.sendToPlayer(p, new SkillStatsPayload(r, rad, dur, spd));
+        PacketDistributor.sendToPlayer(p, new SkillStatsPayload(r, rad, dur, spd, SkillsConfig.PVP.get()));
     }
 
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
@@ -545,5 +553,6 @@ public final class SkillServer {
         EFFECTS.clear();
         LAST_REQUEST.clear();
         SkillTargets.clearHits();
+        SkillSounds.clear();
     }
 }

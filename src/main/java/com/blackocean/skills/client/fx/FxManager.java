@@ -227,6 +227,14 @@ public final class FxManager {
         return false;
     }
 
+    /** 이 플레이어가 지금 이 스킬을 모으는 중인지 (준비 연출이 이미 위험 범위를 그리는 중) */
+    static boolean isCharging(Entity e, Skill skill) {
+        for (ChargeFx c : CHARGES) {
+            if (c.caster == e && c.skill == skill && !c.done) return true;
+        }
+        return false;
+    }
+
     /** 서버가 거절함(쿨타임·비활성·조준 실패) → 미리 시작한 내 준비 연출을 바로 지움. */
     public static void cancelPredictedCharge() {
         Entity self = Minecraft.getInstance().player;
@@ -326,8 +334,8 @@ public final class FxManager {
                         if (skill == Skill.FIRE_SUN) FireFx.onEvent(e, skill, caster);
                         else fistImpact(e, skill == Skill.FIRE_BULLETS);
                     }
-                    case SkillEvents.ERUPT -> SkillFx.addPillar(e.pos(), e.size(), e.size2(), e.duration(), false);
-                    case SkillEvents.BURST -> SkillFx.addRingBurst(e.pos(), e.size(), e.duration());
+                    case SkillEvents.ERUPT -> SkillFx.addSkillPillar(e.pos(), e.size(), e.size2(), e.duration(), caster);
+                    case SkillEvents.BURST -> SkillFx.addRingBurst(e.pos(), e.size(), e.duration(), caster);
                     default -> FireFx.onEvent(e, skill, caster);
                 }
             }
@@ -627,11 +635,14 @@ public final class FxManager {
     // 도우미
     // =====================================================================
 
+    /**
+     * 화면에서만 트는 소리. 여러 스킬이 겹칠 때 소리가 뭉개지지 않게 제한:
+     * 같은 소리는 가까운 곳(3칸)에서 2틱 안에 한 번 (서버와 같음), 전체는 한 틱에 6개까지.
+     */
     static void playAt(Vec3 p, net.minecraft.sounds.SoundEvent sound, float volume, float pitch) {
         ClientLevel level = Minecraft.getInstance().level;
-        if (level != null) {
-            level.playLocalSound(p.x, p.y, p.z, sound, SoundSource.PLAYERS, volume, pitch, false);
-        }
+        if (level == null || !FxLimits.allowSound(level.getGameTime(), sound, p)) return;
+        level.playLocalSound(p.x, p.y, p.z, sound, SoundSource.PLAYERS, volume, pitch, false);
     }
 
     static Vec3 randomDir() {
@@ -657,6 +668,7 @@ public final class FxManager {
         float oy = (float) (center.y - FxRender.cam.y);
         float oz = (float) (center.z - FxRender.cam.z);
         Vector3f p = MESH_P, n = MESH_N;
+        FxRender.shieldLayers = true;
         BufferBuilder bb = FxRender.triangles();
         for (int i = 0; i < mesh.count; i++) {
             float lx = mesh.pos[i * 3], ly = mesh.pos[i * 3 + 1], lz = mesh.pos[i * 3 + 2];
@@ -669,9 +681,10 @@ public final class FxManager {
             // facing: 1 = 카메라를 정면으로 봄(중심), 0 = 옆면(윤곽)
             float facing = len > 1.0E-4f ? Math.abs(n.dot(p)) / len : 1f;
             float h = Math.max(0f, Math.min(1f, heat.apply(facing, lz)));
-            bb.addVertex(p.x, p.y, p.z).setUv(mesh.uv[i * 2] + uvShift, mesh.uv[i * 2 + 1]).setColor(1f, 1f, 1f, h);
+            FxRender.vertexRel(bb, p.x, p.y, p.z, mesh.uv[i * 2] + uvShift, mesh.uv[i * 2 + 1], 1f, 1f, 1f, h);
         }
         FxRender.draw(bb);
+        FxRender.shieldLayers = false;
     }
 
     @FunctionalInterface
@@ -785,7 +798,8 @@ public final class FxManager {
             // 서버가 거절하면(쿨타임 등) 미리 시작한 연출을 지운다
             if (predicted && !confirmed && age > duration + 6) return true;
             float k = progress(0f);
-            if (skill.aim == Skill.Aim.PROJECTILE || skill.aim == Skill.Aim.LINE) updateWall();
+            // 손에서 나가는 스킬(투사체·줄기·얼음 파편 부채꼴): 벽 앞 손 위치를 틱마다 한 번만 잼 (그리기는 이 값만 씀)
+            if (skill.aim == Skill.Aim.PROJECTILE || skill.aim == Skill.Aim.LINE || (skill.aim == Skill.Aim.CONE && skill.shape != Skill.Shape.NONE)) updateWall();
 
             if (skill.element != Element.FIRE || skill == Skill.FIRE_SUN) {
                 // 번개·바람·물·작열의 태양: 능력별 연출 모듈
@@ -963,7 +977,7 @@ public final class FxManager {
             }
             switch (skill) {
                 case FIRE_PILLAR -> {
-                    SkillFx.renderPillarWarn(target, size, k, time);
+                    SkillFx.renderPillarWarn(target, size, k, time, caster);
                     handGlow(origin(pt, 0.3, 0), 0.5f + 0.8f * k, 0.5f * k + 0.2f);
                     return;
                 }
@@ -1110,6 +1124,9 @@ public final class FxManager {
         @org.jetbrains.annotations.Nullable
         Vec3 landAt;
         float landR, landFill;
+        /** 바로 아래 바닥 (빛 웅덩이용, 모듈·주먹이 채움, 없으면 null) */
+        @org.jetbrains.annotations.Nullable
+        Vec3 groundAt;
 
         ProjectileFx(SkillProjectile e) {
             this(e, e.position());
@@ -1172,6 +1189,8 @@ public final class FxManager {
             }
 
             Vec3 back = dir.scale(-1);
+            // 주먹: 아래 바닥에 비치는 빛 웅덩이 (2틱마다 바닥 찾기)
+            if (!small && (age % 2 == 1 || groundAt == null)) groundAt = DebrisFx.findGround(p, 7.0);
             if (small) {
                 // 탄환: 작은 불꽃 꼬리와 불씨만
                 if (RNG.nextFloat() < amount() * lod) {
@@ -1294,7 +1313,41 @@ public final class FxManager {
                 along += segLen;
             }
             FxRender.draw(bb);
+            if (skill.shape == Skill.Shape.FIST || skill.shape == Skill.Shape.BULLET || skill.shape == Skill.Shape.SUN) {
+                crossRings(pts, wScale, fade, time);
+            }
             if (skill.shape == Skill.Shape.FIST) renderSpirals(pts, fade, time);
+        }
+
+        /**
+         * 궤적을 앞·뒤에서 볼 때 띠가 납작하게 사라지지 않도록: 궤적 단면 고리 (진행 방향에 수직).
+         * 띠가 잘 보이는 옆에서는 고리가 옆으로 누워 거의 안 보이고, 띠가 사라지는 앞·뒤에서만 고리가 보임.
+         */
+        private void crossRings(List<Vec3> pts, float wScale, float fade, float time) {
+            int n = pts.size();
+            if (n < 3) return;
+            FxRender.elemShader(skill.element, 2.4f, 0.25f, 1.1f);
+            RenderSystem.disableCull();
+            BufferBuilder bb = FxRender.quads();
+            int segs = small ? 18 : 28;
+            for (int k = 1; k < n - 1; k += small ? 2 : 2) {
+                Vec3 a = pts.get(k - 1), b = pts.get(k + 1), c = pts.get(k);
+                Vec3 d = a.subtract(b);
+                if (d.lengthSqr() < 1.0E-6) continue;
+                d = d.normalize();
+                Vec3 view = c.subtract(FxRender.cam);
+                double vl = view.length();
+                if (vl < 1.0E-3) continue;
+                float axial = (float) Math.abs(d.dot(view) / vl);
+                // 옆(0) → 안 보임, 앞·뒤(1) → 또렷
+                float vis = smooth((axial - 0.45f) / 0.45f);
+                if (vis <= 0.01f) continue;
+                float t = (float) k / (n - 1);
+                float rad = width(t) * wScale * 0.42f;
+                float heat = (float) Math.pow(1f - t, 1.1) * vis * fade * 0.85f;
+                FxRender.ring(bb, c, d, rad * 0.45f, rad, heat, time * 0.5f + k, segs);
+            }
+            FxRender.draw(bb);
         }
 
         /** 주먹 뒤로 꼬이며 따라오는 불꽃 띠 2가닥 (나선) */
@@ -1341,7 +1394,11 @@ public final class FxManager {
             Vec3 d = b.subtract(a);
             Vec3 toCam = FxRender.cam.subtract(a);
             Vec3 s = d.cross(toCam);
-            if (s.lengthSqr() < 1.0E-8) return Vec3.ZERO;
+            if (s.lengthSqr() < 1.0E-8) {
+                // 정확히 카메라를 향한 구간: 화면 왼쪽 방향으로 (띠가 사라지지 않게)
+                s = new Vec3(FxRender.LEFT.x, FxRender.LEFT.y, FxRender.LEFT.z);
+                if (s.lengthSqr() < 1.0E-8) return Vec3.ZERO;
+            }
             return s.normalize().scale(w * 0.5);
         }
 
@@ -1401,6 +1458,18 @@ public final class FxManager {
             drawMesh(shell, c, dir, scale, (facing, z) ->
                     (0.1f + 0.75f * (float) Math.pow(1f - facing, 1.5)) * clamp01((z + 2.3f) / 1.6f), 0.5f);
 
+            // 바닥 빛 웅덩이 (가짜 조명): 낮게 날수록 진하고 작게
+            if (groundAt != null) {
+                double hgt = c.y - groundAt.y;
+                if (hgt > -0.5 && hgt < 7.0) {
+                    float k = 1f - (float) Math.max(0.0, hgt) / 7f;
+                    float ga = 0.42f * k * k;
+                    FxRender.spriteShader(FxRender.GLOW_WHITE);
+                    BufferBuilder gb = FxRender.quads();
+                    FxRender.planeQuad(gb, new Vec3(c.x, groundAt.y + 0.06, c.z), UP, 1.6f + 1.2f * (1f - k), 0f, ga, ga * 0.45f, ga * 0.12f, ga);
+                    FxRender.draw(gb);
+                }
+            }
             // 후광 (빛 번짐 흉내): 주먹 뒤에 크게 퍼지는 부드러운 빛
             frameGlow(c, 6.5f * scale / 1.3f, 1f, 0.55f, 0.2f, 0.32f + 0.05f * (float) Math.sin(time * 3.1f));
             // 주먹 한가운데 흰빛 핵
@@ -1594,8 +1663,8 @@ public final class FxManager {
                 frameGlow(ground.x, ground.y + 0.4, ground.z, radius * 1.3f, 1f, 0.45f, 0.12f, 0.35f * k * k);
             }
             // 판정 끝 가장자리: 폭발이 다 부푼 순간 한 번 또렷하게 번쩍 (범위가 바로 읽힘)
-            if (!fizzle && t < 8f) {
-                float k = t < 2f ? t / 2f : 1f - (t - 2f) / 6f;
+            if (!fizzle && t < 6f) {
+                float k = t < 1.5f ? t / 1.5f : 1f - (t - 1.5f) / 4.5f;
                 FxRender.spriteShader(FxRender.BEAM);
                 RenderSystem.disableCull();
                 BufferBuilder bb = FxRender.quads();
@@ -1690,6 +1759,7 @@ public final class FxManager {
             float s1 = (float) Math.sin(time * 0.15), c1 = (float) Math.cos(time * 0.15);
             float s2 = (float) Math.sin(time * 0.1), c2 = (float) Math.cos(time * 0.1);
             float[] vs = verts;
+            FxRender.shieldLayers = true;
             BufferBuilder bb = FxRender.triangles();
             for (int k = 0; k < vs.length; k += STRIDE) {
                 float nx = vs[k], ny = vs[k + 1], nz = vs[k + 2];
@@ -1701,9 +1771,10 @@ public final class FxManager {
                 float facing = len > 1.0E-4f ? Math.abs(nx * x + ny * y + nz * z) / len : 1f;
                 // 구 아래쪽은 바닥에 눌려 조금 어둡게
                 float heat = (0.12f + 0.6f * facing) * (0.75f + 0.25f * (ny * 0.5f + 0.5f));
-                bb.addVertex(x, y, z).setUv(vs[k + 3], vs[k + 4]).setColor(1f, 1f, 1f, heat);
+                FxRender.vertexRel(bb, x, y, z, vs[k + 3], vs[k + 4], 1f, 1f, 1f, heat);
             }
             FxRender.draw(bb);
+            FxRender.shieldLayers = false;
         }
     }
 }

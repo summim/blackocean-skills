@@ -134,7 +134,7 @@ final class ThunderHammer {
             float edge = 1f - facing;
             float h = base + face * facing + rim * edge * (float) Math.sqrt(edge);
             h = h < 0f ? 0f : (h > 1f ? 1f : h);
-            bb.addVertex(px, py, pz).setUv(mesh[k + 6] + uvShift, mesh[k + 7]).setColor(1f, 1f, 1f, h);
+            FxRender.vertexRel(bb, px, py, pz, mesh[k + 6] + uvShift, mesh[k + 7], 1f, 1f, 1f, h); // 공용 근접 페이드
         }
         FxRender.draw(bb);
     }

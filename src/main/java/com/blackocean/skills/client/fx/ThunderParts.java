@@ -43,11 +43,12 @@ final class ThunderParts {
     static final List<Blast> BLASTS = new ArrayList<>();
     static final List<Pillar> PILLARS = new ArrayList<>();
     static final List<Mark> MARKS = new ArrayList<>();
+    static final List<Edge> EDGES = new ArrayList<>();
 
     private ThunderParts() {}
 
     static boolean isEmpty() {
-        return ARCS.isEmpty() && WALLS.isEmpty() && BLASTS.isEmpty() && PILLARS.isEmpty() && MARKS.isEmpty();
+        return ARCS.isEmpty() && WALLS.isEmpty() && BLASTS.isEmpty() && PILLARS.isEmpty() && MARKS.isEmpty() && EDGES.isEmpty();
     }
 
     static void clear() {
@@ -56,6 +57,7 @@ final class ThunderParts {
         BLASTS.clear();
         PILLARS.clear();
         MARKS.clear();
+        EDGES.clear();
     }
 
     static void tick() {
@@ -64,6 +66,7 @@ final class ThunderParts {
         BLASTS.removeIf(Blast::tick);
         PILLARS.removeIf(Pillar::tick);
         MARKS.removeIf(Mark::tick);
+        EDGES.removeIf(Edge::tick);
     }
 
     /** 바닥 무늬 → 번개 줄기 → 흐르는 셰이더(돔·벽·기둥) 순서 */
@@ -82,6 +85,7 @@ final class ThunderParts {
         for (Blast b : BLASTS) b.render(pt, time);
         for (ShockWall w : WALLS) w.render(pt, time);
         for (Pillar p : PILLARS) p.render(pt, time);
+        for (Edge e : EDGES) e.render(pt, time);
         RenderSystem.disableCull();
     }
 
@@ -124,6 +128,37 @@ final class ThunderParts {
         PILLARS.add(p);
     }
 
+    /** 피해 범위 경계를 잠깐 또렷하게 (터진 순간 "여기까지 맞았다") */
+    static void addEdge(Vec3 c, float R, int life, int delay, float alpha) {
+        if (EDGES.size() >= 24) EDGES.remove(0);
+        EDGES.add(new Edge(c, R, life, delay, alpha));
+    }
+
+    static final class Edge {
+        final Vec3 c;
+        final float R, alpha;
+        final int life, delay;
+        int age;
+
+        Edge(Vec3 c, float R, int life, int delay, float alpha) {
+            this.c = c;
+            this.R = R;
+            this.life = Math.max(2, life);
+            this.delay = Math.max(0, delay);
+            this.alpha = alpha;
+        }
+
+        boolean tick() {
+            return ++age > delay + life;
+        }
+
+        void render(float pt, float time) {
+            float t = (age + pt - delay) / life;
+            if (t < 0f || t >= 1f) return;
+            edgeRing(c, R, alpha * (t < 0.15f ? 1f : (1f - t) / 0.85f), time);
+        }
+    }
+
     static void addMark(Mark m) {
         if (MARKS.size() >= MAX_MARKS) MARKS.remove(0);
         MARKS.add(m);
@@ -138,10 +173,10 @@ final class ThunderParts {
         return new Sprite(kind, p, v, s0, s1, life).elem(EL);
     }
 
+    /** 이번 프레임 후광 (공용 풀 — 새 Sprite 를 만들지 않음) */
     static void frameGlow(Vec3 p, float size, float[] c, float a) {
         if (a <= 0.005f) return;
-        Sprite s = new Sprite(Sprite.Kind.GLOW, p, Vec3.ZERO, size, size, 1).color(c[0], c[1], c[2], a).elem(EL);
-        FxManager.addFrameGlow(s);
+        FxManager.frameGlow(p.x, p.y, p.z, size, c[0], c[1], c[2], a);
     }
 
     static double distToPlayer(Vec3 p) {
@@ -149,17 +184,85 @@ final class ThunderParts {
         return pl == null ? 1.0E9 : pl.position().distanceTo(p);
     }
 
-    /** 몸 표면을 기어 다니는 짧은 금빛 전기 */
+    /** 몸 표면을 기어 다니는 짧은 금빛 전기. 1인칭 본인 몸이면 허리 아래에만 (눈앞을 가리지 않게) */
     static void bodyArcs(Entity e, int n, float violet) {
         Vec3 base = e.position();
-        float h = Math.max(0.5f, e.getBbHeight());
-        float w = Math.max(0.25f, e.getBbWidth() * 0.6f);
+        boolean self = IceThunderAim.firstPersonSelf(e);
+        float h = self ? 0.8f : Math.max(0.5f, e.getBbHeight());
+        float w = Math.max(0.25f, e.getBbWidth() * 0.6f) * (self ? 1.3f : 1f);
         for (int i = 0; i < count(n); i++) {
             float ang = RNG.nextFloat() * TAU;
             Vec3 p0 = base.add(Math.cos(ang) * w, rand(0.1f, h), Math.sin(ang) * w);
-            Vec3 p1 = p0.add(randomDir().scale(rand(0.4f, 0.9f)));
+            Vec3 d = randomDir();
+            if (self && d.y > 0) d = new Vec3(d.x, -d.y, d.z);
+            Vec3 p1 = p0.add(d.scale(rand(0.4f, 0.9f)));
             arc(p0, p1, 0.24f, 2 + RNG.nextInt(2), 0, 3, RNG.nextInt(2), 0.35f, false, violet);
         }
+    }
+
+    /** shock_ring 그림의 고리는 판 반지름의 0.84 에 있음 → 보이는 고리를 정확히 R 에 두려면 R × RK */
+    static final float RK = 1f / 0.84f;
+
+    /**
+     * 피해 범위 경계 (정확히 반지름 R 의 가는 금빛 고리 + 안쪽 옅은 띠). 매 프레임 그림.
+     * 같은 고리를 반 바퀴 어긋나게 두 번 그려 둘레 밝기를 고르게 한다.
+     */
+    static void edgeRing(Vec3 c, float R, float a, float time) {
+        if (a <= 0.01f || R <= 0.2f) return;
+        Vec3 g = c.add(0, 0.08, 0);
+        int seg = segs(R, TAU);
+        FxRender.elemShader(EL, 2.0f, 0.05f, 1.25f * a);
+        BufferBuilder bb = FxRender.quads();
+        FxRender.ring(bb, g, UP, R - 0.26f, R + 0.02f, 0.55f, time * 0.3f, seg);
+        FxRender.ring(bb, g, UP, R - 0.26f, R + 0.02f, 0.55f, time * 0.3f + (float) Math.PI, seg);
+        FxRender.ring(bb, g.add(0, 0.004, 0), UP, R * 0.86f, R - 0.22f, 0.2f, -time * 0.2f, seg);
+        FxRender.draw(bb);
+    }
+
+    /** 범위 안에서 바깥으로 채워지는 앞머리 (k = 1 에 경계 R 에 닿음 = 그 순간 내려찍음) */
+    static void fillFront(Vec3 c, float R, float k, float a, float time) {
+        float r = R * clamp01(k);
+        if (r < 0.3f || a <= 0.01f) return;
+        Vec3 g = c.add(0, 0.085, 0);
+        int seg = segs(r, TAU);
+        FxRender.elemShader(EL, 2.4f, 0.12f, a);
+        BufferBuilder bb = FxRender.quads();
+        FxRender.ring(bb, g, UP, Math.max(0f, r - 0.8f), r, 0.45f, time * 0.5f, seg);
+        FxRender.ring(bb, g, UP, Math.max(0f, r - 0.8f), r, 0.45f, time * 0.5f + (float) Math.PI, seg);
+        FxRender.draw(bb);
+        FxRender.spriteShader(FxRender.GLOW_WHITE);
+        bb = FxRender.quads();
+        float ga = 0.14f * a;
+        FxRender.planeQuad(bb, g.add(0, 0.01, 0), UP, r * 1.2f, 0f, ga * GOLD[0], ga * GOLD[1], ga * GOLD[2], ga);
+        FxRender.draw(bb);
+    }
+
+    /** 부채꼴 테두리 (양쪽 선 + 끝 호), BEAM 그림으로. 색은 알파를 곱해 넣음 */
+    static void coneOutline(BufferBuilder bb, Vec3 o, float base, float half, float range, float w, float r, float g, float b, float a) {
+        if (a <= 0.005f || range <= 0.3f) return;
+        double y = o.y + 0.07;
+        Vec3 c = new Vec3(o.x, y, o.z);
+        flatLine(bb, polar(c, base - half, 0.6, 0), polar(c, base - half, range, 0), w, r, g, b, a);
+        flatLine(bb, polar(c, base + half, 0.6, 0), polar(c, base + half, range, 0), w, r, g, b, a);
+        int n = Math.max(6, (int) (half * 2 * range / 1.2f));
+        Vec3 prev = polar(c, base - half, range, 0);
+        for (int i = 1; i <= n; i++) {
+            Vec3 q = polar(c, base - half + 2 * half * i / n, range, 0);
+            flatLine(bb, prev, q, w, r, g, b, a);
+            prev = q;
+        }
+    }
+
+    /** 땅과 나란한 곧은 띠 (BEAM: 가로 = 폭, 가운데 밝음) */
+    static void flatLine(BufferBuilder bb, Vec3 p0, Vec3 p1, float w, float r, float g, float b, float a) {
+        double dx = p1.x - p0.x, dz = p1.z - p0.z;
+        double len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 1.0E-5) return;
+        double sx = -dz / len * w * 0.5, sz = dx / len * w * 0.5;
+        FxRender.vertex(bb, p0.x - sx, p0.y, p0.z - sz, 0f, 0f, r, g, b, a);
+        FxRender.vertex(bb, p0.x + sx, p0.y, p0.z + sz, 1f, 0f, r, g, b, a);
+        FxRender.vertex(bb, p1.x + sx, p1.y, p1.z + sz, 1f, 1f, r, g, b, a);
+        FxRender.vertex(bb, p1.x - sx, p1.y, p1.z - sz, 0f, 1f, r, g, b, a);
     }
 
     /** 바닥 위 각도 a (라디안), 반지름 r 의 점 */

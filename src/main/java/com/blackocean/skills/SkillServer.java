@@ -55,9 +55,10 @@ public final class SkillServer {
      * @param shot     불꽃 탄환: 몇 번째 발 (0 = 모으는 중)
      * @param target   바닥 조준 스킬의 자리
      */
-    private record Pending(UUID player, int entity, Skill skill, long fireAt, int cooldown, int shot, @Nullable Vec3 target, ResourceKey<Level> dim) {}
+    /** yaw/pitch = 키를 뗀 순간 플레이어가 보던 방향 (조준 표시와 실제 공격 방향이 같게 고정) */
+    private record Pending(UUID player, int entity, Skill skill, long fireAt, int cooldown, int shot, @Nullable Vec3 target, ResourceKey<Level> dim, float yaw, float pitch) {}
 
-    private record Buffered(Skill skill, long expireAt) {}
+    private record Buffered(Skill skill, long expireAt, float yaw, float pitch) {}
 
     private SkillServer() {}
 
@@ -67,14 +68,29 @@ public final class SkillServer {
 
     /** 클라이언트가 1~5 키를 눌러 보낸 요청 (slot 0~4). 메인 스레드에서 호출된다. */
     public static void tryCast(ServerPlayer p, int slot) {
+        tryCast(p, slot, p.getYRot(), p.getXRot());
+    }
+
+    /**
+     * @param yaw,pitch 클라이언트가 키를 뗀 순간의 시선. 서버가 아는 시선과 너무 다르면(조작·순간 렉) 서버 시선을 씀.
+     */
+    public static void tryCast(ServerPlayer p, int slot, float yaw, float pitch) {
         if (slot < 0 || slot >= Skill.SLOTS) return;
+        if (!Float.isFinite(yaw) || !Float.isFinite(pitch) || Math.abs(pitch) > 90.01f
+                || Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot())) > 60f || Math.abs(pitch - p.getXRot()) > 60f) {
+            yaw = p.getYRot();
+            pitch = p.getXRot();
+        } else {
+            // 서버 시선과 이어지는 값으로 (클라이언트 yaw 는 몇 바퀴째인지가 달라 720° 같은 값일 수 있음)
+            yaw = p.getYRot() + net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot());
+            pitch = net.minecraft.util.Mth.clamp(pitch, -90f, 90f);
+        }
         // 요청 폭주 방지: 한 사람당 한 틱에 한 번만
         long tick = p.server.getTickCount();
         Long last = LAST_REQUEST.put(p.getUUID(), tick);
         if (last != null && last == tick) return;
         // 기절·얼림 중엔 스킬 못 씀 (명령어·API 발동은 예외)
-        net.minecraft.world.effect.MobEffectInstance slowFx = p.getEffect(net.minecraft.world.effect.MobEffects.MOVEMENT_SLOWDOWN);
-        if (slowFx != null && slowFx.getAmplifier() >= 5) {
+        if (stunned(p)) {
             p.displayClientMessage(Component.translatable("msg.blackocean_skills.stunned"), true);
             PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(-1, 0, 0, true));
             return;
@@ -97,7 +113,7 @@ public final class SkillServer {
         boolean busy = charging != null || movingBlocks(p, skill);
         if (left <= BUFFER_TICKS && (left > 0 || busy)) {
             // 곧 쓸 수 있음 → 예약 (마지막에 누른 스킬이 이김)
-            BUFFERED.put(p.getUUID(), new Buffered(skill, p.server.getTickCount() + Math.max(left, 0) + BUFFER_TICKS + 40));
+            BUFFERED.put(p.getUUID(), new Buffered(skill, p.server.getTickCount() + Math.max(left, 0) + BUFFER_TICKS + 40, yaw, pitch));
             return;
         }
         if (left > 0) {
@@ -106,7 +122,13 @@ public final class SkillServer {
             deny(p, skill);
             return;
         }
-        if (!cast(p, skill, true)) deny(p, skill);
+        if (!cast(p, skill, true, yaw, pitch)) deny(p, skill);
+    }
+
+    /** 기절(느려짐 VI)·얼림(VII) 중 */
+    private static boolean stunned(ServerPlayer p) {
+        net.minecraft.world.effect.MobEffectInstance slowFx = p.getEffect(net.minecraft.world.effect.MobEffects.MOVEMENT_SLOWDOWN);
+        return slowFx != null && slowFx.getAmplifier() >= 5;
     }
 
     private static void deny(ServerPlayer p, Skill skill) {
@@ -119,6 +141,32 @@ public final class SkillServer {
      * @return 시작했으면 true
      */
     public static boolean cast(ServerPlayer p, Skill skill, boolean useCooldown) {
+        return cast(p, skill, useCooldown, p.getYRot(), p.getXRot());
+    }
+
+    /** 정해진 방향으로 시전 (방향은 발동할 때까지 고정) */
+    public static boolean cast(ServerPlayer p, Skill skill, boolean useCooldown, float yaw, float pitch) {
+        boolean[] ok = {false};
+        withAim(p, yaw, pitch, () -> ok[0] = castInner(p, skill, useCooldown, yaw, pitch));
+        return ok[0];
+    }
+
+    /** 잠깐 시선을 정해진 방향으로 바꿔서 실행 (스킬 코드는 모두 p.getLookAngle() 을 씀) */
+    static void withAim(ServerPlayer p, float yaw, float pitch, Runnable r) {
+        float oy = p.getYRot(), ox = p.getXRot(), oh = p.getYHeadRot();
+        p.setYRot(yaw);
+        p.setXRot(pitch);
+        p.setYHeadRot(yaw);
+        try {
+            r.run();
+        } finally {
+            p.setYRot(oy);
+            p.setXRot(ox);
+            p.setYHeadRot(oh);
+        }
+    }
+
+    private static boolean castInner(ServerPlayer p, Skill skill, boolean useCooldown, float yaw, float pitch) {
         if (!p.isAlive() || p.isSpectator() || p.isSleeping() || chargingSkill(p.getUUID()) != null) return false;
         if (movingBlocks(p, skill)) return false; // 돌진·도약 중에 또 이동 스킬 → 두 효과가 속도를 서로 덮어씀
         ServerLevel level = p.serverLevel();
@@ -141,21 +189,21 @@ public final class SkillServer {
         int charge = skill.chargeTicks();
         int cooldown = useCooldown ? skill.cooldownTicks() : 0;
         if (useCooldown) readyAt(p.getUUID())[skill.ordinal()] = now + cooldown;
-        PENDING.add(new Pending(p.getUUID(), p.getId(), skill, now + charge, cooldown, 0, target, level.dimension()));
+        PENDING.add(new Pending(p.getUUID(), p.getId(), skill, now + charge, cooldown, 0, target, level.dimension(), yaw, pitch));
 
         Vec3 at = target != null ? target : p.position();
         float size = skill.aim == Skill.Aim.GROUND ? (float) skill.radius() : 0f;
-        PacketDistributor.sendToPlayersTrackingEntityAndSelf(p, new CastStartPayload(p.getId(), skill.ordinal(), charge, at.x, at.y, at.z, size));
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(p, new CastStartPayload(p.getId(), skill.ordinal(), charge, at.x, at.y, at.z, size, yaw, pitch));
         if (useCooldown) PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(skill.ordinal(), cooldown, cooldown, false));
 
         // 모으는 소리: 시전자 본인은 자기 화면에서 바로 틀므로 제외하고 주변에만
         ChargeSound cs = chargeSound(skill);
         level.playSound(p, p.getX(), p.getY(), p.getZ(), SkillsRegistry.snd(cs.name()), SoundSource.PLAYERS, cs.volume(), cs.pitch());
         if (skill == Skill.FIRE_PILLAR && target != null) {
-            level.playSound(null, target.x, target.y, target.z, SkillsRegistry.snd("fire_pillar.warn"), SoundSource.PLAYERS, 2.0f, 1.0f);
+            SkillSounds.play(level, target, "fire_pillar.warn", SkillSounds.R_HIT, 1.0f);
         }
         if (skill.ultimate()) {
-            level.playSound(null, p.getX(), p.getY(), p.getZ(), SkillsRegistry.snd("common.ultimate"), SoundSource.PLAYERS, 5.0f, 1.0f);
+            SkillSounds.play(level, p.position(), "common.ultimate", SkillSounds.R_ULT_CHARGE, 1.0f);
             if (SkillsConfig.ULT_BANNER.get()) {
                 SkillEvents.send(level, skill, SkillEvents.ULT_CAST, p, p.position(), Vec3.ZERO, 0, 0, charge, -1, 96.0);
             }
@@ -163,21 +211,33 @@ public final class SkillServer {
         return true;
     }
 
-    /** 모으는 소리 (서버·클라이언트 공통 표) */
+    /**
+     * 모으는 소리 (서버·클라이언트 공통 표). volume = 들리는 반경/16 (소리 크기는 파일이 정함, SkillSounds 참고).
+     * 궁극기는 전용 모으기 소리, 작은 스킬은 능력 공용 소리를 키마다 다른 음정으로.
+     */
     public record ChargeSound(String name, float volume, float pitch) {}
+
+    private static final float CHARGE_VOL = SkillSounds.vol(SkillSounds.R_CHARGE);
+    private static final float ULT_CHARGE_VOL = SkillSounds.vol(SkillSounds.R_ULT_CHARGE);
 
     public static ChargeSound chargeSound(Skill s) {
         return switch (s) {
-            case FIRE_FIST, FIRE_PILLAR -> new ChargeSound("fire_fist.charge", 1.4f, 1.0f);
-            case FIRE_BULLETS -> new ChargeSound("fire_fist.charge", 0.8f, 1.7f);
-            case FLAME_RING -> new ChargeSound("flame_ring.charge", 2.0f, 1.0f);
-            case FIRE_SUN -> new ChargeSound("fire.sun_charge", 3.0f, 1.0f);
-            case LIGHTNING_STORM -> new ChargeSound("lightning.storm_charge", 3.0f, 1.0f);
-            case WIND_TEMPEST -> new ChargeSound("wind.charge", 2.5f, 0.7f);
-            case WATER_DRAGON -> new ChargeSound("water.charge", 2.5f, 0.7f);
-            case ICE_AGE -> new ChargeSound("ice.charge", 3.0f, 0.6f);
-            case THUNDER_JUDGMENT -> new ChargeSound("thunder.charge", 3.0f, 0.7f);
-            default -> new ChargeSound(s.element.id + ".charge", 1.4f, s.slot == 1 ? 1.4f : 1.0f);
+            case FIRE_FIST -> new ChargeSound("fire_fist.charge", CHARGE_VOL, 1.0f);
+            case FIRE_BULLETS -> new ChargeSound("fire_bullets.charge", CHARGE_VOL, 1.0f);
+            case FIRE_PILLAR -> new ChargeSound("fire_pillar.charge", CHARGE_VOL, 1.0f);
+            case FLAME_RING -> new ChargeSound("flame_ring.charge", CHARGE_VOL, 1.0f);
+            case FIRE_SUN -> new ChargeSound("fire.sun_charge", ULT_CHARGE_VOL, 1.0f);
+            case LIGHTNING_STORM -> new ChargeSound("lightning.storm_charge", ULT_CHARGE_VOL, 1.0f);
+            case WIND_TEMPEST -> new ChargeSound("wind.tempest_charge", ULT_CHARGE_VOL, 1.0f);
+            case WATER_DRAGON -> new ChargeSound("water.dragon_charge", ULT_CHARGE_VOL, 1.0f);
+            case ICE_AGE -> new ChargeSound("ice.age_charge", ULT_CHARGE_VOL, 1.0f);
+            case THUNDER_JUDGMENT -> new ChargeSound("thunder.charge", ULT_CHARGE_VOL, 0.7f);
+            default -> new ChargeSound(s.element.id + ".charge", CHARGE_VOL, switch (s.slot) {
+                case 1 -> 1.3f;
+                case 2 -> 0.92f;
+                case 3 -> 0.85f;
+                default -> 1.0f;
+            });
         };
     }
 
@@ -280,14 +340,20 @@ public final class SkillServer {
                     continue;
                 }
                 try {
-                    if (x.skill() == Skill.FIRE_BULLETS) {
-                        projectile(p, x.skill(), x.shot() % 2 == 0 ? 0.38 : -0.38, 0, 2.5);
-                        if (x.shot() + 1 < 5) {
-                            next.add(new Pending(x.player(), x.entity(), x.skill(), now + 2, 0, x.shot() + 1, null, x.dim()));
+                    ServerPlayer caster = p;
+                    // 연사는 쏘는 동안 조준을 따라감, 나머지는 키를 뗀 순간의 방향으로 고정
+                    boolean follow = x.skill() == Skill.FIRE_BULLETS && x.shot() > 0;
+                    float yaw = follow ? p.getYRot() : x.yaw(), pitch = follow ? p.getXRot() : x.pitch();
+                    withAim(p, yaw, pitch, () -> {
+                        if (x.skill() == Skill.FIRE_BULLETS) {
+                            projectile(caster, x.skill(), x.shot() % 2 == 0 ? 0.38 : -0.38, 0, 2.5);
+                            if (x.shot() + 1 < 5) {
+                                next.add(new Pending(x.player(), x.entity(), x.skill(), now + 2, 0, x.shot() + 1, null, x.dim(), x.yaw(), x.pitch()));
+                            }
+                        } else {
+                            execute(caster, x.skill(), x.target());
                         }
-                    } else {
-                        execute(p, x.skill(), x.target());
-                    }
+                    });
                 } catch (Exception ex) {
                     LOG.error("[BlackOcean Skills] {} 발동 중 오류", x.skill().id, ex);
                 }
@@ -307,6 +373,8 @@ public final class SkillServer {
                 }
             });
         }
+
+        SkillTargets.flushHits();
     }
 
     private static void execute(ServerPlayer p, Skill skill, @Nullable Vec3 target) {
@@ -358,7 +426,7 @@ public final class SkillServer {
             double a = count == 1 ? 0 : -half + 2 * half * i / (count - 1);
             level.addFreshEntity(SkillProjectile.create(level, p, skill, start, dir.yRot((float) a).normalize()));
         }
-        level.playSound(null, start.x, start.y, start.z, SkillsRegistry.snd("ice.shot"), SoundSource.PLAYERS, 2.4f, 1.3f);
+        SkillSounds.play(level, start, "ice.shards", SkillSounds.R_CAST, 0.96f + p.getRandom().nextFloat() * 0.08f);
     }
 
     /** 투사체 발사. side: 손 좌우, lift: 머리 위 높이(태양), spreadDeg: 탄 퍼짐 */
@@ -375,15 +443,22 @@ public final class SkillServer {
         level.addFreshEntity(SkillProjectile.create(level, p, skill, start, dir));
         String snd = switch (skill) {
             case FIRE_BULLETS -> "fire_bullets.shot";
+            case FIRE_SUN -> "fire.sun_launch";
             case WIND_BLADE -> "wind.blade";
             case WATER_BULLET -> "water.shot";
             case ICE_SPEAR -> "ice.shot";
             case THUNDER_HAMMER -> "thunder.hammer";
             default -> "fire_fist.launch";
         };
-        float pitch = skill == Skill.FIRE_SUN ? 0.55f : skill == Skill.FIRE_BULLETS ? 0.92f + p.getRandom().nextFloat() * 0.16f : 1.0f;
-        level.playSound(null, start.x, start.y, start.z, SkillsRegistry.snd(snd), SoundSource.PLAYERS,
-                skill == Skill.FIRE_SUN ? 5.0f : 2.2f, pitch);
+        float radius = skill == Skill.FIRE_SUN ? SkillSounds.R_ULT_CHARGE : skill == Skill.FIRE_BULLETS ? SkillSounds.R_RAPID : SkillSounds.R_CAST;
+        float pitch = skill == Skill.FIRE_BULLETS ? 0.94f + p.getRandom().nextFloat() * 0.12f : 0.97f + p.getRandom().nextFloat() * 0.06f;
+        SkillSounds.play(level, start, snd, radius, pitch);
+    }
+
+    /** 예약 발동: 키를 뗀 순간의 방향으로 (그사이 크게 돌아섰으면 지금 방향) */
+    private static boolean castBuffered(ServerPlayer p, Buffered b) {
+        boolean turned = Math.abs(net.minecraft.util.Mth.wrapDegrees(b.yaw() - p.getYRot())) > 60f || Math.abs(b.pitch() - p.getXRot()) > 60f;
+        return turned ? cast(p, b.skill(), true) : cast(p, b.skill(), true, b.yaw(), b.pitch());
     }
 
     private static void tickBuffered(MinecraftServer server, long now) {
@@ -403,8 +478,12 @@ public final class SkillServer {
             }
             if (chargingSkill(p.getUUID()) != null || remainingTicks(p, b.skill()) > 0 || movingBlocks(p, b.skill())) continue;
             it.remove();
+            if (stunned(p)) { // 예약해 둔 사이 기절·얼림 → 예약도 막힘 (키 입력과 같은 규칙)
+                deny(p, b.skill());
+                continue;
+            }
             Element el = PlayerElements.get(p);
-            if (el != b.skill().element || !b.skill().enabled() || !cast(p, b.skill(), true)) deny(p, b.skill());
+            if (el != b.skill().element || !b.skill().enabled() || !castBuffered(p, b)) deny(p, b.skill());
         }
     }
 
@@ -436,9 +515,27 @@ public final class SkillServer {
 
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         UUID id = event.getEntity().getUUID();
+        // 도약·돌진·궁극기로 공중에 뜬 채 나감 → 다시 들어왔을 때 떨어져 죽지 않게 (나가기 전에 저장됨)
+        if (event.getEntity() instanceof ServerPlayer sp) {
+            for (ServerEffects.Effect e : EFFECTS) {
+                if (e.ownerId.equals(id) && e.controlsOwner()) {
+                    sp.fallDistance = 0;
+                    sp.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.SLOW_FALLING, 160, 0, false, false, true));
+                    break;
+                }
+            }
+        }
         LAST_REQUEST.remove(id);
         PENDING.removeIf(x -> x.player().equals(id));
         BUFFERED.remove(id);
+        // 쿨타임이 하나도 안 남았으면 기록을 지움 (긴 방송 동안 들락날락한 사람마다 쌓이지 않게)
+        long[] r = READY_AT.get(id);
+        if (r != null && event.getEntity() instanceof ServerPlayer sp2) {
+            long now = sp2.server.getTickCount();
+            boolean any = false;
+            for (long t : r) if (t > now) { any = true; break; }
+            if (!any) READY_AT.remove(id);
+        }
     }
 
     public static void clear() {
@@ -446,5 +543,7 @@ public final class SkillServer {
         PENDING.clear();
         BUFFERED.clear();
         EFFECTS.clear();
+        LAST_REQUEST.clear();
+        SkillTargets.clearHits();
     }
 }

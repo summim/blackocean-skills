@@ -43,7 +43,15 @@ import static com.blackocean.skills.client.fx.FxManager.spawn;
  * 색: 흰빛 → 청록 → 하늘 → 짙은 파랑.
  * 무거운 순간에는 땅이 뜯겨 나감 (DebrisFx: 물 구슬 적중, 감옥 파열, 해일 앞머리가 밀어내는 흙, 해룡 충돌 구덩이),
  * 끝난 뒤에도 물결 고리·떨어지는 물방울·젖은 자국이 남음.
- * <p>성능: 수류 분사의 레이캐스트는 틱에만 하고 프레임은 보간.</p>
+ * <pre>
+ * 단계 (기본 설정값, 틱 = 1/20초)
+ *  구슬   : 5틱, 손(서버 손 0.3)에 물 구 → 손에서 물 고리 → 1.8칸/틱 17틱 비행 → 물보라 고리가 피해 반지름 r 에서 멈춤 → 물결 2~3개
+ *  분사   : 4틱, 손에 소용돌이 → 손에서 2틱 만에 끝까지 뻗음 → 32틱 동안 실시간 조준(서버와 같은 계산) → 5틱 페이드
+ *  감옥   : 10틱 바닥 원 + 물벽(r×1.4 = 실제로 끌려 드는 원통) → 60틱 유지(테두리 실선) → 끝 틱 파열(고리가 r×1.4 에서 멈춤) → 24틱 물비
+ *  해일   : 8틱, 발 앞에 실제 폭(±r)의 물벽이 일어남 → 그 자리에서 출발, 0.9칸/틱 → 끝에서 부서짐 → 6틱
+ *  해룡   : 24틱 목표 원 + 발밑 물기둥 → 26틱 비행(꼭대기 포효) → 충돌(고리가 r 에서 멈춤) → 60틱 소용돌이(테두리 r, 10틱마다 조임) → 36틱 물비
+ * </pre>
+ * <p>성능: 수류 분사의 레이캐스트는 틱에만 하고 프레임은 보간. 띠·관·격자 배열은 정적 임시 배열을 다시 씀.</p>
  */
 final class WaterFx {
     private static final Element W = Element.WATER;
@@ -147,11 +155,35 @@ final class WaterFx {
     // 공통 도우미 (입자)
     // =====================================================================
 
-    /** 이번 프레임만 그리는 빛 */
+    /** 이번 프레임만 그리는 빛 (FxManager 의 풀 — 프레임마다 Sprite 를 만들지 않음) */
     private static void glow(Vec3 p, float size, float[] c, float a) {
-        Sprite s = new Sprite(Sprite.Kind.GLOW, p, Vec3.ZERO, size, size, 1).color(c[0], c[1], c[2], a);
-        s.size1 = s.size0;
-        FxManager.addFrameGlow(s);
+        FxManager.frameGlow(p, size, c[0], c[1], c[2], a);
+    }
+
+    /** 해일 폭의 절반 (서버 Wave: radius, 주변 사람 화면에서도 같은 서버 값) */
+    private static float waveHalf(FxManager.ChargeFx c) {
+        return Math.max(0.5f, com.blackocean.skills.client.ClientSkillStats.radius(c.skill));
+    }
+
+    /** 감옥이 끌어당기고 터질 때 맞히는 반지름 (서버 Prison: r × 1.4, 높이 4.5) */
+    static float prisonR(float r) {
+        return r * 1.4f;
+    }
+
+    // ---- 그리기 임시 배열 (프레임마다 새로 만들지 않음; 그리기는 한 스레드) ----
+    private static double[] sideBuf = new double[96], axBuf = new double[192], alongBuf = new double[32];
+
+    /** 띠·관 점과 폭·열기 (한 번에 한 도형만 씀: 채우고 → 바로 그림) */
+    private static final Vec3[] P32 = new Vec3[32];
+    private static final float[] F1 = new float[32], F2 = new float[32], F3 = new float[32], F4 = new float[32];
+    /** 해일 격자 (단면 PX 의 줄 수 = PX_ROWS) */
+    private static final int PX_ROWS = 9;
+    private static final Vec3[] GRID = new Vec3[PX_ROWS * 17];
+    private static final float[] GHEAT = new float[PX_ROWS * 17];
+
+    private static double[] sideBuf(int n) {
+        if (sideBuf.length < n) sideBuf = new double[n];
+        return sideBuf;
     }
 
     /** 짧게 번쩍이는 빛 */
@@ -247,7 +279,7 @@ final class WaterFx {
 
     /** 각 점의 옆 방향 (plane == null 이면 카메라를 향함, 아니면 그 평면 위). 결과: x,y,z × n, 길이 = 폭/2 */
     private static double[] sides(Vec3[] p, int n, float[] w, float wMul, @Nullable Vec3 plane) {
-        double[] s = new double[n * 3];
+        double[] s = sideBuf(n * 3);
         for (int i = 0; i < n; i++) {
             Vec3 a = p[Math.max(0, i - 1)], b = p[Math.min(n - 1, i + 1)];
             double tx = b.x - a.x, ty = b.y - a.y, tz = b.z - a.z;
@@ -320,8 +352,10 @@ final class WaterFx {
     private static void tube(BufferBuilder bb, Vec3[] p, int n, float[] r, float[] h, int around,
                              float twist, float vScale, float vOff, float wobble, float time) {
         if (n < 2) return;
-        double[] ax = new double[n * 6];
-        double[] along = new double[n];
+        if (axBuf.length < n * 6) axBuf = new double[n * 6];
+        if (alongBuf.length < n) alongBuf = new double[n];
+        double[] ax = axBuf, along = alongBuf;
+        along[0] = 0;
         Vec3 prevT = UP;
         Vec3 b0 = null;
         for (int i = 0; i < n; i++) {
@@ -374,8 +408,8 @@ final class WaterFx {
     /** 바닥에 눕힌 소용돌이 팔 (elemShader 용) */
     private static void spiralArms(BufferBuilder bb, Vec3 c, float rOut, float rIn, int arms, float turns, float width, float heat, float rot) {
         final int m = 16;
-        Vec3[] pts = new Vec3[m];
-        float[] w = new float[m], h = new float[m];
+        Vec3[] pts = P32;
+        float[] w = F1, h = F2;
         for (int k = 0; k < arms; k++) {
             for (int j = 0; j < m; j++) {
                 float f = j / (m - 1f);
@@ -463,6 +497,20 @@ final class WaterFx {
 
     static void trackProjectile(FxManager.ProjectileFx p, Vec3 pos) {
         Vec3 back = p.dir.scale(-1);
+        if (p.age == 1) {
+            // 발사: 구슬이 맺혔던 손(서버가 만든 자리)에서 비행 방향으로 물이 튀어 나감
+            Vec3 o = AimHand.spawnPoint(p);
+            flashGlow(o, 1.6f, 2.6f, 3, C_WHITE, 0.9f);
+            FxManager.addRing(o.add(p.dir.scale(0.3)), p.dir, 0.2f, 1.9f, 5, 0, 0.9f, W);
+            FxManager.addRing(o.add(p.dir.scale(0.9)), p.dir, 0.15f, 1.2f, 4, 1, 0.6f, W);
+            for (int i = 0, m = count(10); i < m; i++) {
+                Vec3 v = p.dir.scale(rand(0.3f, 0.7f)).add(randomDir().scale(0.14));
+                drop(o, v, rand(0.14f, 0.22f), 8 + RNG.nextInt(5), 0.04f);
+            }
+            for (int i = 0, m = count(3); i < m; i++) {
+                splash(o.add(p.dir.scale(0.3)), p.dir.scale(rand(0.1f, 0.2f)).add(randomDir().scale(0.05)), 0.6f, 1.3f, 5, 0f);
+            }
+        }
         for (int i = 0, m = count(3); i < m; i++) {
             drop(pos.add(randomDir().scale(0.45)), back.scale(0.08).add(randomDir().scale(0.04)),
                     rand(0.16f, 0.24f), 14 + RNG.nextInt(10), 0.03f);
@@ -513,14 +561,18 @@ final class WaterFx {
         Vec3 ringN = blockHit && Math.abs(n.y) < 0.5 ? n : UP;
 
         flashGlow(pos, 4.5f * big, 6f * big, 4, C_WHITE, 1f);
-        flashGlow(pos, R * 2.2f * big, R * 3.2f * big, 10, C_AZURE, 0.7f);
+        flashGlow(pos, R * 1.6f * big, R * 2.2f * big, 8, C_AZURE, 0.7f);
         Vec3 rc = pos.add(ringN.scale(0.08));
-        FxManager.addRing(rc, ringN, 0.4f, R * 2.6f * big, 11, 0, 1f, W);
         if (!fizzle) {
-            FxManager.addRing(rc, ringN, 0.3f, R * 1.6f, 8, 2, 0.8f, W);
-            FxManager.addRing(pos, n, 0.2f, R * 1.1f, 6, 1, 0.6f, W);
+            // 물보라 피해 반지름 R 에서 멈추는 고리 (범위가 그대로 읽힘) + 바깥으로 흩어지는 옅은 물결
+            FxManager.addRing(rc, ringN, 0.4f, R, 6, 0, 1f, W);
+            FxManager.addRing(rc, ringN, 0.3f, R * 0.7f, 6, 1, 0.8f, W);
+            FxManager.addRing(rc, ringN, R * 0.9f, R * 1.45f, 10, 3, 0.35f, W);
+        } else {
+            // 허공에서 다 날아감: 피해 없음 → 작고 옅게 흩어짐
+            FxManager.addRing(rc, ringN, 0.3f, 1.4f, 6, 0, 0.6f, W);
         }
-        add(new SplashFx(pos, ringN, R * 0.7f * big, 13));
+        add(new SplashFx(pos, ringN, R * 0.69f * big, 11));
         // 솟구치는 물보라 왕관
         crown(pos, n, 1.0f * big, fizzle ? 10 : 28);
         // 포물선을 그리며 떨어지는 물방울
@@ -698,13 +750,14 @@ final class WaterFx {
             if (fade <= 0f) return;
             Beam b = lerpBeam(prevBeam, curBeam, pt);
             if (b == null) return;
-            float ext = easeOutCubic(Math.min(1f, t / 3f));
+            // 서버는 첫 틱부터 물줄기 전체 길이를 판정 → 2틱 만에 끝까지 뻗음 (뻗는 모습은 보이되 늦지 않게)
+            float ext = easeOutCubic(Math.min(1f, t / 2f));
             Vec3 start = b.start(), dir = b.dir();
             double L = start.distanceTo(b.end()) * ext;
             if (L < 0.2) return;
             int n = Math.max(3, Math.min(26, (int) (L / 0.75) + 2));
-            Vec3[] pts = new Vec3[n];
-            float[] r = new float[n], h = new float[n], r2 = new float[n], h2 = new float[n];
+            Vec3[] pts = P32;
+            float[] r = F1, h = F2, r2 = F3, h2 = F4;
             Vec3[] bs = FxRender.basis(dir);
             for (int i = 0; i < n; i++) {
                 double s = L * i / (n - 1);
@@ -761,20 +814,22 @@ final class WaterFx {
     // =====================================================================
 
     private static final class PrisonFx extends Fx {
-        static final int AFTER = 36;
+        static final int AFTER = 24;
         final Vec3 center, core;
-        final float R, Rs;
+        /** R = 설정 반지름, P = 실제로 끌어당기고 터질 때 맞히는 반지름 (서버 r × 1.4) */
+        final float R, Rs, P;
         final int duration;
 
         PrisonFx(Vec3 center, float radius, int duration) {
             this.center = center;
             this.R = radius > 0.2f ? radius : 3.5f;
+            this.P = prisonR(R);
             this.Rs = R * 0.9f;
             this.core = center.add(0, 1.2, 0);
             this.duration = Math.max(10, duration);
-            // 생성: 바닥에서 물이 솟아 구를 이룸
+            // 생성: 바닥에서 물이 솟아 구를 이룸, 고리가 끌어당기는 범위 끝에서 멈춤
             flashGlow(core, 4f, 7f, 6, C_WHITE, 0.8f);
-            FxManager.addRing(center.add(0, 0.06, 0), UP, 0.5f, R * 2.4f, 12, 0, 0.9f, W);
+            FxManager.addRing(center.add(0, 0.06, 0), UP, 0.5f, P, 8, 0, 0.9f, W);
             crown(center.add(0, 0.2, 0), UP, 1.1f, 22);
             dropBurst(center.add(0, 0.3, 0), UP, 0.6f, 30, 0.24f);
             mistBurst(center.add(0, 0.5, 0), R * 0.5f, 6, 0.4f);
@@ -801,7 +856,7 @@ final class WaterFx {
                 for (int i = 0, m = count(4); i < m; i++) {
                     if (RNG.nextFloat() > lf) continue;
                     float ang = RNG.nextFloat() * TAU;
-                    float rr = R * 1.6f * (float) Math.sqrt(RNG.nextFloat());
+                    float rr = P * (float) Math.sqrt(RNG.nextFloat());
                     drop(center.add(Math.cos(ang) * rr, rand(4f, 7f), Math.sin(ang) * rr), new Vec3(0, -rand(0.2f, 0.4f), 0), rand(0.16f, 0.24f), 20, 0.04f);
                 }
                 return false;
@@ -814,7 +869,7 @@ final class WaterFx {
             // 바닥 소용돌이 가장자리에서 도는 물보라
             for (int i = 0, m = count(2); i < m; i++) {
                 float ang = RNG.nextFloat() * TAU;
-                Vec3 at = center.add(Math.cos(ang) * R * 1.2, 0.2, Math.sin(ang) * R * 1.2);
+                Vec3 at = center.add(Math.cos(ang) * P, 0.2, Math.sin(ang) * P);
                 Vec3 v = new Vec3(-Math.sin(ang), 0.05, Math.cos(ang)).scale(0.18).add(Math.cos(ang) * -0.05, 0, Math.sin(ang) * -0.05);
                 splash(at, v, 0.8f, 1.4f, 8, 0f);
             }
@@ -836,10 +891,12 @@ final class WaterFx {
         /** 서버가 터뜨리는 바로 그 틱 */
         private void burst() {
             flashGlow(core, 7f, 11f, 5, C_WHITE, 1f);
-            flashGlow(core, R * 3.5f, R * 5f, 12, C_AZURE, 0.7f);
-            FxManager.addRing(center.add(0, 0.07, 0), UP, R * 0.5f, R * 3.4f, 12, 0, 1f, W);
-            FxManager.addRing(center.add(0, 0.08, 0), UP, R * 0.3f, R * 2.2f, 9, 2, 0.8f, W);
-            FxManager.addRing(core, UP, R * 0.6f, R * 2.6f, 10, 1, 0.7f, W);
+            flashGlow(core, P * 2.2f, P * 3f, 10, C_AZURE, 0.7f);
+            // 피해 반지름 P 에서 멈추는 고리 + 바깥으로 옅게 흩어지는 물결
+            FxManager.addRing(center.add(0, 0.07, 0), UP, R * 0.5f, P, 7, 0, 1f, W);
+            FxManager.addRing(center.add(0, 0.08, 0), UP, R * 0.3f, P * 0.7f, 7, 2, 0.8f, W);
+            FxManager.addRing(center.add(0, 0.09, 0), UP, P * 0.9f, P * 1.4f, 10, 3, 0.35f, W);
+            FxManager.addRing(core, UP, R * 0.6f, P * 0.9f, 8, 1, 0.7f, W);
             add(new SplashFx(core, UP, Rs * 1.35f, 14));
             // 사방으로 터지는 물보라
             for (int i = 0, m = count(40); i < m; i++) {
@@ -855,7 +912,7 @@ final class WaterFx {
             SkillFx.addPillar(center, R * 0.45f, 7f, 9, false, W);
             DebrisFx.burst(center, R * 0.7f, 16, 0.9f);
             DebrisFx.crater(center, R * 0.8f, 140, W);
-            ripples(center, R * 2.2f, 3, 6);
+            ripples(center, P * 1.3f, 2, 6);
             flashNear(center, 0x7FD0FF, 0.22f, 8, R + 8f);
         }
 
@@ -884,16 +941,18 @@ final class WaterFx {
             float rp = (t % 10f) / 10f;
             FxRender.ring(bb, core, UP, rs * (0.95f + 0.35f * rp), rs * (1.0f + 0.45f * rp), 0.6f * (1f - rp) * form, time * 0.2f, 48);
             Vec3 g = center.add(0, 0.05, 0);
-            FxRender.ring(bb, g, UP, R * 0.3f, R * 1.3f, 0.55f * form, -time * 0.35f, 56);
-            spiralArms(bb, g.add(0, 0.01, 0), R * 1.35f, R * 0.15f, 3, 0.8f, 0.9f, 0.75f * form, -time * 0.18f);
+            FxRender.ring(bb, g, UP, R * 0.3f, P * 0.92f, 0.55f * form, -time * 0.35f, 56);
+            spiralArms(bb, g.add(0, 0.01, 0), P * 0.97f, R * 0.15f, 3, 0.8f, 0.9f, 0.75f * form, -time * 0.18f);
+            // 경계: 이 원 안이면 끌려 들어감 (터지기 직전 밝아짐)
+            FxRender.ring(bb, g.add(0, 0.015, 0), UP, P - 0.2f, P + 0.05f, (0.7f + 0.3f * pre) * form, time * 0.25f, 64);
             FxRender.draw(bb);
 
             // 안쪽 나선 물줄기 3가닥
             FxRender.elemShader(W, 2.6f, 0.15f, 1.0f);
             bb = FxRender.quads();
             final int m = 18;
-            Vec3[] pts = new Vec3[m];
-            float[] w = new float[m], h = new float[m];
+            Vec3[] pts = P32;
+            float[] w = F1, h = F2;
             for (int k = 0; k < 3; k++) {
                 for (int j = 0; j < m; j++) {
                     float s = j / (m - 1f);
@@ -936,9 +995,9 @@ final class WaterFx {
             this.W2 = halfWidth > 0.3f ? halfWidth : 4f;
             this.range = range > 0.5f ? range : 16f;
             this.duration = Math.max(4, duration);
-            // 시작: 발밑에서 물이 터져 오름
-            FxManager.addRing(start.add(0, 0.06, 0), UP, 0.5f, W2 * 1.6f, 10, 0, 0.9f, W);
-            crown(start.add(dir.scale(1.0)).add(0, 0.2, 0), UP, 1.0f, 14);
+            // 시작: 준비 때 일어났던 물벽 자리에서 터져 오름 (고리 = 파도 폭)
+            FxManager.addRing(start.add(0, 0.06, 0), UP, 0.5f, W2, 6, 0, 0.9f, W);
+            crown(start.add(dir.scale(0.8)).add(0, 0.2, 0), UP.add(dir.scale(0.6)).normalize(), 1.0f, 14);
             dropBurst(start.add(0, 0.3, 0), UP, 0.5f, 20, 0.22f);
             shake(start, 1.4f, 12f);
         }
@@ -1047,9 +1106,9 @@ final class WaterFx {
             float traveled = range * Math.min(1f, t / duration);
             Vec3 fr = front(t).add(0, 0.05, 0);
 
-            final int cols = 16, rows = PX.length;
-            Vec3[] grid = new Vec3[rows * (cols + 1)];
-            float[] heat = new float[rows * (cols + 1)];
+            final int cols = 16, rows = PX_ROWS;
+            Vec3[] grid = GRID;
+            float[] heat = GHEAT;
             for (int c = 0; c <= cols; c++) {
                 float x = -W2 + 2f * W2 * c / cols;
                 float tp = taper(x);
@@ -1089,31 +1148,31 @@ final class WaterFx {
             // 마루의 흰 물거품 띠 + 말린 끝 띠
             FxRender.elemShader(W, 3.0f, Math.min(1f, 0.3f + erosion), 1.2f * fade);
             bb = FxRender.quads();
-            Vec3[] crest = new Vec3[cols + 1], lip = new Vec3[cols + 1];
-            float[] wc = new float[cols + 1], hc = new float[cols + 1], wl = new float[cols + 1], hl = new float[cols + 1];
+            Vec3[] line = P32;
+            float[] lw = F1, lh = F2;
             for (int c = 0; c <= cols; c++) {
-                float x = -W2 + 2f * W2 * c / cols;
-                float tp = taper(x);
-                crest[c] = grid[CREST * (cols + 1) + c].add(0, 0.12, 0);
-                lip[c] = grid[(rows - 1) * (cols + 1) + c];
-                wc[c] = 0.9f * tp;
-                hc[c] = tp;
-                wl[c] = 0.5f * tp;
-                hl[c] = 0.8f * tp;
+                float tp = taper(-W2 + 2f * W2 * c / cols);
+                line[c] = grid[CREST * (cols + 1) + c].add(0, 0.12, 0);
+                lw[c] = 0.9f * tp;
+                lh[c] = tp;
             }
-            strip(bb, crest, cols + 1, wc, hc, 0.15f, -time * 0.2f, null);
-            strip(bb, lip, cols + 1, wl, hl, 0.2f, time * 0.15f, null);
+            strip(bb, line, cols + 1, lw, lh, 0.15f, -time * 0.2f, null);
+            for (int c = 0; c <= cols; c++) {
+                float tp = taper(-W2 + 2f * W2 * c / cols);
+                line[c] = grid[(rows - 1) * (cols + 1) + c];
+                lw[c] = 0.5f * tp;
+                lh[c] = 0.8f * tp;
+            }
+            strip(bb, line, cols + 1, lw, lh, 0.2f, time * 0.15f, null);
             // 앞면 아래쪽에서 부글거리는 흰 거품 띠
-            Vec3[] foam = new Vec3[cols + 1];
-            float[] wf = new float[cols + 1], hf = new float[cols + 1];
             for (int c = 0; c <= cols; c++) {
                 float x = -W2 + 2f * W2 * c / cols;
                 float tp = taper(x);
-                foam[c] = grid[3 * (cols + 1) + c].add(dir.scale(0.25)).add(0, 0.1 + 0.08 * Math.sin(x * 2.1f + time * 0.9f), 0);
-                wf[c] = 1.1f * tp;
-                hf[c] = 0.75f * tp;
+                line[c] = grid[3 * (cols + 1) + c].add(dir.scale(0.25)).add(0, 0.1 + 0.08 * Math.sin(x * 2.1f + time * 0.9f), 0);
+                lw[c] = 1.1f * tp;
+                lh[c] = 0.75f * tp;
             }
-            strip(bb, foam, cols + 1, wf, hf, 0.3f, -time * 0.35f, null);
+            strip(bb, line, cols + 1, lw, lh, 0.3f, -time * 0.35f, null);
             FxRender.draw(bb);
 
             glow(fr.add(0, 2.0 * hs, 0), W2 * 2.6f, C_AZURE, 0.18f * fade);
@@ -1126,7 +1185,7 @@ final class WaterFx {
 
     private static final class DragonFx extends Fx {
         static final int SEGS = 28;
-        static final int RAIN = 50;
+        static final int RAIN = 36;
         static final float LAG = 0.45f;
         static final float RISE = 0.55f;
         final Vec3 S, T, A;
@@ -1248,10 +1307,11 @@ final class WaterFx {
             SkillFx.addPillar(T, 2.5f, 14f, 10, false, W);
             flashGlow(T.add(0, 1.5, 0), 14f, 22f, 7, C_WHITE, 1f);
             flashGlow(T.add(0, 3, 0), R * 4f, R * 6f, 16, C_AZURE, 0.8f);
-            FxManager.addRing(c, UP, 1f, R * 3.2f, 16, 0, 1f, W);
-            FxManager.addRing(c, UP, 0.6f, R * 2.2f, 12, 2, 0.9f, W);
-            FxManager.addRing(c.add(0, 0.02, 0), UP, 0.5f, R * 1.4f, 10, 4, 0.8f, W);
-            FxManager.addRing(T.add(0, 3, 0), UP, 0.8f, R * 2.0f, 12, 1, 0.6f, W);
+            // 피해 반지름 R 에서 멈추는 충격파 + 바깥으로 흩어지는 옅은 고리 (궁극기다운 크기는 높이·섬광·흔들림으로)
+            FxManager.addRing(c, UP, 1f, R, 8, 0, 1f, W);
+            FxManager.addRing(c, UP, 0.6f, R * 0.7f, 8, 2, 0.9f, W);
+            FxManager.addRing(c.add(0, 0.02, 0), UP, R * 0.9f, R * 1.6f, 14, 3, 0.45f, W);
+            FxManager.addRing(T.add(0, 3, 0), UP, 0.8f, R * 1.1f, 10, 1, 0.6f, W);
             for (int k = 0; k < 3; k++) {
                 crown(T.add(0, 0.3, 0), UP, 2.0f + k * 0.6f, 18);
             }
@@ -1267,7 +1327,7 @@ final class WaterFx {
             DebrisFx.burst(T, R, 48, 1.5f);
             DebrisFx.crater(T, R * 1.15f, whirl + 220, W);
             add(new TsunamiRingFx(T, R));
-            ripples(T, R * 2.6f, 3, 14);
+            ripples(T, R * 1.3f, 2, 14);
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
                 double d = mc.player.position().distanceTo(T);
@@ -1295,7 +1355,8 @@ final class WaterFx {
                 float ang = RNG.nextFloat() * TAU;
                 mist(T.add(Math.cos(ang) * R * 0.8, 0.4, Math.sin(ang) * R * 0.8), new Vec3(0, 0.02, 0), 1.6f, 3.6f, 24, 0.35f);
             }
-            if ((age - flight) % 10 == 0) FxManager.addRing(T.add(0, 0.07, 0), UP, R * 1.4f, R * 0.2f, 14, 0, 0.6f, W);
+            // 서버가 끌어당기는 바로 그 틱마다 테두리에서 안으로 조여드는 고리
+            if ((age - flight) % 10 == 0) FxManager.addRing(T.add(0, 0.07, 0), UP, R, R * 0.2f, 10, 0, 0.6f, W);
         }
 
         float segRadius(int i) {
@@ -1311,8 +1372,8 @@ final class WaterFx {
         }
 
         private void renderBody(float t, float time) {
-            Vec3[] pts = new Vec3[SEGS];
-            float[] r = new float[SEGS], h = new float[SEGS], w = new float[SEGS], h2 = new float[SEGS];
+            Vec3[] pts = P32;
+            float[] r = F1, h = F2, w = F3, h2 = F4;
             float appear = 0.4f + 0.6f * clamp01(t / 4f);
             for (int i = 0; i < SEGS; i++) {
                 pts[i] = path(t - i * LAG);
@@ -1394,9 +1455,10 @@ final class WaterFx {
             // 바닥에서 도는 소용돌이 고리 + 나선 팔
             FxRender.elemShader(W, 1.8f, 0.12f + 0.5f * (1f - env), 1.05f * env);
             BufferBuilder bb = FxRender.quads();
-            FxRender.ring(bb, c, UP, R * 0.15f, R * 1.2f, 0.75f, -time * 0.45f, 64);
-            FxRender.ring(bb, c.add(0, 0.01, 0), UP, R * 0.95f, R * 1.55f, 0.45f, time * 0.3f, 64);
-            spiralArms(bb, c.add(0, 0.02, 0), R * 1.45f, R * 0.12f, 4, 0.9f, 1.3f, 0.9f, -time * 0.22f);
+            // 소용돌이 = 서버가 0.5초마다 끌어당기고 피해를 주는 반지름 R (테두리 실선)
+            FxRender.ring(bb, c, UP, R * 0.15f, R * 0.95f, 0.75f, -time * 0.45f, 64);
+            FxRender.ring(bb, c.add(0, 0.01, 0), UP, R - 0.25f, R + 0.05f, 0.85f, time * 0.3f, 64);
+            spiralArms(bb, c.add(0, 0.02, 0), R * 0.98f, R * 0.12f, 4, 0.9f, 1.3f, 0.9f, -time * 0.22f);
             FxRender.draw(bb);
             // 가운데 솟는 물기둥
             FxRender.elemShader(W, 2.6f, 0.25f + 0.5f * (1f - env), 0.9f * env);
@@ -1405,8 +1467,8 @@ final class WaterFx {
             FxRender.elemShader(W, 3f, 0.15f, 1.1f * env);
             bb = FxRender.quads();
             final int m = 16;
-            Vec3[] pts = new Vec3[m];
-            float[] w = new float[m], h = new float[m];
+            Vec3[] pts = P32;
+            float[] w = F1, h = F2;
             for (int k = 0; k < 3; k++) {
                 for (int j = 0; j < m; j++) {
                     float s = j / (m - 1f);
@@ -1450,8 +1512,9 @@ final class WaterFx {
             return age > LIFE;
         }
 
+        /** 충돌 피해 반지름 R 까지 빠르게 밀려가 조금 넘어선 뒤 무너짐 (경계가 읽힘) */
         float radius(float t) {
-            return R * (0.3f + 1.6f * easeOutCubic(clamp01(t / LIFE)));
+            return R * (0.3f + 0.85f * easeOutCubic(clamp01(t / (LIFE * 0.6f))));
         }
 
         float height(float t) {
@@ -1489,11 +1552,12 @@ final class WaterFx {
     static void tickCharge(FxManager.ChargeFx c, float k) {
         Entity e = c.caster;
         switch (c.skill) {
-            case WATER_BULLET -> gather(c.handPos(1f, 0.38), 3, 1.6f);
+            case WATER_BULLET -> gather(AimHand.hand(c, 1f, AimHand.SIDE), 3, 1.6f);
             case WATER_JET -> {
-                Vec3 hand = c.handPos(1f, 0.38);
+                // 물줄기가 나갈 손(서버 Jet 과 같은 자리) + 고정된 시전 방향
+                Vec3 hand = AimHand.hand(c, 1f, AimHand.SIDE);
                 gather(hand, 3, 1.4f);
-                Vec3 look = e.getViewVector(1f);
+                Vec3 look = c.aimDir();
                 Vec3[] b = FxRender.basis(look);
                 for (int j = 0; j < 2; j++) {
                     if (RNG.nextFloat() > FxManager.amount() * FxManager.lod) continue;
@@ -1505,30 +1569,34 @@ final class WaterFx {
             }
             case WATER_PRISON -> {
                 FxManager.lod = FxManager.lodAt(c.target);
-                float r = c.size;
+                float r = prisonR(c.size);
                 for (int i = 0, m = count(3 + (int) (6 * k)); i < m; i++) {
                     float ang = RNG.nextFloat() * TAU;
                     float rr = r * (float) Math.sqrt(RNG.nextFloat());
                     drop(c.target.add(Math.cos(ang) * rr, 0.1, Math.sin(ang) * rr), new Vec3(0, rand(0.06f, 0.15f) * (0.5f + k), 0),
                             rand(0.14f, 0.22f), 10 + RNG.nextInt(10), -0.003f);
                 }
-                for (int i = 0, m = count(1 + (int) (2 * k)); i < m; i++) {
+                // 테두리에서 솟는 물 (경계가 어디인지)
+                for (int i = 0, m = count(1 + (int) (3 * k)); i < m; i++) {
                     float ang = RNG.nextFloat() * TAU;
                     splash(c.target.add(Math.cos(ang) * r, 0.3, Math.sin(ang) * r), new Vec3(0, 0.06, 0), 0.6f + 0.5f * k, 0.3f, 7, 0f);
                 }
-                gather(c.handPos(1f, 0.38), 2, 1.4f);
+                gather(AimHand.hand(c, 1f, AimHand.SIDE), 2, 1.4f);
             }
             case WATER_WAVE -> {
+                // 발밑 앞에서 파도 벽이 일어남 (폭 = 실제 폭, 방향 = 고정된 시전 방향) → 해일이 바로 그 자리에서 출발
                 Vec3 feet = e.position();
-                for (int i = 0, m = count(4 + (int) (4 * k)); i < m; i++) {
-                    float ang = RNG.nextFloat() * TAU;
-                    float rr = rand(0.4f, 1.4f);
-                    drop(feet.add(Math.cos(ang) * rr, 0.1, Math.sin(ang) * rr), new Vec3(0, rand(0.12f, 0.25f), 0), rand(0.16f, 0.24f), 10, 0.02f);
+                Vec3 fwd = c.flatDir(), side = new Vec3(-fwd.z, 0, fwd.x);
+                float hw = waveHalf(c);
+                for (int i = 0, m = count(4 + (int) (5 * k)); i < m; i++) {
+                    float x = rand(-hw, hw);
+                    drop(feet.add(side.scale(x)).add(fwd.scale(rand(0.2f, 1.2f))).add(0, 0.1, 0),
+                            new Vec3(0, rand(0.12f, 0.25f), 0).add(fwd.scale(0.04)), rand(0.16f, 0.24f), 10, 0.02f);
                 }
-                for (int i = 0, m = count(2); i < m; i++) {
-                    float ang = RNG.nextFloat() * TAU;
-                    float rr = 0.5f + 1.2f * k;
-                    splash(feet.add(Math.cos(ang) * rr, 0.25, Math.sin(ang) * rr), new Vec3(0, 0.08, 0), 0.8f + 0.4f * k, 0.4f, 7, 0f);
+                for (int i = 0, m = count(2 + (int) (2 * k)); i < m; i++) {
+                    float x = rand(-hw, hw);
+                    splash(feet.add(side.scale(x)).add(fwd.scale(0.6)).add(0, 0.25, 0), new Vec3(0, 0.08, 0).add(fwd.scale(0.03)),
+                            0.8f + 0.5f * k, 0.4f, 7, 0f);
                 }
             }
             case WATER_DRAGON -> {
@@ -1570,8 +1638,8 @@ final class WaterFx {
         if (e.isRemoved()) return;
         switch (c.skill) {
             case WATER_BULLET -> {
-                Vec3 hand = c.handPos(pt, 0.38);
-                Vec3 look = e.getViewVector(pt);
+                Vec3 hand = AimHand.hand(c, pt, AimHand.SIDE);
+                Vec3 look = c.aimDir();
                 float s = fpScale(e) * (0.45f + 0.55f * easeOutCubic(k * 1.4f));
                 RenderSystem.disableCull();
                 FxRender.elemShader(W, 2f, 0f, 1.05f);
@@ -1591,8 +1659,8 @@ final class WaterFx {
                 glow(hand, (0.8f + 1.4f * k) * s, C_AZURE, 0.4f + 0.3f * k);
             }
             case WATER_JET -> {
-                Vec3 hand = c.handPos(pt, 0.38);
-                Vec3 look = e.getViewVector(pt);
+                Vec3 hand = AimHand.hand(c, pt, AimHand.SIDE);
+                Vec3 look = c.aimDir();
                 float s = fpScale(e) * (0.5f + 0.5f * k);
                 RenderSystem.disableCull();
                 FxRender.elemShader(W, 2.6f, 0.08f, 1.0f + 0.3f * k);
@@ -1601,8 +1669,8 @@ final class WaterFx {
                 FxRender.ring(bb, hand.subtract(look.scale(0.2)), look, 0.55f * s, 0.66f * s, 0.7f, -time * 0.7f, 32);
                 // 손으로 감겨 드는 물줄기 2가닥
                 final int m = 12;
-                Vec3[] pts = new Vec3[m];
-                float[] w = new float[m], h = new float[m];
+                Vec3[] pts = P32;
+                float[] w = F1, h = F2;
                 Vec3[] b = FxRender.basis(look);
                 for (int strand = 0; strand < 2; strand++) {
                     for (int j = 0; j < m; j++) {
@@ -1620,22 +1688,44 @@ final class WaterFx {
                 glow(hand, 0.4f * s, C_WHITE, 0.7f);
             }
             case WATER_PRISON -> {
-                groundCircle(c.target, c.size, k, time);
+                // 실제로 끌려 들어가는 원통(반지름 r × 1.4) 그대로: 바닥 원 + 차오르는 물벽
+                float pr = prisonR(c.size);
+                groundCircle(c.target, pr, k, time);
                 FxRender.elemShader(W, 1.2f, 0.55f - 0.25f * k, 0.5f + 0.4f * k);
                 RenderSystem.disableCull();
-                SkillFx.column(c.target, c.size, c.size * 0.97f, 0.3f + 2.7f * k, 0.6f, 0.15f, 0f, 0.05f, time);
-                glow(c.handPos(pt, 0.38), (0.6f + 0.8f * k) * fpScale(e), C_AZURE, 0.35f + 0.3f * k);
+                SkillFx.column(c.target, pr, pr * 0.98f, 0.3f + 2.2f * k, 0.55f, 0.15f, 0f, 0.04f, time);
+                glow(AimHand.hand(c, pt, AimHand.SIDE), (0.6f + 0.8f * k) * fpScale(e), C_AZURE, 0.35f + 0.3f * k);
             }
             case WATER_WAVE -> {
                 Vec3 feet = e.getPosition(pt);
+                Vec3 fwd = c.flatDir(), side = new Vec3(-fwd.z, 0, fwd.x);
+                float hw = waveHalf(c);
+                float ek = easeOutCubic(k);
                 RenderSystem.disableCull();
-                FxRender.elemShader(W, 1.8f, 0.3f - 0.2f * k, 0.6f + 0.5f * k);
-                SkillFx.column(feet, 0.8f + 0.5f * k, 0.5f + 0.3f * k, 0.3f + 1.6f * k, 0.7f, 0.4f, 0f, 0.08f, time);
-                FxRender.elemShader(W, 1.5f, 0.1f, 0.9f);
+                // 발 주위 소용돌이 (작게)
+                FxRender.elemShader(W, 1.8f, 0.3f - 0.2f * k, 0.6f + 0.4f * k);
+                SkillFx.column(feet, 0.7f + 0.3f * k, 0.45f + 0.2f * k, 0.3f + 0.9f * k, 0.6f, 0.4f, 0f, 0.08f, time);
+                // 앞쪽에 일어나는 낮은 물벽: 서버 해일과 같은 폭(±hw)·방향, 모일수록 높아짐
+                FxRender.elemShader(W, 2.2f, 0.25f - 0.2f * k, 0.8f + 0.4f * k);
                 BufferBuilder bb = FxRender.quads();
-                FxRender.ring(bb, feet.add(0, 0.05, 0), UP, 0.3f + 1.2f * k, 0.8f + 1.6f * k, 0.5f + 0.4f * k, -time * 0.4f, 48);
+                final int cols = 14;
+                float wallH = 0.3f + 1.5f * ek;
+                for (int i = 0; i <= cols; i++) {
+                    float x = -hw + 2f * hw * i / cols;
+                    float e2 = Math.abs(x / hw);
+                    float tp = 0.25f + 0.75f * (float) Math.sqrt(Math.max(0.0, 1.0 - e2 * e2 * e2 * e2));
+                    float hh = wallH * tp * (1f + 0.08f * (float) Math.sin(x * 1.3f + time * 0.6f));
+                    P32[i] = feet.add(side.scale(x)).add(fwd.scale(0.7 + 0.25 * Math.sin(x * 0.7f))).add(0, hh * 0.5 + 0.05, 0);
+                    F1[i] = hh;
+                    F2[i] = (0.45f + 0.55f * k) * tp;
+                }
+                strip(bb, P32, cols + 1, F1, F2, 0.2f, -time * 0.2f, fwd);
+                // 바닥 테두리: 폭 끝 두 점과 앞줄
+                FxRender.ring(bb, feet.add(0, 0.05, 0), UP, 0.3f + 0.6f * k, 0.6f + 0.9f * k, 0.5f + 0.4f * k, -time * 0.4f, 40);
                 FxRender.draw(bb);
-                glow(feet.add(0, 0.8, 0), 2.5f + 2f * k, C_AZURE, 0.25f + 0.25f * k);
+                glow(feet.add(fwd.scale(0.8)).add(0, 0.8, 0), 2.2f + 2f * k, C_AZURE, 0.25f + 0.25f * k);
+                glow(feet.add(side.scale(hw)).add(fwd.scale(0.7)).add(0, 0.3, 0), 1.0f, C_WHITE, 0.5f * k);
+                glow(feet.subtract(side.scale(hw)).add(fwd.scale(0.7)).add(0, 0.3, 0), 1.0f, C_WHITE, 0.5f * k);
             }
             case WATER_DRAGON -> {
                 groundCircle(c.target, c.size, k, time);

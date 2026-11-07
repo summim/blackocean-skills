@@ -157,30 +157,76 @@ final class SkillFx {
     // 3. 불기둥
     // =====================================================================
 
-    /** 준비 중 경고 원 (ChargeFx 가 매 프레임 부름). k = 0→1 준비 진행도 */
-    static void renderPillarWarn(Vec3 base, float radius, float k, float time) {
-        float pulse = 0.75f + 0.25f * (float) Math.sin(time * (1.2f + 2.5f * k));
-        Vec3 c = base.add(0, 0.04, 0);
-
-        // 바닥에 깔리는 빛 링 + 가운데 번짐
-        FxRender.spriteShader(FxRender.SHOCK_RING);
+    /**
+     * 바닥 예고 원 (온라인 RPG 식). 다른 사람이 봐도 "곧 여기 떨어진다"가 읽히게.
+     * <ul>
+     *   <li>또렷한 바깥 테두리 = 실제 판정 범위 (반지름 R 에서 끝남)</li>
+     *   <li>가운데에서 바깥으로 차오르는 원판 = 남은 시간. 다 차는 순간 공격이 떨어진다</li>
+     * </ul>
+     * 더하기 섞기 단계에서 부를 것. 색은 0~1 (알파를 곱하지 않은 값).
+     * @param fill 0 → 1 (1 = 지금 떨어짐)
+     */
+    static void telegraph(Vec3 base, float R, float fill, float cr, float cg, float cb, float alpha, float time) {
+        if (R <= 0.05f || alpha <= 0.01f) return;
+        fill = clamp01(fill);
+        Vec3 c = base.add(0, 0.05, 0);
+        float w = Math.max(0.14f, Math.min(0.4f, 0.1f + R * 0.025f));
+        int seg = R > 6 ? 80 : 48;
+        float pulse = 0.85f + 0.15f * (float) Math.sin(time * (1.4f + 3.5f * fill));
+        // 다 찰수록 하얗게 달아오름
+        float wh = fill * fill * 0.6f;
+        float er = cr + (1f - cr) * wh, eg = cg + (1f - cg) * wh, eb = cb + (1f - cb) * wh;
+        FxRender.spriteShader(FxRender.BEAM);
         RenderSystem.disableCull();
         BufferBuilder bb = FxRender.quads();
-        float a = (0.35f + 0.65f * k) * pulse;
-        FxRender.planeQuad(bb, c, UP, radius * 1.08f, time * 0.05f, a, a * 0.45f, a * 0.12f, a);
-        FxRender.planeQuad(bb, c.add(0, 0.01, 0), UP, radius * (0.55f + 0.4f * k), -time * 0.08f, a * 0.6f, a * 0.25f, a * 0.06f, a);
+        // 범위 전체에 옅게 깔린 원판
+        float a0 = 0.07f * alpha;
+        FxRender.band(bb, c, UP, 0f, R, cr * a0, cg * a0, cb * a0, a0, seg, true);
+        // 차오르는 원판 + 그 앞머리 선
+        if (fill > 0.01f) {
+            float a1 = (0.1f + 0.14f * fill) * alpha;
+            float rf = R * fill;
+            FxRender.band(bb, c.add(0, 0.005, 0), UP, 0f, rf, cr * a1, cg * a1, cb * a1, a1, seg, true);
+            if (fill < 0.985f) {
+                float a2 = (0.35f + 0.35f * fill) * alpha;
+                FxRender.band(bb, c.add(0, 0.01, 0), UP, rf - w * 0.9f, rf, er * a2, eg * a2, eb * a2, a2, seg, false);
+            }
+        }
+        // 바깥 테두리 (= 판정 끝)
+        float a3 = (0.75f + 0.25f * fill) * pulse * alpha;
+        FxRender.band(bb, c.add(0, 0.015, 0), UP, R - w, R + w * 0.25f, er * a3, eg * a3, eb * a3, a3, seg, false);
         FxRender.draw(bb);
+    }
 
+    /** 범위 끝을 한순간 또렷하게 번쩍 (터지는 순간 "여기까지 맞았다"가 읽히게). t = 터지고 지난 틱 */
+    static void edgeFlash(Vec3 c, Vec3 n, float R, float t, float life, float cr, float cg, float cb) {
+        if (t < 0f || t > life) return;
+        float k = t < 1.5f ? t / 1.5f : 1f - (t - 1.5f) / Math.max(0.5f, life - 1.5f);
+        if (k <= 0.01f) return;
+        float w = Math.max(0.14f, Math.min(0.45f, 0.12f + R * 0.03f));
+        FxRender.spriteShader(FxRender.BEAM);
+        RenderSystem.disableCull();
+        BufferBuilder bb = FxRender.quads();
+        FxRender.band(bb, c, n, R - w, R + w * 0.3f, cr * k, cg * k, cb * k, k, R > 6 ? 80 : 48, false);
+        FxRender.draw(bb);
+    }
+
+    /** 준비 중 경고 원 (ChargeFx 가 매 프레임 부름). k = 0→1 준비 진행도 */
+    static void renderPillarWarn(Vec3 base, float radius, float k, float time) {
+        Vec3 c = base.add(0, 0.04, 0);
+        telegraph(base, radius, k, 1f, 0.45f, 0.12f, 1f, time);
+
+        // 가운데 열기 번짐 (범위 안쪽에만)
         FxRender.spriteShader(FxRender.GLOW);
-        bb = FxRender.quads();
-        float g = 0.25f + 0.55f * k * k;
-        FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, radius * 1.3f, 0f, g, g * 0.4f, g * 0.1f, g);
+        BufferBuilder bb = FxRender.quads();
+        float g = 0.2f + 0.45f * k * k;
+        FxRender.planeQuad(bb, c.add(0, 0.02, 0), UP, radius * 1.0f, 0f, g, g * 0.4f, g * 0.1f, g);
         FxRender.draw(bb);
 
-        // 바닥에서 타오르기 시작하는 불꽃 고리 (점점 굵어짐)
-        FxRender.fireShader(1.6f, 0.35f - 0.3f * k, 0.8f + 0.4f * k);
+        // 테두리를 따라 타오르기 시작하는 불꽃 고리 (점점 굵어짐, 범위 안쪽)
+        FxRender.fireShader(1.6f, 0.35f - 0.3f * k, 0.7f + 0.4f * k);
         bb = FxRender.quads();
-        FxRender.ring(bb, c.add(0, 0.03, 0), UP, radius * (0.9f - 0.15f * k), radius * 1.05f, 0.5f + 0.5f * k, time * 0.3f, 56);
+        FxRender.ring(bb, c.add(0, 0.03, 0), UP, radius * (0.82f - 0.15f * k), radius * 0.98f, 0.4f + 0.5f * k, time * 0.3f, 56);
         FxRender.draw(bb);
 
         // 끝 무렵 가운데에서 짧게 솟는 작은 불길 (곧 터진다는 신호)
@@ -264,7 +310,7 @@ final class SkillFx {
             this.h = h;
             this.duration = Math.max(4, duration);
             this.minor = minor;
-            this.after = minor ? 0 : 40;
+            this.after = minor ? 0 : 24;
             FxManager.lod = FxManager.lodAt(base);
             float s = minor ? 0.5f : 1f;
             float[] tc = FxRender.tintRef(el);
@@ -272,19 +318,20 @@ final class SkillFx {
             spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, 1.0, 0), Vec3.ZERO, 8f * s, 11f * s, 6).color(1f, 0.9f, 0.7f, 1f));
             spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, h * 0.5, 0), Vec3.ZERO, h * 0.9f, h * 1.1f, 10).color(tc[0], tc[1], tc[2], 0.7f));
             Vec3 rc = base.add(0, 0.06, 0);
-            FxManager.addRing(rc, UP, r * 0.5f, r * (minor ? 2.4f : 3.6f), 10, 0, 1f, el);
-            if (!minor) {
-                // 흰빛 핵 섬광 + 흰 충격파 + 꼭대기에서 퍼지는 고리
+            if (minor) {
+                FxManager.addRing(rc, UP, r * 0.5f, r * 2.4f, 9, 0, 1f, el);
+            } else {
+                // 흰빛 핵 섬광 + 흰 충격파(판정 끝을 살짝 넘음) + 판정 끝 고리 + 꼭대기에서 퍼지는 고리
                 spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, 0.6, 0), Vec3.ZERO, 3f, 12f, 3).color(1f, 1f, 1f, 1f));
-                FxManager.addRing(rc, UP, r * 0.3f, r * 4.6f, 6, 0, 0.85f, 1f, 0.94f, 0.8f);
-                FxManager.addRing(rc, UP, r * 0.3f, r * 2.2f, 8, 2, 0.8f, el);
-                FxManager.addRing(base.add(0, h * 0.95, 0), UP, r * 0.6f, r * 3.2f, 12, 3, 0.6f, el);
-                FxManager.addRing(rc.add(0, 0.02, 0), UP, r * 1.5f, r * 6f, 20, 5, 0.3f, el);
+                FxManager.addRing(rc, UP, r * 0.3f, r * 1.3f, 5, 0, 0.85f, 1f, 0.94f, 0.8f);
+                FxManager.addRing(rc, UP, r * 0.4f, r, 8, 0, 1f, el);
+                FxManager.addRing(rc, UP, r * 0.2f, r * 0.65f, 7, 2, 0.8f, el);
+                FxManager.addRing(base.add(0, h * 0.95, 0), UP, r * 0.6f, r * 2.2f, 10, 3, 0.6f, el);
                 if (quake) {
-                    DebrisFx.burst(base, UP, r * 1.2f, 30, 1.15f, el);
-                    DebrisFx.crater(base, r * 1.8f, 260, el);
+                    DebrisFx.burst(base, UP, r * 0.9f, 30, 1.15f, el);
+                    DebrisFx.crater(base, r * 1.1f, 160, el);
                 } else if (el == com.blackocean.skills.Element.FIRE) {
-                    addDecal(base, UP, r * 1.7f, 180); // 다른 능력은 각자 자국을 남김
+                    addDecal(base, UP, r * 1.2f, 140); // 다른 능력은 각자 자국을 남김
                 }
             }
             // 위로 터져 오르는 불꽃 줄기
@@ -393,10 +440,10 @@ final class SkillFx {
                     RenderSystem.disableCull();
                     column(base, r * 0.55f * (0.6f + 0.4f * k), r * 0.25f, hh * 1.15f, 1f, 0.5f, 0.6f, 0.05f, time);
                 }
-                // 바깥 열기 껍질 (옅고 크게 일렁임)
+                // 바깥 열기 껍질 (옅게 일렁임, 판정 끝을 크게 넘지 않음)
                 FxRender.elemShader(el, 1.3f, Math.min(1f, 0.45f + erosion), 0.7f * fade);
                 RenderSystem.disableCull();
-                column(base, r * 1.55f, r * 0.95f, hh * 0.72f, 0.6f, 0.16f, 0.21f, 0.14f, time);
+                column(base, r * 1.12f, r * 0.8f, hh * 0.72f, 0.6f, 0.16f, 0.21f, 0.12f, time);
             }
             // 바깥 불기둥: 굵고 붉은 외곽, 위로 갈수록 가늘어지며 꼬임
             FxRender.elemShader(el, 1.8f, erosion, 1.0f * fade + 0.1f);
@@ -405,11 +452,23 @@ final class SkillFx {
             // 안쪽 심지: 가늘고 하얗게 빛나며 반대로 꼬임
             FxRender.elemShader(el, 2.6f, erosion * 0.8f, 1.25f * fade + 0.1f);
             column(base, r * 0.42f, r * 0.2f, hh * 1.06f, 1f, -0.4f, 0.37f, 0.06f, time);
-            // 바닥에 퍼진 불꽃 고리
+            // 바닥에 퍼진 불꽃 고리 (판정 끝까지)
             FxRender.elemShader(el, 1.4f, erosion, 0.9f * fade);
             BufferBuilder bb = FxRender.quads();
-            FxRender.ring(bb, base.add(0, 0.05, 0), UP, r * 0.7f, r * (1.9f + 0.3f * clamp01(t / 6f)), 0.85f * fade, time * 0.25f, 56);
+            FxRender.ring(bb, base.add(0, 0.05, 0), UP, r * 0.55f, r * (minor ? 1.9f : (0.85f + 0.15f * clamp01(t / 4f))), 0.85f * fade, time * 0.25f, 56);
             FxRender.draw(bb);
+            if (!minor) {
+                float[] rt = FxRender.ringTintRef(el);
+                // 솟는 순간 판정 끝(r)이 번쩍 → 남아 타는 동안 계속 태우는 범위(0.85r)를 옅은 선으로
+                edgeFlash(base.add(0, 0.07, 0), UP, r, t, 8f, rt[0], rt[1], rt[2]);
+                if (t > 4f && t < duration) {
+                    float la = 0.35f * fade * clamp01((t - 4f) / 4f);
+                    FxRender.spriteShader(FxRender.BEAM);
+                    BufferBuilder lb = FxRender.quads();
+                    FxRender.band(lb, base.add(0, 0.06, 0), UP, r * 0.85f - 0.14f, r * 0.85f + 0.04f, rt[0] * la, rt[1] * la, rt[2] * la, la, 48, false);
+                    FxRender.draw(lb);
+                }
+            }
             // 기둥 전체를 감싸는 빛
             float[] tc = FxRender.tintRef(el);
             FxManager.frameGlow(base.x, base.y + hh * 0.45, base.z, hh * 1.1f + r * 2f, tc[0], tc[1], tc[2], 0.32f * fade);
@@ -442,6 +501,9 @@ final class SkillFx {
         FxRender.ring(bb, feet, UP, (0.3f + 1.8f * k), (0.8f + 2.0f * k), 0.55f + 0.35f * k, -time * 0.4f, 56);
         FxRender.draw(bb);
 
+        // 실제 판정 범위 예고 (시전자를 따라다님)
+        telegraph(caster.getPosition(pt), com.blackocean.skills.client.ClientSkillStats.radius(com.blackocean.skills.Skill.FLAME_RING),
+                k, 1f, 0.45f, 0.12f, 0.9f, time);
         FxManager.frameGlow(c, 3.2f + 3.5f * k, 1f, 0.55f, 0.18f, 0.35f + 0.4f * k);
         // 막바지: 발밑 흰빛이 점점 강해짐 (곧 터진다는 신호)
         if (k > 0.7f) FxManager.frameGlow(c, 1.5f + 3f * k, 1f, 0.92f, 0.8f, (k - 0.7f) / 0.3f * 0.5f);
@@ -477,23 +539,26 @@ final class SkillFx {
         final Vec3 c;
         final float R;
         final int duration;
+        /** 불의 벽이 판정 끝까지 가는 시간 (틱). 피해는 터지는 순간 들어가므로 짧게 */
+        final float expand;
         int age;
 
         RingBurstFx(Vec3 c, float radius, int duration) {
             this.c = c;
             this.R = radius;
-            this.duration = Math.max(8, duration);
+            this.expand = 5f;
+            this.duration = Math.max(8, Math.min(duration, (int) expand + 10));
             FxManager.lod = FxManager.lodAt(c);
             Vec3 mid = c.add(0, 1.0, 0);
             spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, 9f, 13f, 6).color(1f, 0.92f, 0.72f, 1f));
-            spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, R * 1.6f, R * 2.4f, 12).color(1f, 0.45f, 0.12f, 0.6f));
+            spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, R * 1.2f, R * 1.7f, 10).color(1f, 0.45f, 0.12f, 0.6f));
             Vec3 rc = c.add(0, 0.08, 0);
             spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, 3f, 14f, 3).color(1f, 1f, 1f, 1f));
-            FxManager.addRing(rc, UP, 0.4f, R * 1.7f, 7, 0, 0.9f, 1f, 0.94f, 0.8f);
-            FxManager.addRing(rc, UP, 0.6f, R * 1.35f, 11, 0, 1f);
-            FxManager.addRing(rc, UP, 0.4f, R * 0.95f, 9, 2, 0.85f);
-            FxManager.addRing(mid, UP, 0.5f, R * 1.1f, 8, 1, 0.6f);
-            FxManager.addRing(rc.add(0, 0.02, 0), UP, R * 0.6f, R * 2.1f, 22, 5, 0.3f);
+            // 흰 충격파가 판정 끝을 살짝 넘어 한 번에 → 불의 벽이 따라감 → 판정 끝 고리
+            FxManager.addRing(rc, UP, 0.4f, R * 1.15f, 5, 0, 0.9f, 1f, 0.94f, 0.8f);
+            FxManager.addRing(rc, UP, 0.6f, R, (int) expand + 3, 0, 1f);
+            FxManager.addRing(rc, UP, 0.4f, R * 0.6f, 7, 2, 0.85f);
+            FxManager.addRing(mid, UP, 0.5f, R * 0.8f, 6, 1, 0.6f);
             DebrisFx.burst(c, UP, R * 0.3f, 18, 1.0f, com.blackocean.skills.Element.FIRE);
             DebrisFx.crater(c, R * 0.55f, 220, com.blackocean.skills.Element.FIRE);
             for (int i = 0; i < count(48); i++) {
@@ -508,19 +573,19 @@ final class SkillFx {
         }
 
         float radius(float t, float delay) {
-            float f = easeOutCubic(clamp01((t - delay) / (duration * 0.6f)));
+            float f = easeOutCubic(clamp01((t - delay) / expand));
             return 0.8f + (R - 0.8f) * f;
         }
 
         boolean tick() {
             age++;
-            if (age > duration + 8) return true;
+            if (age > duration + 6) return true;
             FxManager.lod = FxManager.lodAt(c);
             float t = age;
-            if (t <= duration) {
+            if (t <= expand + 4) {
                 float rr = radius(t, 0f);
                 // 불의 벽이 지나가며 땅이 갈라져 조각이 튐 (앞머리가 빠를 때만)
-                if (t <= duration * 0.6f && age % 2 == 0) {
+                if (t <= expand && age % 2 == 0) {
                     float ang = RNG.nextFloat() * TAU;
                     Vec3 at = c.add(Math.cos(ang) * rr, 0, Math.sin(ang) * rr);
                     DebrisFx.burst(at, UP, 0.7f, 3, 0.55f, null);
@@ -546,7 +611,7 @@ final class SkillFx {
                     spawn(em);
                 }
             }
-            if (age == duration - 4) {
+            if (age == (int) expand + 2) {
                 for (int i = 0; i < count(12); i++) {
                     float ang = RNG.nextFloat() * TAU;
                     float r2 = R * rand(0.3f, 0.95f);
@@ -562,9 +627,11 @@ final class SkillFx {
 
         void render(float pt, float time) {
             float t = age + pt;
-            float fade = 1f - clamp01((t - duration * 0.55f) / (duration * 0.6f));
+            // 벽이 끝에 닿는 순간 판정 끝이 번쩍
+            edgeFlash(c.add(0, 0.09, 0), UP, R, t - expand + 1.5f, 8f, 1f, 0.55f, 0.2f);
+            float fade = 1f - clamp01((t - expand - 2f) / 8f);
             if (fade <= 0f) return;
-            float erosion = clamp01((t - duration * 0.4f) / duration);
+            float erosion = clamp01((t - expand) / 10f);
             RenderSystem.disableCull();
             // 앞쪽 큰 불의 벽 (퍼질수록 낮아짐)
             float r1 = radius(t, 0f);
@@ -572,8 +639,8 @@ final class SkillFx {
             FxRender.fireShader(2.0f, erosion, 1.15f * fade);
             column(c, r1, r1 * 1.06f, 2.8f * (1f - 0.65f * f1) + 0.4f, 0.95f, 0.15f, 0f, 0.07f, time);
             // 앞머리의 하얗게 달아오른 낮은 띠
-            if (t < duration * 0.7f) {
-                float k = 1f - t / (duration * 0.7f);
+            if (t < expand + 3f) {
+                float k = 1f - t / (expand + 3f);
                 FxRender.elemShader(com.blackocean.skills.Element.FIRE, 3f, 0.2f, 1.3f * k, 1f);
                 column(c, r1 * 1.01f, r1 * 1.03f, 0.9f * k + 0.2f, 1f, 0.3f, 0.4f, 0.04f, time);
             }

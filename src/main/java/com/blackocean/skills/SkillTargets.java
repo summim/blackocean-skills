@@ -117,8 +117,64 @@ public final class SkillTargets {
     public static void hurt(ServerLevel level, LivingEntity e, @Nullable Entity owner, Element element, float dmg, boolean rapid) {
         if (!(dmg > 0) || !Float.isFinite(dmg)) return;
         if (rapid) e.invulnerableTime = 0;
+        float before = e.getHealth() + e.getAbsorptionAmount();
         e.hurt(source(level, null, owner, element), dmg);
+        float dealt = before - Math.max(0f, e.getHealth() + e.getAbsorptionAmount());
+        // 시전자 화면에만 피해 숫자 (온라인 RPG 처럼). 같은 틱에 같은 대상에 들어간 피해는 하나로 합쳐 틱 끝에 보냄
+        // (파편 7발·연사·광역이 한 틱에 여러 번 맞혀도 신호가 폭주하지 않게)
+        if (dealt > 0.05f && Float.isFinite(dealt) && owner instanceof net.minecraft.server.level.ServerPlayer sp) {
+            queueHit(sp, e, dealt, element);
+        }
         if (element == Element.FIRE && SkillsConfig.ALLOW_FIRE.get()) e.igniteForSeconds(3.0f);
+    }
+
+    // ---- 피해 숫자 모으기 (틱마다 SkillServer 가 flushHits) ----
+    private static final class PendingHit {
+        final net.minecraft.server.level.ServerPlayer to;
+        final int target, element;
+        double x, y, z;
+        float dealt;
+        boolean kill;
+
+        PendingHit(net.minecraft.server.level.ServerPlayer to, int target, int element) {
+            this.to = to;
+            this.target = target;
+            this.element = element;
+        }
+    }
+
+    private static final int MAX_PENDING_HITS = 1024;
+    private static final java.util.Map<Long, PendingHit> HITS = new java.util.LinkedHashMap<>();
+
+    private static void queueHit(net.minecraft.server.level.ServerPlayer sp, LivingEntity e, float dealt, Element element) {
+        long key = ((long) sp.getId() << 32) | (e.getId() & 0xFFFFFFFFL);
+        PendingHit h = HITS.get(key);
+        if (h == null) {
+            if (HITS.size() >= MAX_PENDING_HITS) return; // 숫자 표시일 뿐 → 넘치면 버림
+            h = new PendingHit(sp, e.getId(), element.ordinal());
+            HITS.put(key, h);
+        }
+        h.dealt += dealt;
+        h.kill |= e.isDeadOrDying();
+        h.x = e.getX();
+        h.y = e.getY() + e.getBbHeight();
+        h.z = e.getZ();
+    }
+
+    /** 이번 틱에 모은 피해 숫자를 시전자에게 보냄 (서버 틱 끝에 한 번) */
+    static void flushHits() {
+        if (HITS.isEmpty()) return;
+        for (PendingHit h : HITS.values()) {
+            if (h.to.hasDisconnected()) continue;
+            net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(h.to, new com.blackocean.skills.network.SkillEventPayload(-1,
+                    com.blackocean.skills.network.SkillEvents.HIT, h.to.getId(), h.x, h.y, h.z, 0, 0, 0,
+                    h.dealt, h.kill ? 1 : 0, h.element, h.target));
+        }
+        HITS.clear();
+    }
+
+    static void clearHits() {
+        HITS.clear();
     }
 
     /** 밀쳐내기 (서버). 플레이어에게도 바로 전달되도록 hurtMarked 를 켠다. */

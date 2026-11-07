@@ -268,15 +268,18 @@ public final class SkillBarHud {
             g.drawString(font, aimName, cx - aimNameWidth / 2, cy, 0xFF000000 | aimSkill.element.color, true);
             int left = remaining[aimSkill.ordinal()];
             boolean blocked = left > SkillServer.BUFFER_TICKS;
-            int key = blocked ? Math.round(left / 2f) : -1;
+            // 서버가 거절할 조준(바닥 없음·순간이동 자리 없음)이면 서버와 같은 안내를 미리 (빨간 조준 표시와 함께)
+            int refusal = AimPreview.refusal();
+            int key = refusal != AimPreview.OK ? -1 - refusal : blocked ? Math.round(left / 2f) : -1;
             if (key != aimHintKey || aimHint == null) {
                 aimHintKey = key;
-                aimHint = blocked
-                        ? Component.translatable("hud.blackocean_skills.aim_cooldown", (key / 10) + "." + (key % 10))
+                aimHint = refusal == AimPreview.NO_GROUND ? Component.translatable("msg.blackocean_skills.no_target")
+                        : refusal == AimPreview.NO_SPACE ? Component.translatable("msg.blackocean_skills.no_space")
+                        : blocked ? Component.translatable("hud.blackocean_skills.aim_cooldown", (key / 10) + "." + (key % 10))
                         : Component.translatable("hud.blackocean_skills.aim_hint");
                 aimHintWidth = font.width(aimHint);
             }
-            g.drawString(font, aimHint, cx - aimHintWidth / 2, cy + 10, blocked ? 0xFFFF7060 : 0xFFE0D6C8, true);
+            g.drawString(font, aimHint, cx - aimHintWidth / 2, cy + 10, refusal != AimPreview.OK || blocked ? 0xFFFF7060 : 0xFFE0D6C8, true);
         }
     }
 

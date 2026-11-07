@@ -143,7 +143,9 @@ final class ServerEffects {
             return;
         }
         if (p.isPassenger()) p.stopRiding();
-        p.connection.teleport(dest.x, dest.y, dest.z, p.getYRot(), p.getXRot());
+        // 시선은 건드리지 않음 (지금 p 의 시선은 고정된 시전 방향이라, 그대로 보내면 화면이 키를 뗀 순간 방향으로 튐)
+        p.connection.teleport(dest.x, dest.y, dest.z, 0f, 0f,
+                java.util.EnumSet.of(net.minecraft.world.entity.RelativeMovement.Y_ROT, net.minecraft.world.entity.RelativeMovement.X_ROT));
         p.fallDistance = 0;
         Vec3 a = origin.add(0, 0.9, 0), b = dest.add(0, 0.9, 0);
         double r = s.radius();

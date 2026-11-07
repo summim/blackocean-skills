@@ -234,6 +234,8 @@ public final class SkillsClient {
         }
         try {
             FxManager.startPredictedCharge(p, skill);
+        } catch (RuntimeException ex) {
+            FxManager.fxError("predicted_charge", ex); // 연출 오류로 게임이 튕기거나 시전 요청이 안 나가지 않게
         } finally {
             if (swap) {
                 p.setYRot(oy);

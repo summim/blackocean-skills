@@ -67,7 +67,10 @@ public final class SkillSounds {
                 + (int) Math.floor(at.x / cell) + ',' + (int) Math.floor(at.y / cell) + ',' + (int) Math.floor(at.z / cell);
         Long last = LAST.get(key);
         if (last != null && now - last < gapTicks && now >= last) return false;
-        if (LAST.size() > 512) LAST.values().removeIf(t -> now - t > 40 || t > now);
+        if (LAST.size() > 512) {
+            LAST.values().removeIf(t -> now - t > 40 || t > now);
+            if (LAST.size() > 2048) LAST.clear(); // 아주 붐빌 때도 무한히 커지거나 매번 전부 훑지 않게
+        }
         LAST.put(key, now);
         play(level, null, at, name, radius, pitch);
         return true;

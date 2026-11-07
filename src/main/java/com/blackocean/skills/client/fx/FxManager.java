@@ -422,6 +422,7 @@ public final class FxManager {
         }
         if (mc.level == null) return;
         CameraShake.tick();
+        CasterPose.tick(mc.level.getGameTime());
 
         CHARGES.removeIf(c -> c.tick());
 

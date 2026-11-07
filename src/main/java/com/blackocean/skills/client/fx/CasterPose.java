@@ -75,6 +75,11 @@ public final class CasterPose {
         e.yHeadRotO = head;
     }
 
+    /** 화면 밖으로 나가 다시 그려지지 않은 사람의 끝난 자세도 정리 */
+    static void tick(long now) {
+        if (!POSES.isEmpty()) POSES.values().removeIf(p -> now > p.until);
+    }
+
     static void clear() {
         POSES.clear();
     }

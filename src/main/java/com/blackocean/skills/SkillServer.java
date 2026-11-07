@@ -80,14 +80,17 @@ public final class SkillServer {
                 || Math.abs(net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot())) > 60f || Math.abs(pitch - p.getXRot()) > 60f) {
             yaw = p.getYRot();
             pitch = p.getXRot();
+        } else {
+            // 서버 시선과 이어지는 값으로 (클라이언트 yaw 는 몇 바퀴째인지가 달라 720° 같은 값일 수 있음)
+            yaw = p.getYRot() + net.minecraft.util.Mth.wrapDegrees(yaw - p.getYRot());
+            pitch = net.minecraft.util.Mth.clamp(pitch, -90f, 90f);
         }
         // 요청 폭주 방지: 한 사람당 한 틱에 한 번만
         long tick = p.server.getTickCount();
         Long last = LAST_REQUEST.put(p.getUUID(), tick);
         if (last != null && last == tick) return;
         // 기절·얼림 중엔 스킬 못 씀 (명령어·API 발동은 예외)
-        net.minecraft.world.effect.MobEffectInstance slowFx = p.getEffect(net.minecraft.world.effect.MobEffects.MOVEMENT_SLOWDOWN);
-        if (slowFx != null && slowFx.getAmplifier() >= 5) {
+        if (stunned(p)) {
             p.displayClientMessage(Component.translatable("msg.blackocean_skills.stunned"), true);
             PacketDistributor.sendToPlayer(p, new CooldownSyncPayload(-1, 0, 0, true));
             return;
@@ -120,6 +123,12 @@ public final class SkillServer {
             return;
         }
         if (!cast(p, skill, true, yaw, pitch)) deny(p, skill);
+    }
+
+    /** 기절(느려짐 VI)·얼림(VII) 중 */
+    private static boolean stunned(ServerPlayer p) {
+        net.minecraft.world.effect.MobEffectInstance slowFx = p.getEffect(net.minecraft.world.effect.MobEffects.MOVEMENT_SLOWDOWN);
+        return slowFx != null && slowFx.getAmplifier() >= 5;
     }
 
     private static void deny(ServerPlayer p, Skill skill) {
@@ -364,6 +373,8 @@ public final class SkillServer {
                 }
             });
         }
+
+        SkillTargets.flushHits();
     }
 
     private static void execute(ServerPlayer p, Skill skill, @Nullable Vec3 target) {
@@ -467,6 +478,10 @@ public final class SkillServer {
             }
             if (chargingSkill(p.getUUID()) != null || remainingTicks(p, b.skill()) > 0 || movingBlocks(p, b.skill())) continue;
             it.remove();
+            if (stunned(p)) { // 예약해 둔 사이 기절·얼림 → 예약도 막힘 (키 입력과 같은 규칙)
+                deny(p, b.skill());
+                continue;
+            }
             Element el = PlayerElements.get(p);
             if (el != b.skill().element || !b.skill().enabled() || !castBuffered(p, b)) deny(p, b.skill());
         }
@@ -513,6 +528,14 @@ public final class SkillServer {
         LAST_REQUEST.remove(id);
         PENDING.removeIf(x -> x.player().equals(id));
         BUFFERED.remove(id);
+        // 쿨타임이 하나도 안 남았으면 기록을 지움 (긴 방송 동안 들락날락한 사람마다 쌓이지 않게)
+        long[] r = READY_AT.get(id);
+        if (r != null && event.getEntity() instanceof ServerPlayer sp2) {
+            long now = sp2.server.getTickCount();
+            boolean any = false;
+            for (long t : r) if (t > now) { any = true; break; }
+            if (!any) READY_AT.remove(id);
+        }
     }
 
     public static void clear() {
@@ -520,5 +543,7 @@ public final class SkillServer {
         PENDING.clear();
         BUFFERED.clear();
         EFFECTS.clear();
+        LAST_REQUEST.clear();
+        SkillTargets.clearHits();
     }
 }

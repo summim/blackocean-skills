@@ -261,9 +261,10 @@ public class SkillProjectile extends Projectile implements IEntityWithComplexSpa
                     }
                     float splash = skill.damage2();
                     if (radius > 0 && splash > 0) {
-                        for (LivingEntity e : SkillTargets.inSphere(level, owner, center, radius, true)) {
+                        // 화면의 바닥 원(조준 표시·적중 고리)과 같은 세로 원통 (공 모양이면 원 가장자리·머리 위가 어긋남)
+                        for (LivingEntity e : SkillTargets.inSplash(level, owner, center, radius)) {
                             if (e == direct) continue;
-                            double f = 1.0 - SkillTargets.edgeFraction(e, center, radius);
+                            double f = 1.0 - SkillTargets.flatEdgeFraction(e, center, radius);
                             SkillTargets.hurt(level, e, owner, skill.element, (float) (splash * f), rapid());
                             Vec3 push = e.getBoundingBox().getCenter().subtract(center);
                             boolean heavy = skill == Skill.THUNDER_HAMMER;

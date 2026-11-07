@@ -455,9 +455,10 @@ final class IceFx {
             if (!add) {
                 float a = k * (0.13f + 0.46f * (float) Math.pow(fres, 1.4)) * (front ? 1f : 0.5f);
                 float r = 0.12f + 0.5f * fres, g = 0.36f + 0.55f * fres, b = 0.8f + 0.2f * fres;
-                bb.addVertex((float) x0, (float) y0, (float) z0).setUv(0.5f, 0.5f).setColor(r, g, b, a);
-                bb.addVertex((float) x1, (float) y1, (float) z1).setUv(0.5f, 0.5f).setColor(r, g, b, a);
-                bb.addVertex((float) x2, (float) y2, (float) z2).setUv(0.5f, 0.5f).setColor(r, g, b, a);
+                // FxRender.vertexRel: 카메라 바로 앞은 옅게 (공용 근접 페이드·몸 가림)
+                FxRender.vertexRel(bb, x0, y0, z0, 0.5f, 0.5f, r, g, b, a);
+                FxRender.vertexRel(bb, x1, y1, z1, 0.5f, 0.5f, r, g, b, a);
+                FxRender.vertexRel(bb, x2, y2, z2, 0.5f, 0.5f, r, g, b, a);
             } else {
                 float glint = 0f;
                 if (front) {
@@ -470,12 +471,12 @@ final class IceFx {
                 float ph = (float) (nx * 3.1 + ny * 2.3 + nz * 1.7) + time * 0.035f;
                 float pr = 0.8f + 0.2f * (float) Math.sin(ph), pg = 0.9f + 0.1f * (float) Math.sin(ph + 2.1f), pb = 1f;
                 float tip = 0.24f * k;
-                bb.addVertex((float) x0, (float) y0, (float) z0).setUv((s[i] + s[i + 2]) * 0.5f + uvOff, s[i + 1] * len * 0.3f)
-                        .setColor(pr, pg, pb, Math.min(1f, base + tip * Math.max(0f, s[i + 1])));
-                bb.addVertex((float) x1, (float) y1, (float) z1).setUv((s[i + 3] + s[i + 5]) * 0.5f + uvOff, s[i + 4] * len * 0.3f)
-                        .setColor(pr, pg, pb, Math.min(1f, base + tip * Math.max(0f, s[i + 4])));
-                bb.addVertex((float) x2, (float) y2, (float) z2).setUv((s[i + 6] + s[i + 8]) * 0.5f + uvOff, s[i + 7] * len * 0.3f)
-                        .setColor(pr, pg, pb, Math.min(1f, base + tip * Math.max(0f, s[i + 7])));
+                FxRender.vertexRel(bb, x0, y0, z0, (s[i] + s[i + 2]) * 0.5f + uvOff, s[i + 1] * len * 0.3f,
+                        pr, pg, pb, Math.min(1f, base + tip * Math.max(0f, s[i + 1])));
+                FxRender.vertexRel(bb, x1, y1, z1, (s[i + 3] + s[i + 5]) * 0.5f + uvOff, s[i + 4] * len * 0.3f,
+                        pr, pg, pb, Math.min(1f, base + tip * Math.max(0f, s[i + 4])));
+                FxRender.vertexRel(bb, x2, y2, z2, (s[i + 6] + s[i + 8]) * 0.5f + uvOff, s[i + 7] * len * 0.3f,
+                        pr, pg, pb, Math.min(1f, base + tip * Math.max(0f, s[i + 7])));
             }
         }
     }
@@ -1410,7 +1411,8 @@ final class IceFx {
             }
             if (broke && age - lastSound > 7 && brokeAt != null) {
                 lastSound = age;
-                FxManager.playAt(brokeAt, SkillsRegistry.snd("ice.shatter"), 0.9f, 1.15f + RNG.nextFloat() * 0.2f);
+                // 다 쓴 가시가 부서지는 장식음: 가벼운 틱 (무거운 깨짐은 창·빙산 전용)
+                FxManager.playAt(brokeAt, SkillsRegistry.snd("ice.tick"), 0.7f, 1.1f + RNG.nextFloat() * 0.2f);
             }
             return age > duration + hold + 14;
         }
@@ -1586,7 +1588,7 @@ final class IceFx {
                     broke = true;
                 }
             }
-            if (broke && age % 8 == 0) FxManager.playAt(c, SkillsRegistry.snd("ice.shatter"), 0.7f, 1.3f);
+            if (broke && age % 8 == 0) FxManager.playAt(c, SkillsRegistry.snd("ice.shard_hit"), 0.6f, 1.2f); // 남은 결정이 부서짐 (가벼움)
             if (age < 30) {
                 // 눈보라: 위에서 흩날리는 눈송이 + 바닥 반짝이
                 for (int i = 0, m = count(4); i < m; i++) {
@@ -2119,7 +2121,7 @@ final class IceFx {
             for (int i = 0, m = count(8); i < m; i++) spark(core, randomDir().scale(rand(0.3f, 0.7f)), 6 + RNG.nextInt(5));
             glintBurst(core, Math.max(w, h) * 0.5f, 0.1f, self ? 6 : 14, 0.4f, self ? 14 : 30);
             if (!self) mistBurst(core, Math.max(0.5f, w * 0.6f), 4, 0.35f);
-            FxManager.playAt(p, SkillsRegistry.snd("ice.shatter"), 0.7f, 1.2f + RNG.nextFloat() * 0.2f);
+            FxManager.playAt(p, SkillsRegistry.snd("ice.shard_hit"), 0.7f, 1.0f + RNG.nextFloat() * 0.2f); // 얼음이 풀림 (가벼운 깨짐)
         }
 
         private Vec3 pos(float pt) {

@@ -282,7 +282,7 @@ final class ThunderFx {
             case THUNDER_ROAR -> {
                 Vec3 chest = ce.position().add(0, 1.1, 0);
                 FxManager.lod = FxManager.lodAt(chest);
-                float R = Math.max(2f, ClientSkillStats.radius(c.skill));
+                float R = Math.max(1f, ClientSkillStats.radius(c.skill)); // 서버 Roar: max(1, 반지름)
                 bodyArcs(ce, 2 + (int) (3 * k), 0.4f);
                 for (int i = 0; i < count(3 + (int) (4 * k)); i++) {
                     Vec3 d = randomDir();
@@ -372,7 +372,7 @@ final class ThunderFx {
                 frameGlow(chest, (1.5f + 4f * k * k) * fl, GOLD, 0.35f + 0.45f * k);
                 frameGlow(chest, 0.6f + 1.2f * k, PALE, 0.5f + 0.4f * k);
                 // 끌려 오는 범위 R (바깥 경계) + 터지는 범위 0.6R (안쪽 고리, 서버 Roar 와 같은 비율)
-                float R = Math.max(2f, ClientSkillStats.radius(c.skill));
+                float R = Math.max(1f, ClientSkillStats.radius(c.skill)); // 서버 Roar: max(1, 반지름)
                 // 끌어당김 범위 (채움 없음) + 터지는 범위 (포효 뒤 12틱에 가득 → 준비 동안엔 조금만)
                 SkillFx.dangerZone(feet, R, 0f, EL, ce, 0.3f + 0.4f * k, time);
                 SkillFx.dangerZone(feet, R * ROAR_BURST, 0.15f * k, EL, ce, 0.4f + 0.5f * k, time);

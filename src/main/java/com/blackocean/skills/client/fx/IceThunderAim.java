@@ -54,13 +54,12 @@ final class IceThunderAim {
         return new Vec3(-flat.z, 0, flat.x);
     }
 
-    /** 서버가 투사체를 만드는 손 위치 (side: + 오른쪽). 벽 앞이면 서버처럼 벽 앞으로 당김 */
+    /**
+     * 서버가 투사체를 만드는 손 위치 (side: + 오른쪽). 벽 앞이면 서버처럼 벽 앞으로 당김.
+     * 프레임마다 불리므로 광선 검사 없이 ChargeFx 가 틱마다 잰 벽 거리(origin)를 씀.
+     */
     static Vec3 hand(FxManager.ChargeFx c, float pt, double side) {
-        Entity e = c.caster;
-        Vec3 eye = e.getEyePosition(pt);
-        Vec3 look = c.aimDir();
-        if (e instanceof Player p) return SkillAim.handPos(e.level(), p, eye, look, side, 0);
-        return eye.add(look.scale(1.6)).add(right(look).scale(side)).add(0, -0.3, 0);
+        return c.origin(pt, side, 0);
     }
 
     /**

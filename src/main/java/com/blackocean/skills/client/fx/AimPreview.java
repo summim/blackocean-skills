@@ -371,7 +371,8 @@ public final class AimPreview {
         return switch (s) {
             case WIND_WHIRLWIND, WIND_TEMPEST -> r + 0.5f;          // 띄우고 0.5초마다 피해 (Tornado: d <= r + 0.5)
             case WATER_PRISON -> r * 1.4f;                          // 끌어당김·피해·파열 (Prison: r × 1.4)
-            case LIGHTNING_STRIKE -> r * 0.7f + Math.max(1.5f, r * 0.8f); // 낙뢰가 흩어지는 범위 + 한 번의 범위
+            // 낙뢰 3번 모두 원 r 안 (Strikes: 2·3번째는 중심에서 r - 범위 안, 첫 번째는 max(1.5, 0.8r)) → max(r, 1.5)
+            case LIGHTNING_STRIKE -> Math.max(r, 1.5f);
             default -> r;
         };
     }
@@ -476,7 +477,8 @@ public final class AimPreview {
         bb = null;
         // 4) 실제 판정 경계 = 공용 위험 표시 (시전자 본인 = SELF 스타일). 키를 떼면 같은 함수가 같은 크기로
         //    최종 예고·판정 범위를 그리므로, 조준 → 발동이 한 가지 그림 언어로 이어짐
-        if (valid) {
+        //    같은 스킬을 모으는 중(그 사이 같은 키를 또 누름)이면 준비 연출이 이미 실제 범위를 그림 → 두 번 그리지 않음
+        if (valid && !FxManager.isCharging(p, s)) {
             FxRender.additive();
             dangers(s, a, range, radius, time, p);
         }

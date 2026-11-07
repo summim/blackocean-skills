@@ -158,7 +158,11 @@ final class IceThunderEffects {
                 Vec3 rel = e.position().subtract(start);
                 double along = rel.dot(dir), lat = Math.abs(rel.dot(side));
                 if (along < d - speed - 1.0 || along > d + 0.8 || lat > width + e.getBbWidth() * 0.5) continue;
-                if (!hit.add(e.getId())) continue;
+                if (hit.contains(e.getId())) continue;
+                // 길 옆 벽 너머는 맞지 않음 (길 가운데 땅 위에서 보이는 대상만)
+                Vec3 lane = groundAt(level, o, start.add(dir.scale(Math.max(0.0, Math.min(range, along))))).add(0, 1.0, 0);
+                if (!SkillTargets.canSee(level, o, lane, e)) continue;
+                hit.add(e.getId());
                 SkillTargets.hurt(level, e, o, Element.ICE, skill.damage(), true);
                 SkillSounds.playLimited(level, e.getBoundingBox().getCenter(), "ice.shard_hit", SkillSounds.R_HIT, 0.85f + level.random.nextFloat() * 0.1f, 2, 2.5);
                 // 얼림이 위로 가는 속도를 없애므로 얼린 다음에 띄움

@@ -170,6 +170,8 @@ public final class SkillsClient {
             if (cancel) {
                 AimPreview.stop();
                 aimCancelled = true;
+                // 누르고 있는 우클릭으로 바닐라가 같은 틱에 아이템을 쓰지 않게 (열매 먹기·양손 아이템·블록 놓기가 취소와 함께 나가던 문제)
+                mc.options.keyUse.setDown(false);
             }
         }
     }

@@ -6,7 +6,7 @@ import net.minecraft.world.phys.Vec3;
 /**
  * 여러 스킬이 겹칠 때 소리·번쩍임이 쌓이지 않게 하는 공용 제한.
  * <ul>
- *   <li>소리: 같은 소리는 4칸 안에서 3틱에 한 번, 전체 한 틱에 6개까지</li>
+ *   <li>소리: 같은 소리는 3칸 안에서 2틱에 한 번 (서버 SkillSounds 와 같음), 전체 한 틱에 6개까지</li>
  *   <li>화면 번쩍임: 한 틱에 더해지는 밝기 합을 제한 (ScreenFx 가 씀)</li>
  * </ul>
  */
@@ -34,9 +34,10 @@ public final class FxLimits {
         roll(now);
         if (soundsThisTick >= 6) return false;
         for (int i = 0; i < SLOTS; i++) {
-            if (SND[i] == s && now - ST[i] < 3) {
+            // 서버 SkillSounds 와 같은 규칙: 같은 소리가 3칸 안에서 2틱(같은 틱·다음 틱) 안에 또 나면 하나로
+            if (SND[i] == s && now >= ST[i] && now - ST[i] < 2) {
                 double dx = SX[i] - p.x, dy = SY[i] - p.y, dz = SZ[i] - p.z;
-                if (dx * dx + dy * dy + dz * dz < 16.0) return false;
+                if (dx * dx + dy * dy + dz * dz < 9.0) return false;
             }
         }
         SND[next] = s;

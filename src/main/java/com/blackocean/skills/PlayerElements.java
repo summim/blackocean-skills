@@ -59,7 +59,7 @@ public final class PlayerElements {
         }
         set(p, e);
         p.displayClientMessage(Component.translatable("msg.blackocean_skills.fruit_gain", Component.translatable(e.translationKey())), false);
-        p.serverLevel().playSound(null, p.getX(), p.getY(), p.getZ(), SkillsRegistry.snd("common.transform"), SoundSource.PLAYERS, 2.0f, 1.0f);
+        SkillSounds.play(p.serverLevel(), p.position(), "common.transform", SkillSounds.R_IMPACT, 1.0f);
         SkillEvents.send(p.serverLevel(), null, SkillEvents.TRANSFORM, p, p.position(), Vec3.ZERO, 0, 0, 0, e.ordinal(), 64.0);
         return true;
     }

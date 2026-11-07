@@ -98,8 +98,28 @@ public final class AimPreview {
     private static boolean haveSnap, valid, hasNormal, hitEntity, flatArrow, stoppedByWall;
     @Nullable
     private static Skill snapSkill;
+    /** 이번 틱 조준 결과를 계산한 시선 (키를 떼면 이 방향 그대로 서버에 보냄 → 보이던 것 = 실제 공격) */
+    private static float snapYaw, snapPitch;
+    /** 서버가 거절할 이유 (보이는 빨간 표시와 같은 판정): 0 = 없음 */
+    public static final int OK = 0, NO_GROUND = 1, NO_SPACE = 2;
+    private static int refusal;
 
     private AimPreview() {}
+
+    /**
+     * 지금 보이는 조준 표시를 계산한 시선 {yaw, pitch}. 이 스킬의 조준이 화면에 보이는 중이 아니면 null
+     * (아주 빠른 톡 → 아무것도 안 보였으니 지금 시선을 쓰면 됨).
+     */
+    @Nullable
+    public static float[] shownAim(Skill s) {
+        if (!visible() || !haveSnap || snapSkill != s || aiming != s) return null;
+        return new float[]{snapYaw, snapPitch};
+    }
+
+    /** 지금 보이는 조준이 서버에서 거절될 이유 (OK / NO_GROUND / NO_SPACE) */
+    public static int refusal() {
+        return visible() && haveSnap ? refusal : OK;
+    }
 
     public static void start(Skill s) {
         aiming = s;
@@ -168,8 +188,12 @@ public final class AimPreview {
     }
 
     private static void compute(Level level, LocalPlayer p, Skill s) {
-        Vec3 eye = p.getEyePosition(), look = p.getViewVector(1f);
+        // 서버(SkillServer.withAim)는 보낸 yaw/pitch 로 getLookAngle() 을 만듦 → 같은 식으로 시선 계산
+        snapYaw = p.getYRot();
+        snapPitch = p.getXRot();
+        Vec3 eye = p.getEyePosition(), look = Vec3.directionFromRotation(snapPitch, snapYaw);
         float range = ClientSkillStats.range(s), radius = ClientSkillStats.radius(s);
+        refusal = OK;
         valid = true;
         hasNormal = false;
         hitEntity = false;
@@ -184,7 +208,8 @@ public final class AimPreview {
                 double lift = s == Skill.FIRE_SUN ? 2.6 : 0;
                 Vec3 start = SkillAim.handPos(level, p, eye, look, side, lift);
                 Vec3 dir = SkillAim.aimDirection(level, p, eye, look, start, range);
-                Vec3 end = start.add(dir.scale(range));
+                // 투사체는 ceil(사거리/속도) 틱 동안 날아감 (SkillProjectile.create) → 실제로 사라지는 거리
+                Vec3 end = start.add(dir.scale(s.aim == Skill.Aim.PROJECTILE ? flight(s, range) : range));
                 Vec3 normal = Vec3.ZERO;
                 BlockHitResult path = SubLevels.clip(level, new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
                 if (path.getType() != HitResult.Type.MISS) {
@@ -194,7 +219,7 @@ public final class AimPreview {
                     hasNormal = true;
                 }
                 if (stopsAtEntity(s)) {
-                    final Vec3 s0 = start, s1 = start.add(dir.scale(range));
+                    final Vec3 s0 = start, s1 = end;
                     final float r = s.hit;
                     EntityHitResult target = ProjectileUtil.getEntityHitResult(level, p, start, end, new AABB(start, end).inflate(r + 1.0),
                             e -> e instanceof LivingEntity && e.isAlive() && !e.isSpectator() && e != p && !SkillTargets.isSameRide(p, e)
@@ -236,13 +261,20 @@ public final class AimPreview {
                 cur[X1] = hand ? 1 : 0;
                 pathN = 13; // 얼음 파편 7줄기 = 짝수 번째 광선
                 double h = Math.toRadians(half);
+                // 얼음 파편: 투사체 비행 거리 / 뇌명 일격: 서버 inCone 은 거리 + 상대 몸 반폭(약 0.3)까지
+                double reach = hand ? flight(s, range) : range + 0.3;
+                Vec3 eyeO = origin.add(0, 0.8, 0); // 뇌명 일격 시야 검사 높이 (SkillTargets.inCone)
                 for (int i = 0; i < pathN; i++) {
                     double a = -h + 2 * h * i / (pathN - 1);
                     Vec3 rd = dir.yRot((float) a).normalize();
-                    Vec3 end = origin.add(rd.scale(range));
+                    Vec3 end = origin.add(rd.scale(reach));
                     if (hand) {
                         BlockHitResult bh = SubLevels.clip(level, new ClipContext(origin, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
                         if (bh.getType() != HitResult.Type.MISS) end = bh.getLocation();
+                    } else {
+                        // 충격파는 벽 뒤를 맞히지 않음 (서버가 시전 지점에서 시야 검사) → 벽에서 부채꼴을 자름
+                        BlockHitResult bh = SubLevels.clip(level, new ClipContext(eyeO, end.add(0, 0.8, 0), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p));
+                        if (bh.getType() != HitResult.Type.MISS) end = bh.getLocation().subtract(0, 0.8, 0);
                     }
                     putPath(i, end);
                 }
@@ -250,7 +282,9 @@ public final class AimPreview {
             case GROUND -> {
                 Vec3 target = SkillAim.groundTarget(level, p, eye, look, range);
                 if (target == null) {
+                    // 서버도 같은 계산으로 거절함 (msg no_target) → 빨간 "바닥 없음" 표시 + HUD 안내
                     valid = false;
+                    refusal = NO_GROUND;
                     put(B, eye.add(look.scale(Math.min(range, 12))));
                     put(D, look);
                     return;
@@ -299,6 +333,7 @@ public final class AimPreview {
                 Vec3 dest = SkillAim.blinkDestination(level, p, feet, eye, look, range);
                 if (dest == null) {
                     valid = false;
+                    refusal = NO_SPACE;
                     put(B, eye.add(look.scale(2)));
                     put(D, look);
                     return;
@@ -308,6 +343,54 @@ public final class AimPreview {
                 put(T, SkillAim.groundBelow(level, p, dest));
             }
         }
+    }
+
+    /** 투사체가 실제로 날아가는 거리 (SkillProjectile.create: 속도 0.2~3.9, ceil(max(2, 사거리) / 속도) 틱) */
+    private static double flight(Skill s, double range) {
+        double speed = Math.max(0.2, Math.min(3.9, ClientSkillStats.speed(s)));
+        return Math.ceil(Math.max(2.0, range) / speed) * speed;
+    }
+
+    /** 날아가는 길의 판정 반폭: 투사체 = 고정 판정(hit), 물줄기 = 설정 굵기(radius, 서버 Jet) */
+    private static float beamHalf(Skill s, float radius) {
+        return Math.max(0.3f, s == Skill.WATER_JET ? radius : s.hit);
+    }
+
+    /** 길 반폭 (서버 판정과 같게) */
+    private static float pathHalf(Skill s, float radius) {
+        // 돌진: 시전자 몸 상자(반폭 0.3)를 radius 만큼 키워 부딪힘 + 상대 몸 반폭 0.3 / 해일·가시: 폭의 절반
+        if (s.aim == Skill.Aim.DASH) return Math.max(0.6f, radius + 0.6f);
+        return Math.max(0.5f, radius);
+    }
+
+    /** 바닥 범위의 주 테두리 (서버가 실제로 판정하는 반지름) */
+    private static float mainRadius(Skill s, float r) {
+        return switch (s) {
+            case WIND_WHIRLWIND, WIND_TEMPEST -> r + 0.5f;          // 띄우고 0.5초마다 피해 (Tornado: d <= r + 0.5)
+            case WATER_PRISON -> r * 1.4f;                          // 끌어당김·피해·파열 (Prison: r × 1.4)
+            case LIGHTNING_STRIKE -> r * 0.7f + Math.max(1.5f, r * 0.8f); // 낙뢰가 흩어지는 범위 + 한 번의 범위
+            default -> r;
+        };
+    }
+
+    /** 바깥 점선 테두리 (끌려 들어오는 범위·여진 등). 0 = 없음 */
+    private static float outerRadius(Skill s, float r) {
+        return switch (s) {
+            case WIND_WHIRLWIND -> r * 1.6f;     // 끌어당김 + 끝에 날려 보냄
+            case WIND_TEMPEST -> r * 2.3f;
+            case THUNDER_JUDGMENT -> r * 1.9f;   // 마지막 여진 (r × (1 + 0.3 × 3))
+            default -> 0f;
+        };
+    }
+
+    /** 안쪽 테두리 (가장 센 곳). 0 = 없음 */
+    private static float innerRadius(Skill s, float r) {
+        return switch (s) {
+            case LIGHTNING_STRIKE -> Math.max(1.5f, r * 0.8f); // 첫 낙뢰는 정확히 가운데
+            case LIGHTNING_STORM -> Math.max(3f, r * 0.45f);   // 마지막 거대 번개
+            case THUNDER_ROAR -> Math.max(1f, r) * 0.6f;       // 끌어당긴 뒤 폭발
+            default -> 0f;
+        };
     }
 
     /** 생물에 맞으면 멈추는지 (바람 칼날은 꿰뚫고, 물줄기는 지나감) */
@@ -322,7 +405,7 @@ public final class AimPreview {
             case FIRE_PILLAR -> 9f;
             case WIND_WHIRLWIND -> 7f;
             case WIND_TEMPEST -> 22f;
-            case WATER_PRISON -> 3.2f;
+            case WATER_PRISON -> 4.5f; // 서버 Prison: 바닥 위 4.5칸까지 끌어당김
             case LIGHTNING_STORM -> 16f;
             case ICE_AGE -> 16f;
             case THUNDER_JUDGMENT -> 7f;
@@ -411,7 +494,10 @@ public final class AimPreview {
         switch (s.aim) {
             case PROJECTILE, LINE -> projectile(s, a, radius, time);
             case GROUND -> ground(s, a, range, radius, time);
-            case SELF -> area(lp[T], lp[T + 1] + 0.06, lp[T + 2], radius, a, time, false);
+            case SELF -> {
+                area(lp[T], lp[T + 1] + 0.06, lp[T + 2], radius, a, time, false);
+                extraRings(s, lp[T], lp[T + 1] + 0.06, lp[T + 2], radius, a, time);
+            }
             case DASH, WAVE -> path(s, a, radius, time);
             case BLINK -> {
                 double gx = lp[T], gy = lp[T + 1] + 0.06, gz = lp[T + 2];
@@ -430,7 +516,7 @@ public final class AimPreview {
         double sx = lp[A], sy = lp[A + 1], sz = lp[A + 2];
         double ex = lp[B], ey = lp[B + 1], ez = lp[B + 2];
         float splash = s.shape == Skill.Shape.BLADE || s.aim == Skill.Aim.LINE ? 0f : radius;
-        float hitR = Math.max(0.3f, s.hit);
+        float hitR = beamHalf(s, radius);
         // 손에서 나가는 빛
         billboard(R_DOT, sx, sy, sz, 0.55 + 0.1 * Math.sin(time * 0.5), a * 0.8f);
         // 길 양옆 가는 선
@@ -482,10 +568,33 @@ public final class AimPreview {
         if (!glowPass) ringLine(lp[G], lp[G + 1] + 0.05, lp[G + 2], range, 0.05, a * 0.3f, 24, time * 0.05, 0.15f);
         double tx = lp[T], ty = lp[T + 1] + 0.06, tz = lp[T + 2];
         boolean ult = s.ultimate();
-        area(tx, ty, tz, radius, a, time, ult);
+        float main = mainRadius(s, radius);
+        area(tx, ty, tz, main, a, time, ult);
+        extraRings(s, tx, ty, tz, radius, a, time);
         float h = heightOf(s);
-        if (h > 0) column(tx, ty, tz, radius, h, a, time, ult);
+        if (h > 0) column(tx, ty, tz, main, h, a, time, ult);
         if (s == Skill.THUNDER_LEAP) leapArc(a, time);
+    }
+
+    /** 바깥 점선(끌려 오는 범위·여진) + 안쪽 고리(가장 센 곳) */
+    private static void extraRings(Skill s, double x, double y, double z, float radius, float a, float time) {
+        float outer = outerRadius(s, radius);
+        if (outer > 0f) {
+            ringLine(x, y + 0.018, z, outer, 0.06, a * 0.75f, Math.max(12, (int) (outer * 2.2f)), -time * 0.06, 0.0f);
+            if (!glowPass) {
+                // 안쪽으로 흐르는 점 (끌려 들어감) / 여진은 바깥으로
+                float f = (time * 0.03f) % 1f;
+                boolean pull = s != Skill.THUNDER_JUDGMENT;
+                float main = mainRadius(s, radius);
+                double rr = pull ? outer - (outer - main) * f : main + (outer - main) * f;
+                ringLine(x, y + 0.02, z, rr, 0.04, a * 0.4f * (float) Math.sin(Math.PI * f), 0, 0, 1f);
+            }
+        }
+        float inner = innerRadius(s, radius);
+        if (inner > 0f) {
+            if (!glowPass) flatQuad(R_FILL, x, y + 0.002, z, inner, 0, a * 0.3f);
+            ringLine(x, y + 0.02, z, inner, 0.07, a * 0.9f, 6, time * 0.2, 0.4f);
+        }
     }
 
     /** 범위 마법진: 부드러운 바닥 빛 + 도는 룬 고리 + 빛이 도는 테두리 + 퍼지는 파동 + 가운데 표식. 궁극기는 겹 마법진 */
@@ -560,7 +669,7 @@ public final class AimPreview {
 
     /** 돌진·해일·얼음 가시: 길 양쪽 테두리 선 + 앞으로 쓸고 가는 가로줄 + 끝 표시 */
     private static void path(Skill s, float a, float radius, float time) {
-        float halfW = s.aim == Skill.Aim.WAVE ? Math.max(0.5f, radius) : Math.max(0.6f, radius * 0.7f);
+        float halfW = pathHalf(s, radius);
         double dx = lp[D], dz = lp[D + 2];
         double l = Math.sqrt(dx * dx + dz * dz);
         if (l < 1.0E-4) return;
@@ -683,9 +792,9 @@ public final class AimPreview {
 
     private static void arrows(Skill s, float a, float radius, float time) {
         switch (s.aim) {
-            case PROJECTILE, LINE -> arrow(lp[A], lp[A + 1], lp[A + 2], lp[B], lp[B + 1], lp[B + 2], Math.max(0.3f, s.hit), a, flatArrow, time);
+            case PROJECTILE, LINE -> arrow(lp[A], lp[A + 1], lp[A + 2], lp[B], lp[B + 1], lp[B + 2], beamHalf(s, radius), a, flatArrow, time);
             case DASH, WAVE -> {
-                float halfW = s.aim == Skill.Aim.WAVE ? Math.max(0.5f, radius) : Math.max(0.6f, radius * 0.7f);
+                float halfW = pathHalf(s, radius);
                 if (pathN >= 2) {
                     for (int i = 0; i < pathN - 1; i++) {
                         arrow(lpPath[i * 3], lpPath[i * 3 + 1] + 0.08, lpPath[i * 3 + 2], lpPath[i * 3 + 3], lpPath[i * 3 + 4] + 0.08, lpPath[i * 3 + 5],

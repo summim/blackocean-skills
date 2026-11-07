@@ -53,6 +53,23 @@ final class WindFx {
     private static final float BLADE_R = 1.8f;
     private static final float BLADE_ARC = (float) Math.toRadians(150);
     private static final float BLADE_THICK = 0.75f;
+    /** 칼날 준비 고리 3겹 (프레임마다 배열을 만들지 않게) */
+    private static final float[] BLADE_TILT = {0.3f, 1.1f, 1.4f}, BLADE_RIN = {0.28f, 0.48f, 0.66f}, BLADE_ROUT = {0.4f, 0.58f, 0.74f};
+
+    /** 회오리가 띄우고 0.5초마다 피해를 주는 반지름 (서버 Tornado: d &lt;= r + 0.5) */
+    static float liftR(float r) {
+        return r + 0.5f;
+    }
+
+    /** 회오리가 끌어당기고 끝에 날려 보내는 반지름 (서버 Tornado: r × 1.6, 대폭풍 r × 2.3) */
+    static float pullR(float r, boolean big) {
+        return r * (big ? 2.3f : 1.6f);
+    }
+
+    /** 폭풍 방벽 반지름 (서버 설정값; 주변 사람의 화면에서도 같은 값) */
+    private static float burstR(FxManager.ChargeFx c) {
+        return Math.max(1f, com.blackocean.skills.client.ClientSkillStats.radius(c.skill));
+    }
 
     private static final List<Fx> FX = new ArrayList<>();
     private static final List<Fx> SHOCKS = new ArrayList<>();
@@ -146,9 +163,10 @@ final class WindFx {
         if (caster == null || caster.isRemoved()) return;
         switch (c.skill) {
             case WIND_BLADE -> {
-                Vec3 hand = c.handPos(1f, 0.38);
+                // 칼날이 나갈 손(서버와 같은 자리) + 고정된 시전 방향
+                Vec3 hand = AimHand.hand(c, 1f, AimHand.SIDE);
                 FxManager.lod = FxManager.lodAt(hand);
-                Vec3 look = caster.getViewVector(1f);
+                Vec3 look = c.aimDir();
                 Vec3[] b = FxRender.basis(look);
                 for (int j = 0; j < 2; j++) {
                     if (RNG.nextFloat() > FxManager.amount() * FxManager.lod) continue;
@@ -167,21 +185,22 @@ final class WindFx {
                 }
             }
             case WIND_DASH -> {
+                // 짧은 웅크림(0.1초): 등 뒤로 바람이 모이고 발이 땅을 박참 → 돌진 방향이 먼저 읽힘
                 Vec3 feet = caster.position();
+                Vec3 fwd = c.flatDir();
                 FxManager.lod = FxManager.lodAt(feet);
                 if (c.age == 1) {
-                    FxManager.addRing(feet.add(0, 0.06, 0), UP, 0.2f, 2.4f, 6, 0, 0.9f, W);
-                    shock(feet.add(0, 0.08, 0), UP, 0.3f, 1.8f, 0.5f, 5, 0, 0.8f);
+                    FxManager.addRing(feet.add(0, 0.06, 0), UP, 0.2f, 2.0f, 5, 0, 0.8f, W);
+                    shock(feet.add(0, 0.9, 0).subtract(fwd.scale(0.5)), fwd, 0.3f, 1.4f, 0.45f, 4, 0, 0.8f);
                 }
-                for (int i = 0; i < count(5); i++) {
-                    float ang = RNG.nextFloat() * TAU;
-                    Vec3 d = new Vec3(Math.cos(ang), 0, Math.sin(ang));
-                    dust(feet.add(d.scale(0.4)).add(0, 0.15, 0), d.scale(rand(0.12f, 0.22f)).add(0, 0.02, 0), 0.5f, 1.4f, 12 + RNG.nextInt(6), 0.35f);
+                for (int i = 0; i < count(4); i++) {
+                    Vec3 d = fwd.scale(-1).add(rand(-0.5f, 0.5f), 0, rand(-0.5f, 0.5f));
+                    dust(feet.add(0, 0.15, 0), d.scale(rand(0.1f, 0.2f)).add(0, 0.02, 0), 0.5f, 1.4f, 10 + RNG.nextInt(5), 0.35f);
                 }
-                for (int i = 0; i < count(2); i++) {
-                    float ang = RNG.nextFloat() * TAU;
-                    Vec3 d = new Vec3(Math.cos(ang), 0, Math.sin(ang));
-                    wisp(feet.add(d.scale(0.5)).add(0, 0.25, 0), d.scale(0.18), 0.7f, 1.1f, 5, 0.8f);
+                // 뒤에서 몸 쪽으로 빨려 드는 바람결 (곧 앞으로 터져 나감)
+                for (int i = 0; i < count(3); i++) {
+                    Vec3 at = feet.add(0, rand(0.3f, 1.6f), 0).subtract(fwd.scale(rand(1.6f, 2.4f))).add(rand(-0.6f, 0.6f), 0, rand(-0.6f, 0.6f));
+                    streakSpark(at, fwd.scale(rand(0.35f, 0.5f)), 0.07f, 4);
                 }
             }
             case WIND_WHIRLWIND, WIND_TEMPEST -> {
@@ -190,13 +209,15 @@ final class WindFx {
                 float R = c.size;
                 FxManager.lod = FxManager.lodAt(t);
                 float sc = R / 3f;
-                // 가장자리에서 안쪽으로 빨려 드는 바람결
+                float pull = pullR(R, big);
+                // 끌어당기는 범위 가장자리에서 안쪽으로 빨려 드는 바람결 (어디까지 끌려가는지 보임)
                 for (int i = 0; i < count((big ? 6 : 3) + (int) ((big ? 8 : 4) * k)); i++) {
                     float ang = RNG.nextFloat() * TAU;
                     Vec3 radial = new Vec3(Math.cos(ang), 0, Math.sin(ang));
                     Vec3 tangent = new Vec3(-Math.sin(ang), 0, Math.cos(ang));
-                    Vec3 at = t.add(radial.scale(R * rand(0.95f, 1.15f))).add(0, rand(0.1f, 0.5f), 0);
-                    streakSpark(at, tangent.scale(0.32 * sc).add(radial.scale(-0.22 * sc)).add(0, 0.02, 0), 0.09f * (big ? 1.6f : 1f), 6 + RNG.nextInt(3));
+                    Vec3 at = t.add(radial.scale(pull * rand(0.92f, 1.0f))).add(0, rand(0.1f, 0.5f), 0);
+                    float sp = (pull - liftR(R)) / 6f + 0.1f;
+                    streakSpark(at, tangent.scale(0.3 * sc).add(radial.scale(-sp)).add(0, 0.02, 0), 0.09f * (big ? 1.6f : 1f), 6 + RNG.nextInt(3));
                 }
                 // 떠오르는 흙먼지
                 for (int i = 0; i < count((big ? 4 : 2) + (int) (3 * k)); i++) {
@@ -215,7 +236,8 @@ final class WindFx {
                 // 모을수록 땅이 들썩이고 테두리가 뜯겨 나감 (기대감)
                 if (k > 0.45f && c.age % (big ? 3 : 6) == 0) {
                     float ang = RNG.nextFloat() * TAU;
-                    DebrisFx.burst(t.add(Math.cos(ang) * R, 0, Math.sin(ang) * R), 0.8f, big ? 3 : 1, 0.35f + 0.4f * k);
+                    float er = liftR(R);
+                    DebrisFx.burst(t.add(Math.cos(ang) * er, 0, Math.sin(ang) * er), 0.8f, big ? 3 : 1, 0.35f + 0.4f * k);
                 }
                 if (big && c.age % 2 == 0) shakeAt(t, 0.15f + 0.45f * k, R * 4f);
                 if (big) {
@@ -235,11 +257,15 @@ final class WindFx {
             case WIND_BURST -> {
                 Vec3 mid = caster.position().add(0, 1.0, 0);
                 FxManager.lod = FxManager.lodAt(mid);
-                for (int i = 0; i < count(5 + (int) (3 * k)); i++) {
-                    Vec3 off = new Vec3(rand(-1f, 1f), rand(-0.4f, 0.6f), rand(-1f, 1f));
+                float R = burstR(c);
+                // 범위 가장자리에서 몸으로 빨려 드는 바람 (모이는 시간 안에 정확히 몸에 닿음)
+                int left = Math.max(2, c.duration - c.age + 1);
+                double travel = (1.0 - Math.pow(0.88, left)) / 0.12; // 속도선은 틱마다 0.88 배로 느려짐
+                for (int i = 0; i < count(5 + (int) (4 * k)); i++) {
+                    Vec3 off = new Vec3(rand(-1f, 1f), rand(-0.25f, 0.4f), rand(-1f, 1f));
                     if (off.lengthSqr() < 1.0E-3) continue;
-                    off = off.normalize().scale(rand(2.8f, 4.0f));
-                    streakSpark(mid.add(off), off.scale(-1.0 / 6.0), 0.08f, 6);
+                    off = off.normalize().scale(R * rand(0.75f, 1.0f));
+                    streakSpark(mid.add(off), off.scale(-0.9 / travel), 0.09f, left);
                 }
                 for (int i = 0; i < count(2); i++) {
                     Vec3 off = randomDir().scale(rand(2.5f, 3.5f));
@@ -263,37 +289,49 @@ final class WindFx {
                 Minecraft mc = Minecraft.getInstance();
                 boolean fp = caster == mc.player && mc.options.getCameraType().isFirstPerson();
                 float s = (fp ? 0.65f : 1f) * (0.45f + 0.55f * easeOutCubic(Math.min(1f, k * 1.4f)));
-                Vec3 hand = c.handPos(pt, 0.38);
-                Vec3 look = caster.getViewVector(pt);
+                Vec3 hand = AimHand.hand(c, pt, AimHand.SIDE);
+                Vec3 look = c.aimDir();
                 Vec3[] b = FxRender.basis(look);
                 FxRender.elemShader(W, 2.4f, 0.08f, 1.0f + 0.3f * k);
                 BufferBuilder bb = FxRender.quads();
-                float[] tilt = {0.3f, 1.1f, 1.4f};
-                float[] rIn = {0.28f, 0.48f, 0.66f};
-                float[] rOut = {0.4f, 0.58f, 0.74f};
                 for (int i = 0; i < 3; i++) {
                     double ph = time * (0.45 + 0.5 * k) * (i == 1 ? -1 : 1) + i * 2.1;
-                    Vec3 n = look.scale(Math.cos(tilt[i])).add(b[0].scale(Math.sin(tilt[i]) * Math.cos(ph))).add(b[1].scale(Math.sin(tilt[i]) * Math.sin(ph)));
-                    dashedRing(bb, hand, n.normalize(), rIn[i] * s, rOut[i] * s, 0.75f + 0.25f * k, time * (0.4f + 0.25f * i), 5 + i, 0.6f);
+                    Vec3 n = look.scale(Math.cos(BLADE_TILT[i])).add(b[0].scale(Math.sin(BLADE_TILT[i]) * Math.cos(ph))).add(b[1].scale(Math.sin(BLADE_TILT[i]) * Math.sin(ph)));
+                    dashedRing(bb, hand, n.normalize(), BLADE_RIN[i] * s, BLADE_ROUT[i] * s, 0.75f + 0.25f * k, time * (0.4f + 0.25f * i), 5 + i, 0.6f);
                 }
+                // 손끝에 맺히는 칼날의 윤곽 (나갈 칼날과 같은 방향·눕기 → 무엇이 어느 쪽으로 나갈지 미리 읽힘)
+                float kk = easeOutCubic(k);
+                crescent(bb, hand.add(look.scale(0.25)), look, sideOf(look), BLADE_R * (0.25f + 0.3f * kk) * s, BLADE_ARC * (0.6f + 0.4f * kk),
+                        BLADE_THICK * 0.5f * s, 0.35f + 0.65f * kk, time * 0.05f);
                 FxRender.draw(bb);
                 frameGlow(hand, (0.9f + 1.6f * k) * s, 0.35f + 0.4f * k);
             }
             case WIND_DASH -> {
                 Vec3 feet = caster.getPosition(pt).add(0, 0.06, 0);
+                Vec3 fwd = c.flatDir();
+                float ek = easeOutCubic(k);
                 FxRender.elemShader(W, 2.6f, 0.1f, 1.1f);
                 BufferBuilder bb = FxRender.quads();
-                float rr = 0.4f + 1.5f * easeOutCubic(k);
+                float rr = 0.4f + 1.1f * ek;
                 FxRender.ring(bb, feet, UP, rr * 0.6f, rr, 0.9f * (1f - 0.4f * k), time * 0.6f, 40);
-                dashedRing(bb, feet.add(0, 0.02, 0), UP, rr * 1.05f, rr * 1.25f, 0.7f, -time * 0.5f, 8, 0.5f);
+                // 등 뒤에서 조여드는 바람 고리 (돌진 방향을 향함)
+                Vec3 back = feet.add(0, 0.9, 0).subtract(fwd.scale(0.6 + 0.6 * (1f - ek)));
+                FxRender.ring(bb, back, fwd, 1.3f - 0.7f * ek, 1.55f - 0.7f * ek, 0.8f * (0.4f + 0.6f * k), -time * 0.8f, 32);
+                // 발밑에서 앞으로 뻗는 짧은 화살촉 (돌진 방향)
+                Vec3 side = new Vec3(-fwd.z, 0, fwd.x);
+                Vec3 tip = feet.add(fwd.scale(1.2 + 1.4 * ek));
+                ribbonSide(bb, feet.add(side.scale(0.7)), tip, side, 0.25f, 0.08f, 0.6f * k, 0.9f * k, 0f, 0.5f);
+                ribbonSide(bb, feet.subtract(side.scale(0.7)), tip, side, 0.25f, 0.08f, 0.6f * k, 0.9f * k, 0f, 0.5f);
                 FxRender.draw(bb);
                 frameGlow(feet.add(0, 0.5, 0), 2.0f, 0.3f);
             }
             case WIND_WHIRLWIND, WIND_TEMPEST -> renderGroundCharge(c, pt, k, time, c.skill == Skill.WIND_TEMPEST);
             case WIND_BURST -> {
                 Vec3 mid = caster.getPosition(pt).add(0, 1.0, 0);
+                float R = burstR(c);
                 FxRender.elemShader(W, 2.2f, 0.1f, 1.0f + 0.3f * k);
                 BufferBuilder bb = FxRender.quads();
+                // 몸으로 조여드는 바람 고리 (압축)
                 for (int i = 0; i < 3; i++) {
                     float frac = (time * 0.09f + i / 3f) % 1f;
                     float r = 3.4f * (1f - frac) + 0.35f;
@@ -301,9 +339,11 @@ final class WindFx {
                     Vec3 n = i == 1 ? new Vec3(Math.sin(time * 0.05), 1.6, Math.cos(time * 0.05)).normalize() : UP;
                     FxRender.ring(bb, mid.add(0, (i - 1) * 0.35, 0), n, r * 0.86f, r, h, time * 0.5f, 48);
                 }
+                // 실제 범위 테두리 (주변 사람이 피할 수 있게): 점선이 점점 진해짐
                 Vec3 feet = caster.getPosition(pt).add(0, 0.05, 0);
-                float fr = 2.6f - 1.6f * k;
-                dashedRing(bb, feet, UP, fr * 0.9f, fr, 0.6f + 0.3f * k, -time * 0.3f, 10, 0.55f);
+                dashedRing(bb, feet, UP, R - 0.18f, R + 0.06f, 0.35f + 0.55f * k, -time * 0.12f, 24, 0.55f);
+                float fr = 2.2f - 1.4f * k;
+                dashedRing(bb, feet.add(0, 0.01, 0), UP, fr * 0.9f, fr, 0.6f + 0.3f * k, -time * 0.3f, 10, 0.55f);
                 FxRender.draw(bb);
                 frameGlow(mid, 1.2f + 2.6f * k, 0.3f + 0.45f * k);
             }
@@ -322,16 +362,18 @@ final class WindFx {
         FxRender.spriteShader(FxRender.GLOW_WHITE);
         BufferBuilder bb = FxRender.quads();
         float g = 0.18f + 0.35f * k * k;
-        FxRender.planeQuad(bb, t.add(0, 0.01, 0), UP, R * 1.3f, 0f, TINT[0] * g, TINT[1] * g, TINT[2] * g, g);
+        FxRender.planeQuad(bb, t.add(0, 0.01, 0), UP, liftR(R) * 1.25f, 0f, TINT[0] * g, TINT[1] * g, TINT[2] * g, g);
         FxRender.draw(bb);
 
         FxRender.elemShader(W, 1.8f + k, 0.06f, 1.0f + 0.25f * k);
         bb = FxRender.quads();
         float spin = 0.06f + 0.12f * k;
-        FxRender.ring(bb, t, UP, R * 0.95f, R * 1.04f, 0.85f * a, time * 0.3f, 64);
+        // 실선 = 띄우고 피해를 주는 범위, 바깥 점선 = 끌려 들어가는 범위 (서버 판정과 같은 반지름)
+        float lr = liftR(R), pr = pullR(R, big);
+        FxRender.ring(bb, t, UP, lr - 0.22f, lr + 0.06f, 0.95f * a, time * 0.3f, 64);
+        dashedRing(bb, t.add(0, 0.015, 0), UP, pr - 0.16f, pr + 0.06f, 0.65f * a, -time * spin * 0.7f, big ? 32 : 20, 0.5f);
         dashedRing(bb, t.add(0, 0.01, 0), UP, R * 0.72f, R * 0.82f, 0.85f * a, time * spin, 12, 0.6f);
         dashedRing(bb, t.add(0, 0.02, 0), UP, R * 0.42f, R * 0.5f, 0.9f * a, -time * spin * 1.6f, 8, 0.5f);
-        if (big) dashedRing(bb, t.add(0, 0.015, 0), UP, R * 1.1f, R * 1.16f, 0.6f * a, -time * spin * 0.7f, 24, 0.45f);
         // 안쪽으로 감겨 드는 나선 4줄 (바닥에 누움)
         int arms = big ? 6 : 4;
         final int steps = 12;
@@ -403,10 +445,17 @@ final class WindFx {
         Vec3 side = sideOf(fwd);
         Vec3 back = fwd.scale(-1);
         if (p.age == 1) {
-            // 손에서 떠나는 순간의 돌풍 고리
-            FxManager.addRing(pos, fwd, 0.3f, 2.8f, 6, 0, 0.85f, W);
-            shock(pos, fwd, 0.4f, 2.2f, 0.5f, 5, 0, 0.9f);
-            spawn(new Sprite(Sprite.Kind.GLOW, pos, Vec3.ZERO, 2.4f, 3.4f, 4).color(TINT[0], TINT[1], TINT[2], 0.8f));
+            // 발사: 칼날이 만들어진 손(준비 연출이 모였던 자리)에서 비행 방향으로 터지는 돌풍 고리 + 손에서 칼날까지 이어지는 바람결
+            Vec3 o = AimHand.spawnPoint(p);
+            FxManager.addRing(o.add(fwd.scale(0.3)), fwd, 0.3f, 2.6f, 5, 0, 0.9f, W);
+            FxManager.addRing(o.add(fwd.scale(1.1)), fwd, 0.2f, 1.7f, 4, 1, 0.65f, W);
+            shock(o.add(fwd.scale(0.2)), fwd, 0.3f, 2.0f, 0.45f, 4, 0, 0.9f);
+            spawn(new Sprite(Sprite.Kind.GLOW, o, Vec3.ZERO, 1.8f, 3.0f, 3).color(0.9f, 1f, 0.96f, 0.9f));
+            double gap = o.distanceTo(pos);
+            for (int i = 0; i < count(8); i++) {
+                Vec3 at = o.add(fwd.scale(RNG.nextFloat() * gap)).add(side.scale(rand(-1.2f, 1.2f)));
+                streakSpark(at, fwd.scale(rand(0.7f, 1.1f)), 0.06f, 3 + RNG.nextInt(2));
+            }
         }
         // 칼날 양 끝 (crescent 와 같은 계산)
         Vec3 o = pos.subtract(fwd.scale(BLADE_R * 0.75));
@@ -636,6 +685,13 @@ final class WindFx {
         Vec3 lastBody;
         final float[] lineAng = new float[6];
         final float[] lineRad = new float[6];
+        /** 그리기용 점 (프레임마다 배열을 만들지 않음, hist 최대 10개) */
+        final Vec3[] pts = new Vec3[11];
+
+        /** 서버 판정 폭: 시전자 몸 상자(반폭 0.3)를 radius 만큼 키운 상자 + 상대 몸 반폭 0.3 */
+        float hitEdge() {
+            return rad + 0.6f;
+        }
 
         DashFx(@Nullable Entity caster, Vec3 start, Vec3 dir, float rad, float dist, int dur) {
             this.caster = caster;
@@ -765,20 +821,35 @@ final class WindFx {
             Vec3 cur = bodyAt(pt);
             RenderSystem.disableCull();
 
-            // 앞쪽 바람 원뿔 (2겹)
+            float edge = hitEdge();
+            // 앞쪽 바람 원뿔 (2겹, 바깥 원뿔 = 부딪히는 폭)
             if (t < dur + 4) {
                 float cf = t <= dur ? Math.min(1f, t / 1.5f) : 1f - (t - dur) / 4f;
                 FxRender.elemShader(W, 3.2f, 0.08f + 0.4f * (1f - cf), 1.2f);
                 BufferBuilder bb = FxRender.quads();
                 cone(bb, cur.subtract(dir.scale(0.3)), dir, basis, 1.15f * cf, 2.8f, 1f * cf, time);
-                cone(bb, cur.subtract(dir.scale(0.9)), dir, basis, 1.7f * cf, 3.6f, 0.45f * cf, -time * 0.8f);
+                cone(bb, cur.subtract(dir.scale(0.9)), dir, basis, edge * cf, 3.6f, 0.45f * cf, -time * 0.8f);
                 FxRender.draw(bb);
             }
 
+            // 지나온 길 바닥 양옆의 바람 선 = 서버가 부딪힘을 판정한 폭
+            if (fadeEnd > 0.02f) {
+                Vec3 sideH = new Vec3(-dir.z, 0, dir.x);
+                Vec3 g0 = start.add(0, 0.07, 0), g1 = new Vec3(cur.x, start.y + 0.07, cur.z);
+                if (g1.distanceToSqr(g0) > 0.04) {
+                    FxRender.elemShader(W, 2.4f, 0.1f + 0.5f * (1f - fadeEnd), 1.0f);
+                    BufferBuilder bb = FxRender.quads();
+                    for (int sg = -1; sg <= 1; sg += 2) {
+                        Vec3 off = sideH.scale(edge * sg);
+                        ribbonSide(bb, g0.add(off), g1.add(off), sideH, 0.3f, 0.3f, 0.25f * fadeEnd, 0.8f * fadeEnd, 0f, (float) g0.distanceTo(g1) * 0.3f);
+                    }
+                    FxRender.draw(bb);
+                }
+            }
+
             // 지나온 길의 속도선 + 넓은 바람 꼬리
-            int n = hist.size();
+            int n = Math.min(hist.size(), pts.length);
             if (n >= 2) {
-                Vec3[] pts = new Vec3[n];
                 pts[0] = cur;
                 int i = 0;
                 for (Vec3 v : hist) {
@@ -847,9 +918,10 @@ final class WindFx {
             this.seed = RNG.nextFloat() * 10f;
             FxManager.lod = FxManager.lodAt(base);
             Vec3 rc = base.add(0, 0.06, 0);
-            FxManager.addRing(rc, UP, R * 0.3f, R * (big ? 3.2f : 2.4f), big ? 14 : 10, 0, 1f, W);
-            FxManager.addRing(rc, UP, R * 0.2f, R * 1.6f, 9, 2, 0.8f, W);
-            shock(rc, UP, R * 0.3f, R * 2.2f, R * 0.4f, big ? 12 : 9, 0, 1f);
+            // 생성: 충격파가 끌어당기는 범위 끝까지 한 번 훑고(어디까지 휘말리는지), 안쪽 고리가 띄우는 범위에 멈춤
+            FxManager.addRing(rc, UP, R * 0.3f, pullR(R, big), big ? 10 : 8, 0, 1f, W);
+            FxManager.addRing(rc, UP, R * 0.2f, liftR(R), 7, 2, 0.8f, W);
+            shock(rc, UP, R * 0.3f, pullR(R, big), R * 0.4f, big ? 10 : 8, 0, 1f);
             spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, 1.0, 0), Vec3.ZERO, R * 2.5f, R * 3.5f, 7).color(0.85f, 1f, 0.95f, 0.7f));
             for (int i = 0; i < count(big ? 40 : 18); i++) {
                 float ang = RNG.nextFloat() * TAU;
@@ -864,7 +936,7 @@ final class WindFx {
                 streakSpark(base.add(0, 0.3, 0), d.scale(rand(0.6f, 1.3f) * (big ? 1.5f : 1f)), big ? 0.16f : 0.1f, 8 + RNG.nextInt(8));
             }
             shakeAt(base, big ? 3.0f : 1.2f, big ? R * 4f : R * 3f);
-            this.linger = big ? 60 : 30;
+            this.linger = big ? 40 : 20; // 끝난 뒤 내려앉는 낙엽·흙먼지 (짧게: 다음 동작이 묻히지 않게)
             // 땅이 뜯겨 나감: 사방으로 튀는 조각 + 금 간 자국(바람빛) + 처음 빨려 드는 조각들
             DebrisFx.burst(base, R * 0.9f, big ? 36 : 14, big ? 1.3f : 0.65f);
             DebrisFx.crater(base, R * (big ? 1.35f : 1.05f), dur + (big ? 160 : 80), W);
@@ -914,7 +986,8 @@ final class WindFx {
                 // 테두리의 땅이 계속 뜯겨 나감
                 if (age % (big ? 5 : 9) == 0) {
                     float ang = RNG.nextFloat() * TAU;
-                    DebrisFx.burst(base.add(Math.cos(ang) * R * 1.1, 0, Math.sin(ang) * R * 1.1), 1.2f, big ? 4 : 2, big ? 0.9f : 0.55f);
+                    float er = liftR(R);
+                    DebrisFx.burst(base.add(Math.cos(ang) * er, 0, Math.sin(ang) * er), 1.2f, big ? 4 : 2, big ? 0.9f : 0.55f);
                 }
                 // 깔때기를 따라 감아 오르는 바람결
                 for (int i = 0; i < count(big ? 8 : 4); i++) {
@@ -992,11 +1065,14 @@ final class WindFx {
         void burstOut() {
             float sz = big ? 2.2f : 1f;
             Vec3 rc = base.add(0, 0.08, 0);
-            FxManager.addRing(rc, UP, R * 0.5f, R * (big ? 4.0f : 3.0f), 12, 0, 1f, W);
-            FxManager.addRing(base.add(0, H * 0.35, 0), UP, R * 0.6f, R * (big ? 3.4f : 2.6f), 10, 1, 0.8f, W);
-            FxManager.addRing(base.add(0, H * 0.7, 0), UP, R * 0.8f, R * (big ? 3.0f : 2.2f), 10, 2, 0.6f, W);
-            shock(rc, UP, R * 0.6f, R * 3.0f, R * 0.5f, 12, 0, 1f);
-            shock(base.add(0, H * 0.4, 0), UP, R * 0.8f, R * 2.6f, R * 0.4f, 10, 1, 0.8f);
+            // 서버가 끌어당기는 범위(pullR) 안의 모두를 날려 보냄 → 바닥 충격파가 정확히 그 테두리까지
+            float pr = pullR(R, big);
+            FxManager.addRing(rc, UP, R * 0.5f, pr, 8, 0, 1f, W);
+            FxManager.addRing(rc, UP, pr * 0.9f, pr * 1.35f, 10, 3, 0.45f, W);
+            FxManager.addRing(base.add(0, H * 0.35, 0), UP, R * 0.6f, pr * 0.95f, 9, 1, 0.8f, W);
+            FxManager.addRing(base.add(0, H * 0.7, 0), UP, R * 0.8f, pr * 0.85f, 9, 2, 0.6f, W);
+            shock(rc, UP, R * 0.6f, pr, R * 0.5f, 8, 0, 1f);
+            shock(base.add(0, H * 0.4, 0), UP, R * 0.8f, pr * 0.9f, R * 0.4f, 9, 1, 0.8f);
             spawn(new Sprite(Sprite.Kind.GLOW, base.add(0, H * 0.35, 0), Vec3.ZERO, H * 0.8f + R * 2f, H * 1.1f + R * 3f, 9).color(0.85f, 1f, 0.95f, 0.6f));
             for (int i = 0; i < count(big ? 50 : 22); i++) {
                 float f = RNG.nextFloat() * 0.9f;
@@ -1025,8 +1101,8 @@ final class WindFx {
             DebrisFx.burst(base, R * 1.5f, big ? 40 : 16, big ? 1.5f : 0.9f);
             if (big) {
                 flashNear(base, 0xF0FFF8, 0.5f, 12, 64f);
-                shock(base.add(0, H * 0.6, 0), UP, R, R * 4.5f, R * 0.6f, 14, 0, 0.9f);
-                FxManager.addRing(base.add(0, 0.1, 0), UP, R, R * 6f, 18, 2, 0.8f, W);
+                shock(base.add(0, H * 0.6, 0), UP, R, pr * 1.2f, R * 0.6f, 12, 0, 0.9f);
+                FxManager.addRing(base.add(0, 0.1, 0), UP, R, pr * 1.5f, 14, 2, 0.55f, W);
             }
         }
 
@@ -1114,14 +1190,15 @@ final class WindFx {
             }
             FxRender.draw(bb);
 
-            // 바닥 소용돌이 고리
+            // 바닥 소용돌이 고리: 안쪽 소용돌이의 테두리 = 띄우는 범위, 바깥 점선 = 끌어당기는 범위 (서버 판정과 같은 반지름)
             FxRender.elemShader(W, 1.4f, erosion, 0.95f * fade);
             bb = FxRender.quads();
             Vec3 gc = base.add(0, 0.06, 0);
-            float pulse = 1f + 0.08f * (float) Math.sin(time * 0.4f);
-            FxRender.ring(bb, gc, UP, R * 0.35f * widen, R * 1.55f * pulse * widen, 0.85f * fade, time * 0.35f, 56);
-            dashedRing(bb, gc.add(0, 0.01, 0), UP, R * 1.6f * widen, R * 1.75f * widen, 0.7f * fade, time * (big ? 0.12f : 0.2f), big ? 18 : 10, 0.55f);
-            if (big) dashedRing(bb, gc.add(0, 0.02, 0), UP, R * 2.0f, R * 2.1f, 0.5f * fade, -time * 0.08f, 28, 0.4f);
+            float lr = liftR(R), pr = pullR(R, big);
+            float pulse = 1f + 0.04f * (float) Math.sin(time * 0.4f);
+            FxRender.ring(bb, gc, UP, R * 0.35f, lr * pulse, 0.85f * fade, time * 0.35f, 56);
+            FxRender.ring(bb, gc.add(0, 0.008, 0), UP, lr - 0.2f, lr + 0.05f, 0.9f * fade, -time * 0.2f, 64);
+            dashedRing(bb, gc.add(0, 0.012, 0), UP, pr - 0.18f, pr + 0.06f, 0.75f * fade, time * (big ? 0.06f : 0.1f), big ? 36 : 20, 0.5f);
             FxRender.draw(bb);
 
             // 전체를 감싸는 빛
@@ -1179,8 +1256,12 @@ final class WindFx {
     // 폭풍 방벽
     // ---------------------------------------------------------------------
 
+    /**
+     * 폭풍 방벽. 서버는 발동 틱에 반지름 R 안을 한 번에 판정 → 바람 벽이 EXPAND 틱 만에 정확히 R 까지 퍼지고 멈춤,
+     * 테두리에 잠깐 남는 점선 고리로 범위를 보여 준 뒤 빠르게 사라짐.
+     */
     static final class BurstFx extends Fx {
-        static final int LINGER = 30;
+        static final int LINGER = 14, EXPAND = 5;
         final Vec3 c;
         final float R;
         final int life;
@@ -1202,12 +1283,12 @@ final class WindFx {
             spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, 6f, 9f, 5).color(0.9f, 1f, 0.96f, 1f));
             spawn(new Sprite(Sprite.Kind.GLOW, mid, Vec3.ZERO, R * 1.8f, R * 2.6f, 11).color(TINT[0], TINT[1], TINT[2], 0.5f));
             Vec3 rc = c.add(0, 0.07, 0);
-            FxManager.addRing(rc, UP, 0.6f, R * 1.4f, 11, 0, 1f, W);
-            FxManager.addRing(rc, UP, 0.4f, R * 1.0f, 9, 2, 0.85f, W);
-            FxManager.addRing(mid, UP, 0.5f, R * 1.15f, 8, 1, 0.7f, W);
-            FxManager.addRing(mid.add(0, 0.8, 0), UP, 0.4f, R * 0.85f, 8, 3, 0.5f, W);
-            shock(rc, UP, 0.8f, R * 1.25f, 1.2f, 10, 0, 1f);
-            shock(mid, UP, 0.6f, R * 1.05f, 0.7f, 9, 2, 0.8f);
+            FxManager.addRing(rc, UP, 0.6f, R, 7, 0, 1f, W);
+            FxManager.addRing(rc, UP, 0.4f, R * 0.8f, 7, 2, 0.75f, W);
+            FxManager.addRing(mid, UP, 0.5f, R * 0.95f, 6, 1, 0.7f, W);
+            FxManager.addRing(mid.add(0, 0.8, 0), UP, 0.4f, R * 0.75f, 6, 2, 0.5f, W);
+            shock(rc, UP, 0.8f, R, 1.2f, EXPAND + 2, 0, 1f);
+            shock(mid, UP, 0.6f, R * 0.95f, 0.7f, EXPAND + 2, 1, 0.8f);
             // 방사 속도선
             for (int i = 0; i < count(44); i++) {
                 float a = RNG.nextFloat() * TAU;
@@ -1237,7 +1318,7 @@ final class WindFx {
         }
 
         float radius(float t, float delay) {
-            float f = easeOutCubic(clamp01((t - delay) / (life * 0.55f)));
+            float f = easeOutCubic(clamp01((t - delay) / EXPAND));
             return 0.8f + (R - 0.8f) * f;
         }
 
@@ -1246,13 +1327,13 @@ final class WindFx {
             age++;
             if (age > life + LINGER) return true;
             FxManager.lod = FxManager.lodAt(c);
-            if (age > life * 0.6f && age % 2 == 0 && RNG.nextFloat() < 1f - (age - life * 0.6f) / (life * 0.4f + LINGER)) {
+            if (age > EXPAND && age % 2 == 0 && RNG.nextFloat() < 1f - (age - EXPAND) / (float) (life - EXPAND + LINGER)) {
                 // 잔류: 가장자리에서 천천히 도는 흙먼지
                 float a = RNG.nextFloat() * TAU;
                 Vec3 d = new Vec3(Math.cos(a), 0, Math.sin(a));
                 dust(c.add(d.scale(R * rand(0.8f, 1.05f))).add(0, 0.2, 0), new Vec3(-d.z * 0.06, 0.01, d.x * 0.06), 0.9f, 2.6f, 24 + RNG.nextInt(10), 0.28f);
             }
-            if (age < life * 0.6f) {
+            if (age <= EXPAND + 1) {
                 float rr = radius(age, 0f);
                 for (int i = 0; i < count(8); i++) {
                     float a = RNG.nextFloat() * TAU;
@@ -1271,20 +1352,21 @@ final class WindFx {
         @Override
         void render(float pt, float time) {
             float t = age + pt;
-            // 잔류: 가장자리에 천천히 도는 옅은 바람 고리
-            float lt = t - life * 0.5f;
+            // 잔류: 범위 테두리에 잠깐 남는 점선 고리 (판정 반지름 그대로)
+            float lt = t - EXPAND;
             if (lt > 0f) {
-                float la = 1f - clamp01(lt / (life * 0.5f + LINGER));
+                float la = 1f - clamp01(lt / (life - EXPAND + LINGER));
                 if (la > 0.01f) {
                     FxRender.elemShader(W, 1.0f, 0.35f + 0.5f * (1f - la), 0.7f * la);
                     BufferBuilder lb = FxRender.quads();
-                    dashedRing(lb, c.add(0, 0.04, 0), UP, R * 0.9f, R * 1.0f, 0.75f * la, time * 0.05f, 16, 0.5f);
+                    dashedRing(lb, c.add(0, 0.04, 0), UP, R - 0.25f, R + 0.05f, 0.75f * la, time * 0.05f, 20, 0.5f);
                     FxRender.draw(lb);
                 }
             }
-            float fade = 1f - clamp01((t - life * 0.45f) / (life * 0.55f));
+            // 벽은 테두리에 닿은 뒤 짧게 흩어짐
+            float fade = 1f - clamp01((t - EXPAND) / 6f);
             if (fade <= 0f) return;
-            float erosion = Math.min(1f, 0.05f + 0.9f * clamp01((t - life * 0.3f) / life));
+            float erosion = Math.min(1f, 0.05f + 0.9f * clamp01((t - EXPAND * 0.6f) / 8f));
             float r1 = radius(t, 0f);
             float f1 = (r1 - 0.8f) / Math.max(0.1f, R - 0.8f);
             RenderSystem.disableCull();
@@ -1547,11 +1629,10 @@ final class WindFx {
         if (d < range) CameraShake.add((float) (amp * (1 - d / range)));
     }
 
+    /** 이번 프레임만 그리는 빛 (FxManager 의 풀에서 꺼내 씀 — 프레임마다 Sprite 를 만들지 않음) */
     private static void frameGlow(Vec3 at, float size, float alpha) {
         if (alpha <= 0.003f || size <= 0.01f) return;
-        Sprite g = new Sprite(Sprite.Kind.GLOW, at, Vec3.ZERO, size, 0, 1).color(TINT[0], TINT[1], TINT[2], alpha);
-        g.size1 = g.size0;
-        FxManager.addFrameGlow(g);
+        FxManager.frameGlow(at, size, TINT[0], TINT[1], TINT[2], alpha);
     }
 
     /** 바람결 (wisp 그림 불꽃) */

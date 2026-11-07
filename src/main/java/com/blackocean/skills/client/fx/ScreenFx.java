@@ -57,8 +57,20 @@ public final class ScreenFx {
 
     private ScreenFx() {}
 
-    /** 화면 번쩍. rgb = 0xRRGGBB, strength 0~1 */
+    /** 겹친 화면 덮개(색 번쩍 + 흰빛) 알파 합계 상한, 어두워짐 상한 */
+    private static final float MAX_OVERLAY = 0.62f, MAX_DARK = 0.6f;
+
+    /** 이번 틱 화면 번쩍 허용량 (FxLimits: 한 틱 합계 제한 — 여러 스킬이 한꺼번에 터져도 쌓여서 눈부시지 않게) */
+    private static float allow(float strength) {
+        Minecraft mc = Minecraft.getInstance();
+        long now = mc.level != null ? mc.level.getGameTime() : 0L;
+        return FxLimits.allowFlash(now, strength);
+    }
+
+    /** 화면 번쩍. rgb = 0xRRGGBB, strength 0~1 (FxLimits.allowFlash 를 거침) */
     public static void flash(int rgb, float strength, int ticks) {
+        strength = allow(strength);
+        if (strength <= 0.005f) return;
         if (strength >= flashStrength * Math.max(0f, 1f - (float) flashAge / Math.max(1, flashTicks))) {
             flashColor = rgb;
             flashStrength = Math.min(1f, strength);
@@ -69,6 +81,8 @@ public final class ScreenFx {
 
     /** 아주 짧은 흰빛 번쩍 (폭발 핵·거대 번개). 색 번쩍과 따로 겹쳐짐 */
     public static void whiteFlash(float strength, int ticks) {
+        strength = allow(strength);
+        if (strength <= 0.005f) return;
         float cur = whiteAge < whiteTicks ? whiteStrength * (1f - (float) whiteAge / whiteTicks) : 0f;
         if (strength >= cur) {
             whiteStrength = Math.min(1f, strength);
@@ -91,8 +105,26 @@ public final class ScreenFx {
         flash(rgb, strength * (0.35f + 0.65f * f), 8 + (int) (14 * strength));
     }
 
-    /** center 에서 radius 안쪽에 있으면 하늘·안개가 strength 만큼 어두워짐 (ticks 동안, 앞뒤로 부드럽게) */
+    /**
+     * center 에서 radius 안쪽에 있으면 하늘·안개가 strength 만큼 어두워짐 (ticks 동안, 앞뒤로 부드럽게).
+     * 겹쳐도 쌓이지 않음: 지금 내 자리에서 더 어두운 쪽 하나만 (상한 MAX_DARK).
+     */
     public static void darken(Vec3 center, float radius, float strength, int ticks) {
+        strength = Math.min(MAX_DARK, Math.max(0f, strength));
+        float cur = darkness();
+        if (cur > 0.01f) {
+            Minecraft mc = Minecraft.getInstance();
+            float mine = strength;
+            if (mc.player != null) {
+                double d = mc.player.position().distanceTo(center);
+                mine *= (float) Math.max(0.0, Math.min(1.0, (radius + 16 - d) / 16.0));
+            }
+            if (mine < cur) {
+                // 더 약한 새 어두움: 지금 것을 바꾸지 않고, 같은 자리면 끝나는 시간만 늘림
+                if (darkCenter.distanceTo(center) < 8 && darkTicks - darkAge < ticks) darkTicks = darkAge + ticks;
+                return;
+            }
+        }
         darkCenter = center;
         darkRadius = radius;
         darkStrength = strength;
@@ -161,7 +193,7 @@ public final class ScreenFx {
         float space = (float) Math.max(0.0, Math.min(1.0, (darkRadius + 16 - d) / 16.0));
         float t = (float) darkAge / darkTicks;
         float time = Math.min(1f, t / 0.15f) * Math.min(1f, (1f - t) / 0.2f);
-        return darkStrength * space * time;
+        return Math.min(MAX_DARK, darkStrength * space * time);
     }
 
     /** 하늘·안개 어둡게 */
@@ -194,18 +226,22 @@ public final class ScreenFx {
             letterbox(g, w, h, ct, cineNear);
         }
 
-        // 번쩍: 가운데는 옅게, 가장자리는 진하게
+        // 번쩍: 가운데는 옅게, 가장자리는 진하게. 색 번쩍 + 흰빛 합계가 MAX_OVERLAY 를 넘지 않게 (캐릭터·대상이 계속 보임)
+        float used = 0f;
         if (flashAge < flashTicks) {
             float t = Math.min(1f, (flashAge + pt) / flashTicks);
             float s = flashStrength * (1f - t) * (1f - t);
-            int a = (int) (s * 0.55f * 255);
+            float fa = Math.min(MAX_OVERLAY, s * 0.55f);
+            used = fa;
+            int a = (int) (fa * 255);
             if (a > 0) g.fill(0, 0, w, h, (a << 24) | (flashColor & 0xFFFFFF));
             vignette(g, w, h, flashColor, s, 0.25f);
         }
         if (whiteAge < whiteTicks) {
             float t = Math.min(1f, (whiteAge + pt) / whiteTicks);
             float s = whiteStrength * (1f - t);
-            int a = (int) (s * s * 0.85f * 255);
+            float wa = Math.min(Math.max(0f, MAX_OVERLAY - used), s * s * 0.85f);
+            int a = (int) (wa * 255);
             if (a > 0) g.fill(0, 0, w, h, (a << 24) | 0xFFFDF6);
         }
         if (full) chromatic(g, w, h, ct, cineNear);

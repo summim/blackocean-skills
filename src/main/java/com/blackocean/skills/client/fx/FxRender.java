@@ -74,6 +74,72 @@ public final class FxRender {
         return SkillsMod.id("textures/fx/" + name + ".png");
     }
 
+    // ---------- 눈부심 방지 (2.3) ----------
+    // 1) 카메라 1.5칸 안의 모든 연출은 가까울수록 옅어짐 (0.4칸 안 = 안 보임) → 얼굴 앞에서 터져도 화면이 하얗게 덮이지 않음
+    // 2) 큰 더하기 층(불덩이 구·기둥·큰 후광)이 카메라와 캐릭터 몸 사이를 지나가면 그 부분만 옅게 → 몸·대상이 계속 보임
+    private static final double NEAR_FADE = 1.5, NEAR_CUT = 0.4;
+    private static final int MAX_SHIELD = 8;
+    /** 몸 가운데 (카메라 기준), 거리, 단위 방향, 반지름 */
+    private static final float[] SH_X = new float[MAX_SHIELD], SH_Y = new float[MAX_SHIELD], SH_Z = new float[MAX_SHIELD],
+            SH_D = new float[MAX_SHIELD], SH_R = new float[MAX_SHIELD];
+    private static int shieldCount;
+    /** true 인 동안 vertex() 가 정점마다 몸 가림 검사 (큰 덩어리 도형만 켬: 구·기둥·메시) */
+    static boolean shieldLayers;
+    /** 0 = 더하기, 1 = 알파, 2 = 어둡게(곱하기) — vertex() 가 옅게 할 때 무엇을 줄일지 */
+    private static int blendMode;
+    /** billboard 가 이미 중심 기준으로 계산했을 때 정점별 검사를 건너뜀 */
+    private static boolean skipVertexFade;
+
+    /** 가까이 있을수록 0 (카메라 기준 상대 좌표의 거리 제곱) */
+    private static float nearFade(double d2) {
+        if (d2 >= NEAR_FADE * NEAR_FADE) return 1f;
+        float k = (float) ((Math.sqrt(d2) - NEAR_CUT) / (NEAR_FADE - NEAR_CUT));
+        k = k < 0f ? 0f : (k > 1f ? 1f : k);
+        return k * k * (3f - 2f * k);
+    }
+
+    /** 카메라→몸 사이에 있으면 줄어드는 배율 (0.45 ~ 1). (vx,vy,vz) = 카메라 기준 상대 좌표, extra = 도형 반지름 */
+    private static float shieldAt(double vx, double vy, double vz, float extra) {
+        float f = 1f;
+        double l2 = vx * vx + vy * vy + vz * vz;
+        for (int i = 0; i < shieldCount; i++) {
+            double t = vx * SH_X[i] + vy * SH_Y[i] + vz * SH_Z[i];
+            float rad = SH_R[i];
+            if (t < 0.3 || t > SH_D[i] - rad * 0.6) continue;
+            double perp2 = l2 - t * t;
+            double rr = rad + extra;
+            if (perp2 >= rr * rr) continue;
+            float k = 1f - (float) (Math.sqrt(Math.max(0.0, perp2)) / rr);
+            k = k * k * (3f - 2f * k);
+            f = Math.min(f, 1f - 0.55f * k);
+        }
+        return f;
+    }
+
+    private static void collectShields(Camera camera) {
+        shieldCount = 0;
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.level == null) return;
+        net.minecraft.world.entity.Entity camEnt = camera.getEntity();
+        boolean detached = camera.isDetached();
+        for (net.minecraft.world.entity.LivingEntity e : mc.level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class,
+                new net.minecraft.world.phys.AABB(cam, cam).inflate(24.0), x -> x.isAlive() && !x.isInvisible())) {
+            if (shieldCount >= MAX_SHIELD) break;
+            if (e == camEnt && !detached) continue; // 1인칭: 내 몸은 화면에 없음
+            Vec3 c = e.getBoundingBox().getCenter();
+            double dx = c.x - cam.x, dy = c.y - cam.y, dz = c.z - cam.z;
+            double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (d < 1.2 || d > 24.0) continue;
+            if (dx * FWD.x + dy * FWD.y + dz * FWD.z < 0) continue; // 화면 뒤
+            SH_X[shieldCount] = (float) (dx / d);
+            SH_Y[shieldCount] = (float) (dy / d);
+            SH_Z[shieldCount] = (float) (dz / d);
+            SH_D[shieldCount] = (float) d;
+            SH_R[shieldCount] = Math.max(0.45f, Math.max(e.getBbWidth(), e.getBbHeight()) * 0.5f);
+            shieldCount++;
+        }
+    }
+
     static void begin(RenderLevelStageEvent event) {
         Camera camera = event.getCamera();
         cam = camera.getPosition();
@@ -81,6 +147,13 @@ public final class FxRender {
         LEFT.set(camera.getLeftVector());
         UP.set(camera.getUpVector());
         FWD.set(camera.getLookVector());
+        shieldLayers = false;
+        skipVertexFade = false;
+        try {
+            collectShields(camera);
+        } catch (RuntimeException ex) {
+            shieldCount = 0;
+        }
 
         // 카메라 회전을 정확히 한 번만 적용하도록 모델뷰 행렬을 직접 지정
         Matrix4fStack mv = RenderSystem.getModelViewStack();
@@ -109,11 +182,23 @@ public final class FxRender {
     static void additive() {
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ONE);
+        blendMode = 0;
     }
 
     static void alphaBlend() {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
+        blendMode = 1;
+    }
+
+    /**
+     * 곱하기 어둡게: 바탕 × (1 - 그림색). 밝은 바닥(눈·모래) 위에서도 선이 읽히게 경고 선 밑에 어두운 테두리를 깔 때 씀.
+     * 정점 색이 클수록 더 어두워짐 (0 = 그대로). 끝나면 additive() 로 돌릴 것.
+     */
+    static void darken() {
+        RenderSystem.enableBlend();
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.ZERO, GlStateManager.DestFactor.ONE_MINUS_SRC_COLOR);
+        blendMode = 2;
     }
 
     // ---------- 셰이더 ----------
@@ -250,7 +335,39 @@ public final class FxRender {
     // ---------- 도형 ----------
 
     static void vertex(BufferBuilder bb, double wx, double wy, double wz, float u, float v, float r, float g, float b, float a) {
-        bb.addVertex((float) (wx - cam.x), (float) (wy - cam.y), (float) (wz - cam.z)).setUv(u, v).setColor(r, g, b, a);
+        vertexRel(bb, wx - cam.x, wy - cam.y, wz - cam.z, u, v, r, g, b, a);
+    }
+
+    /**
+     * 카메라 기준 상대 좌표로 정점 하나 (메시처럼 직접 계산하는 곳용). 가까운 곳 옅게·몸 가림 옅게를 여기서 한 번에.
+     * 더하기·어둡게 섞기에서는 색을, 알파 섞기에서는 알파를 줄인다 (화염 셰이더는 알파 = 열기라서 건드리면 안 됨).
+     */
+    static void vertexRel(BufferBuilder bb, double x, double y, double z, float u, float v, float r, float g, float b, float a) {
+        if (!skipVertexFade) {
+            double d2 = x * x + y * y + z * z;
+            float f = nearFade(d2);
+            if (shieldLayers && blendMode == 0 && shieldCount > 0) f *= shieldAt(x, y, z, 0f);
+            if (f < 0.999f) {
+                if (blendMode == 1) a *= f;
+                else {
+                    r *= f;
+                    g *= f;
+                    b *= f;
+                }
+            }
+        }
+        bb.addVertex((float) x, (float) y, (float) z).setUv(u, v).setColor(r, g, b, a);
+    }
+
+    /** 사각형 하나(중심 p, 크기 size)를 통째로 옅게 할 배율 (가까움 + 큰 것은 몸 가림) */
+    private static float quadFade(double px, double py, double pz, float size) {
+        double x = px - cam.x, y = py - cam.y, z = pz - cam.z;
+        // 큰 사각형은 가장 가까운 부분 기준으로 (반지름만큼 당겨서)
+        double d = Math.sqrt(x * x + y * y + z * z);
+        double dn = Math.max(0.0, d - size * 0.35);
+        float f = nearFade(dn * dn);
+        if (size >= 1.5f && blendMode == 0 && shieldCount > 0) f *= shieldAt(x, y, z, size * 0.25f);
+        return f;
     }
 
     /** 카메라를 항상 바라보는 사각형. */
@@ -258,6 +375,17 @@ public final class FxRender {
                           float u0, float v0, float u1, float v1,
                           float r, float g, float b, float a) {
         float h = size * 0.5f;
+        float qf = quadFade(p.x, p.y, p.z, size);
+        if (qf <= 0.002f) return;
+        if (qf < 0.999f) {
+            if (blendMode == 1) a *= qf;
+            else {
+                r *= qf;
+                g *= qf;
+                b *= qf;
+            }
+        }
+        skipVertexFade = true;
         float c = (float) Math.cos(rot) * h, s = (float) Math.sin(rot) * h;
         float ax = LEFT.x * c + UP.x * s, ay = LEFT.y * c + UP.y * s, az = LEFT.z * c + UP.z * s;
         float bx = UP.x * c - LEFT.x * s, by = UP.y * c - LEFT.y * s, bz = UP.z * c - LEFT.z * s;
@@ -265,6 +393,7 @@ public final class FxRender {
         vertex(bb, p.x - ax + bx, p.y - ay + by, p.z - az + bz, u1, v0, r, g, b, a);
         vertex(bb, p.x + ax + bx, p.y + ay + by, p.z + az + bz, u0, v0, r, g, b, a);
         vertex(bb, p.x + ax - bx, p.y + ay - by, p.z + az - bz, u0, v1, r, g, b, a);
+        skipVertexFade = false;
     }
 
     /** billboard 의 좌표 버전 (Vec3 를 만들지 않음) */
@@ -272,6 +401,17 @@ public final class FxRender {
                           float u0, float v0, float u1, float v1,
                           float r, float g, float b, float a) {
         float h = size * 0.5f;
+        float qf = quadFade(px, py, pz, size);
+        if (qf <= 0.002f) return;
+        if (qf < 0.999f) {
+            if (blendMode == 1) a *= qf;
+            else {
+                r *= qf;
+                g *= qf;
+                b *= qf;
+            }
+        }
+        skipVertexFade = true;
         float c = (float) Math.cos(rot) * h, s = (float) Math.sin(rot) * h;
         float ax = LEFT.x * c + UP.x * s, ay = LEFT.y * c + UP.y * s, az = LEFT.z * c + UP.z * s;
         float bx = UP.x * c - LEFT.x * s, by = UP.y * c - LEFT.y * s, bz = UP.z * c - LEFT.z * s;
@@ -279,6 +419,7 @@ public final class FxRender {
         vertex(bb, px - ax + bx, py - ay + by, pz - az + bz, u1, v0, r, g, b, a);
         vertex(bb, px + ax + bx, py + ay + by, pz + az + bz, u0, v0, r, g, b, a);
         vertex(bb, px + ax - bx, py + ay - by, pz + az - bz, u0, v1, r, g, b, a);
+        skipVertexFade = false;
     }
 
     /** streak 의 좌표 버전 (Vec3 를 만들지 않음) */

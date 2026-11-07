@@ -16,8 +16,20 @@ import net.neoforged.neoforge.client.event.ViewportEvent;
  */
 public final class CameraShake {
     /** 흔들림 최대 각도 (도) — 아무리 겹쳐도 이 이상은 안 흔들림 */
-    private static final float MAX_AMP = 7f;
-    private static final float MAX_KICK = 6f;
+    private static final float MAX_AMP = 6f;
+    private static final float MAX_KICK = 5f;
+    /** 한 틱에 더해질 수 있는 흔들림·밀림 합계 (여러 폭발이 같은 틱에 겹쳐도 한 번의 큰 폭발 정도까지만) */
+    private static final float MAX_ADD_PER_TICK = 3.5f, MAX_KICK_PER_TICK = 3f;
+    private static int budgetTick = -1;
+    private static float addedThisTick, kickedThisTick;
+
+    private static void rollBudget() {
+        if (budgetTick != ticks) {
+            budgetTick = ticks;
+            addedThisTick = 0f;
+            kickedThisTick = 0f;
+        }
+    }
 
     private static float amp, prevAmp;
     private static int ticks;
@@ -29,6 +41,10 @@ public final class CameraShake {
     /** 흔들기 (도). 이미 흔들리는 중이면 센 쪽 + 약한 쪽의 일부 */
     static void add(float degrees) {
         if (!(degrees > 0f)) return;
+        rollBudget();
+        degrees = Math.min(degrees, MAX_ADD_PER_TICK - addedThisTick);
+        if (degrees <= 0.01f) return;
+        addedThisTick += degrees;
         float hi = Math.max(amp, degrees), lo = Math.min(amp, degrees);
         amp = Math.min(MAX_AMP, hi + lo * 0.25f);
     }
@@ -48,6 +64,16 @@ public final class CameraShake {
 
     /** 시점을 한 번 밀어 냄 (도). 양수 pitch = 아래로, 양수 yaw = 오른쪽으로 */
     public static void kick(float pitchDeg, float yawDeg) {
+        rollBudget();
+        float mag = Math.abs(pitchDeg) + Math.abs(yawDeg);
+        float room = MAX_KICK_PER_TICK - kickedThisTick;
+        if (room <= 0.01f || mag <= 0f) return;
+        if (mag > room) {
+            pitchDeg *= room / mag;
+            yawDeg *= room / mag;
+            mag = room;
+        }
+        kickedThisTick += mag;
         velP = clamp(velP + pitchDeg * 0.9f, -MAX_KICK, MAX_KICK);
         velY = clamp(velY + yawDeg * 0.9f, -MAX_KICK, MAX_KICK);
     }

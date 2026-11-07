@@ -155,9 +155,13 @@ final class ServerEffects {
         Set<LivingEntity> hit = new HashSet<>();
         for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, new AABB(a, b).inflate(r + 1), x -> SkillTargets.canHit(p, x))) {
             AABB box = e.getBoundingBox();
-            boolean near = box.getCenter().distanceTo(a) <= r + 0.5 || box.getCenter().distanceTo(b) <= r + 0.5
-                    || box.inflate(1.2).clip(a, b).isPresent();
-            if (near && hit.add(e)) {
+            // 화면의 출발·도착 원(반지름 r)에 몸이 닿으면 (다른 바닥 범위와 같은 규칙: r + 몸 반폭)
+            double reach = r + e.getBbWidth() * 0.5;
+            boolean nearA = box.getCenter().distanceTo(a) <= reach, nearB = box.getCenter().distanceTo(b) <= reach;
+            boolean path = box.inflate(1.2).clip(a, b).isPresent();
+            // 벽 너머는 맞지 않음: 지나간 길(막힘 없음) 위거나, 출발·도착 지점에서 보이는 대상만
+            boolean seen = path || (nearA && SkillTargets.canSee(level, p, a, e)) || (nearB && SkillTargets.canSee(level, p, b, e));
+            if ((nearA || nearB || path) && seen && hit.add(e)) {
                 SkillTargets.hurt(level, e, p, Element.LIGHTNING, s.damage());
                 SkillTargets.stun(e, 15);
                 SkillSounds.playLimited(level, box.getCenter(), "lightning.zap", SkillSounds.R_HIT, 1.05f + level.random.nextFloat() * 0.1f, 2, 2.5);
@@ -377,6 +381,9 @@ final class ServerEffects {
                 }
                 at = SkillAim.groundBelow(level, o, at.add(0, 0.5, 0));
                 for (LivingEntity e : SkillTargets.inCylinder(level, o, at, 2.2, 1.0, 5.0, at.add(0, 1, 0))) {
+                    // 화면의 폭풍 원(R) 밖은 맞지 않음 (가장자리 낙뢰의 2.2칸이 원 밖으로 삐져나가지 않게)
+                    double ox = e.getX() - center.x, oz = e.getZ() - center.z, reach = r + e.getBbWidth() * 0.5;
+                    if (ox * ox + oz * oz > reach * reach) continue;
                     SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage2(), true);
                     SkillTargets.stun(e, 10);
                 }
@@ -390,7 +397,7 @@ final class ServerEffects {
             if (age == Math.max(1, duration - SkillSounds.SWELL_TICKS)) sound(center, "common.ult_swell", SkillSounds.R_ULT_CHARGE, 1.0f);
             if (age == duration) {
                 double big = Math.max(3.0, r * 0.45);
-                for (LivingEntity e : SkillTargets.inCylinder(level, o, center, big, 2.0, 12.0, null)) {
+                for (LivingEntity e : SkillTargets.inCylinder(level, o, center, big, 2.0, 12.0, center.add(0, 1, 0))) {
                     SkillTargets.hurt(level, e, o, Element.LIGHTNING, skill.damage(), true);
                     SkillTargets.stun(e, 30);
                     SkillTargets.knock(e, Vec3.ZERO, 0, 0.9);
@@ -437,8 +444,10 @@ final class ServerEffects {
             o.fallDistance = 0;
             if (age < ticks) {
                 push(o);
+                Vec3 body = o.getBoundingBox().getCenter();
                 for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, o.getBoundingBox().inflate(skill.radius()), x -> SkillTargets.canHit(o, x))) {
-                    if (!hit.add(e.getId())) continue;
+                    if (hit.contains(e.getId()) || !SkillTargets.canSee(level, o, body, e)) continue; // 얇은 벽 너머는 맞지 않음
+                    hit.add(e.getId());
                     SkillTargets.hurt(level, e, o, Element.WIND, skill.damage(), true);
                     SkillTargets.knock(e, dir, 0.5, 0.8);
                     SkillSounds.playLimited(level, e.getBoundingBox().getCenter(), "wind.blade_hit", SkillSounds.R_HIT, 0.85f + level.random.nextFloat() * 0.1f, 2, 2.5);
@@ -623,7 +632,7 @@ final class ServerEffects {
         @Override
         boolean step(ServerPlayer o) {
             if (age > ticks) return true;
-            double d = age * speed;
+            double d = Math.min(range, age * speed); // 화면의 길(벽에서 잘린 길이)을 넘지 않음
             Vec3 front = start.add(dir.scale(d));
             AABB box = new AABB(front, front).inflate(width + 2, 0, width + 2).expandTowards(0, 4.5, 0).expandTowards(0, -1.5, 0);
             for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, box, x -> SkillTargets.canHit(o, x))) {

@@ -227,6 +227,14 @@ public final class FxManager {
         return false;
     }
 
+    /** 이 플레이어가 지금 이 스킬을 모으는 중인지 (준비 연출이 이미 위험 범위를 그리는 중) */
+    static boolean isCharging(Entity e, Skill skill) {
+        for (ChargeFx c : CHARGES) {
+            if (c.caster == e && c.skill == skill && !c.done) return true;
+        }
+        return false;
+    }
+
     /** 서버가 거절함(쿨타임·비활성·조준 실패) → 미리 시작한 내 준비 연출을 바로 지움. */
     public static void cancelPredictedCharge() {
         Entity self = Minecraft.getInstance().player;
@@ -629,7 +637,7 @@ public final class FxManager {
 
     /**
      * 화면에서만 트는 소리. 여러 스킬이 겹칠 때 소리가 뭉개지지 않게 제한:
-     * 같은 소리는 가까운 곳(4칸)에서 3틱 안에 한 번, 전체는 한 틱에 6개까지.
+     * 같은 소리는 가까운 곳(3칸)에서 2틱 안에 한 번 (서버와 같음), 전체는 한 틱에 6개까지.
      */
     static void playAt(Vec3 p, net.minecraft.sounds.SoundEvent sound, float volume, float pitch) {
         ClientLevel level = Minecraft.getInstance().level;
@@ -790,7 +798,8 @@ public final class FxManager {
             // 서버가 거절하면(쿨타임 등) 미리 시작한 연출을 지운다
             if (predicted && !confirmed && age > duration + 6) return true;
             float k = progress(0f);
-            if (skill.aim == Skill.Aim.PROJECTILE || skill.aim == Skill.Aim.LINE) updateWall();
+            // 손에서 나가는 스킬(투사체·줄기·얼음 파편 부채꼴): 벽 앞 손 위치를 틱마다 한 번만 잼 (그리기는 이 값만 씀)
+            if (skill.aim == Skill.Aim.PROJECTILE || skill.aim == Skill.Aim.LINE || (skill.aim == Skill.Aim.CONE && skill.shape != Skill.Shape.NONE)) updateWall();
 
             if (skill.element != Element.FIRE || skill == Skill.FIRE_SUN) {
                 // 번개·바람·물·작열의 태양: 능력별 연출 모듈

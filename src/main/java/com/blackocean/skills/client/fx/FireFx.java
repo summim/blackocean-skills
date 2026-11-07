@@ -817,7 +817,10 @@ final class FireFx {
             FxRender.draw(bb);
 
             // 불바다 = 계속 피해를 주는 범위: 서버 판정 반지름 그대로 위험 범위 (가득 참). 끝 무렵 함께 사라짐
-            SkillFx.dangerZone(pos, radius, 1f, Element.FIRE, caster, f, time);
+            // 서버 Field: 1, 11, 21, … 틱에 태움 → 첫 틱부터 또렷하게, 마지막으로 태우는 틱 뒤 2틱에 꺼짐 (불길 장식의 페이드와 따로)
+            float lastBurn = 1 + ((duration - 2) / 10) * 10;
+            float za = 1f - clamp01((t - lastBurn) / 2f);
+            if (za > 0.01f) SkillFx.dangerZone(pos, radius, 1f, Element.FIRE, caster, za, time);
 
             // 바닥 붉은 번짐
             FxRender.spriteShader(FxRender.GLOW_WHITE);

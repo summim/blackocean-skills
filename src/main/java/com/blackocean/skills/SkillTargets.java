@@ -89,6 +89,22 @@ public final class SkillTargets {
         return out;
     }
 
+    /**
+     * 투사체 폭발 범위: 화면의 바닥 원(반지름 r)과 같은 세로 원통. 가로 거리 r(+몸 반폭) 안, 폭발 높이 위아래 max(1.5, r/2) 안.
+     * 공 모양이면 바닥 원 가장자리에 선 상대가 원 안인데도 빠지거나, 원이 없는 머리 위 대상이 맞았음.
+     */
+    public static List<LivingEntity> inSplash(ServerLevel level, @Nullable Entity owner, Vec3 c, double r) {
+        double h = Math.max(1.5, r * 0.5);
+        return inCylinder(level, owner, c, r, h, h, c);
+    }
+
+    /** 가로 거리 비율 (0 = 중심, 1 = 가장자리) — inSplash·inCylinder 용 */
+    public static double flatEdgeFraction(LivingEntity e, Vec3 c, double r) {
+        double dx = e.getX() - c.x, dz = e.getZ() - c.z;
+        double d = Math.max(0.0, Math.sqrt(dx * dx + dz * dz) - e.getBbWidth() * 0.5);
+        return r <= 0 ? 0 : Math.min(1.0, d / r);
+    }
+
     public static double edgeFraction(LivingEntity e, Vec3 c, double r) {
         double d = Math.max(0.0, e.getBoundingBox().getCenter().distanceTo(c) - e.getBbWidth() * 0.5);
         return r <= 0 ? 0 : Math.min(1.0, d / r);

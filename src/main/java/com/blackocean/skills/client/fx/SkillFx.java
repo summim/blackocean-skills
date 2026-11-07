@@ -778,8 +778,10 @@ final class SkillFx {
                 // 솟는 순간(피해) 판정 끝(r)이 짧게 번쩍 (충격 ≤ 4틱)
                 edgeFlash(base.add(0, 0.07, 0), UP, r, t, 5f, rt[0], rt[1], rt[2]);
                 // 남아서 태우는 동안: 계속 태우는 범위(0.85r)를 위험 범위로 (채움 = 가득, 0.5초마다 피해)
-                if (active && t > 3f && t < duration) {
-                    float la = 0.85f * clamp01((t - 3f) / 3f) * (1f - clamp01((t - duration + 3f) / 3f));
+                // 서버 Pillar: 10틱마다 (10, 20, …) 유지 시간 전까지 → 마지막으로 태우는 틱 뒤 2틱에 꺼짐 (그 뒤 남은 불은 장식)
+                int lastBurn = ((duration - 1) / 10) * 10;
+                if (active && lastBurn >= 10 && t > 3f && t < lastBurn + 2f) {
+                    float la = 0.85f * clamp01((t - 3f) / 3f) * (1f - clamp01((t - lastBurn) / 2f));
                     dangerZone(base, r * 0.85f, 1f, Element.FIRE, caster, la, time);
                 }
             }

@@ -285,7 +285,10 @@ final class LightningFx {
                     FxManager.addRing(h.add(up.scale(0.4)), up, 0.1f, 1.1f, 4, 0, 0.8f, EL);
                     // 낙뢰가 다 떨어질 때까지 예고 원을 남김 (2·3번째 낙뢰)
                     if (WARNS.size() >= 16) WARNS.remove(0);
-                    WARNS.add(new Warn(c.target, c.size, ticks, Math.max(6, com.blackocean.skills.client.ClientSkillStats.durationTicks(Skill.LIGHTNING_STRIKE)) + 6, ce));
+                    // 서버 Strikes 와 같은 간격: 마지막 낙뢰(발동 + (수-1)×간격) 다음 틱까지 그대로, 그 뒤 4틱에 사라짐
+                    int n = Math.max(1, Math.round(com.blackocean.skills.client.ClientSkillStats.speed(Skill.LIGHTNING_STRIKE)));
+                    int gap = Math.max(2, Math.max(n, com.blackocean.skills.client.ClientSkillStats.durationTicks(Skill.LIGHTNING_STRIKE)) / n);
+                    WARNS.add(new Warn(c.target, c.size, ticks, 2 + (n - 1) * gap + 4, ce));
                 }
             }
             case LIGHTNING_DISCHARGE -> {
@@ -348,7 +351,8 @@ final class LightningFx {
                 frameGlow(body, 1.6f + 3.2f * k, 0.5f, 0.75f, 1f, 0.45f + 0.5f * k);
             }
             case LIGHTNING_STRIKE -> {
-                renderWarn(c.target, c.size, k, time, ce);
+                // 놓는 틱(duration - 1)부터는 남는 예고 원(WARNS)이 같은 범위를 그림 → 발동 신호가 늦게 와도 두 번 그리지 않음
+                if (c.age < Math.max(1, c.duration - 1)) renderWarn(c.target, c.size, k, time, ce);
                 frameGlow(c.origin(pt, 0.3, 0), 0.7f + 0.9f * k, 0.5f, 0.75f, 1f, 0.5f + 0.3f * k);
             }
             case LIGHTNING_DISCHARGE -> {

@@ -116,14 +116,31 @@ public final class FxRender {
         return f;
     }
 
+    /** 주변 생물 목록은 틱마다 한 번만 찾음 (매 프레임 엔티티 검색·목록 생성을 하지 않게). 방향 계산은 프레임마다 */
+    private static final java.util.ArrayList<net.minecraft.world.entity.LivingEntity> SHIELD_NEAR = new java.util.ArrayList<>();
+    private static long shieldTick = Long.MIN_VALUE;
+    private static Object shieldLevel;
+
     private static void collectShields(Camera camera) {
         shieldCount = 0;
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-        if (mc.level == null) return;
+        if (mc.level == null) {
+            SHIELD_NEAR.clear();
+            shieldLevel = null;
+            return;
+        }
         net.minecraft.world.entity.Entity camEnt = camera.getEntity();
         boolean detached = camera.isDetached();
-        for (net.minecraft.world.entity.LivingEntity e : mc.level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class,
-                new net.minecraft.world.phys.AABB(cam, cam).inflate(24.0), x -> x.isAlive() && !x.isInvisible())) {
+        long now = mc.level.getGameTime();
+        if (now != shieldTick || shieldLevel != mc.level) {
+            shieldTick = now;
+            shieldLevel = mc.level;
+            SHIELD_NEAR.clear();
+            SHIELD_NEAR.addAll(mc.level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class,
+                    new net.minecraft.world.phys.AABB(cam, cam).inflate(25.0), x -> x.isAlive() && !x.isInvisible()));
+        }
+        for (net.minecraft.world.entity.LivingEntity e : SHIELD_NEAR) {
+            if (e.isRemoved()) continue;
             if (shieldCount >= MAX_SHIELD) break;
             if (e == camEnt && !detached) continue; // 1인칭: 내 몸은 화면에 없음
             Vec3 c = e.getBoundingBox().getCenter();

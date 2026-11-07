@@ -17,8 +17,16 @@ final class AimHand {
 
     private AimHand() {}
 
-    /** 고정된 조준 방향 기준의 손 위치 (벽 앞이면 서버처럼 벽 앞으로 당김) */
+    /**
+     * 고정된 조준 방향 기준의 손 위치 (벽 앞이면 서버처럼 벽 앞으로 당김).
+     * 프레임마다 불리므로 광선 검사를 하지 않음: 벽까지 거리는 ChargeFx 가 틱마다 한 번 재 둔 값(origin)을 씀.
+     */
     static Vec3 hand(FxManager.ChargeFx c, float pt, double side) {
+        return c.origin(pt, side, 0);
+    }
+
+    /** 서버와 똑같은 손 위치 (광선 검사 1번 — 발사 순간 등 한 번만 쓸 것) */
+    static Vec3 handExact(FxManager.ChargeFx c, float pt, double side) {
         Entity e = c.caster;
         Vec3 eye = e.getEyePosition(pt);
         Vec3 look = c.aimDir();

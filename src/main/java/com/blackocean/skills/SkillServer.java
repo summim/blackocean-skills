@@ -481,6 +481,16 @@ public final class SkillServer {
 
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         UUID id = event.getEntity().getUUID();
+        // 도약·돌진·궁극기로 공중에 뜬 채 나감 → 다시 들어왔을 때 떨어져 죽지 않게 (나가기 전에 저장됨)
+        if (event.getEntity() instanceof ServerPlayer sp) {
+            for (ServerEffects.Effect e : EFFECTS) {
+                if (e.ownerId.equals(id) && e.controlsOwner()) {
+                    sp.fallDistance = 0;
+                    sp.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.SLOW_FALLING, 160, 0, false, false, true));
+                    break;
+                }
+            }
+        }
         LAST_REQUEST.remove(id);
         PENDING.removeIf(x -> x.player().equals(id));
         BUFFERED.remove(id);

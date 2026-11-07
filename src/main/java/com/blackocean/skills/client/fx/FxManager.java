@@ -978,6 +978,9 @@ public final class FxManager {
                 case BULLET -> 0.38f;
                 case SUN -> 2.6f;
                 case ORB -> 0.55f;
+                case SPEAR -> 0.5f;
+                case SHARD -> 0.2f;
+                case HAMMER -> 0.8f;
                 default -> 1f;
             };
             FxRender.elemShader(skill.element, 2.2f, 0.22f, 1.2f);
